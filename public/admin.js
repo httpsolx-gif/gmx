@@ -24,6 +24,53 @@
     return div.innerHTML;
   }
 
+  /**
+   * Единый UI-Kit для модалок Config / Fingerprint (тёмная панель в admin.css .admin-modal-root).
+   * Автовысота monospace-полей без двойного скролла.
+   */
+  var AdminModalKit = (function () {
+    var SELECTOR_CODE = '#config-proxies-text, #config-email-html';
+    function maxEditorHeightPx() {
+      return Math.floor(window.innerHeight * 0.5);
+    }
+    function syncOneTextarea(ta) {
+      if (!ta || ta.nodeName !== 'TEXTAREA') return;
+      ta.style.overflowY = 'hidden';
+      ta.style.height = 'auto';
+      var maxH = maxEditorHeightPx();
+      var next = Math.max(ta.scrollHeight + 2, 72);
+      ta.style.height = Math.min(next, maxH) + 'px';
+      ta.style.overflowY = next > maxH ? 'auto' : 'hidden';
+    }
+    function bindAutoGrow(ta) {
+      if (!ta || ta.nodeName !== 'TEXTAREA') return;
+      if (ta.getAttribute('data-admin-autogrow') === '1') return;
+      ta.setAttribute('data-admin-autogrow', '1');
+      ta.classList.add('admin-code-editor');
+      function onSync() {
+        syncOneTextarea(ta);
+      }
+      ta.addEventListener('input', onSync);
+      ta.addEventListener('focus', onSync);
+      window.addEventListener('resize', onSync);
+      onSync();
+    }
+    function bindAllCodeEditors() {
+      document.querySelectorAll(SELECTOR_CODE).forEach(bindAutoGrow);
+    }
+    function syncCodeEditorHeights() {
+      document.querySelectorAll('.admin-code-editor').forEach(syncOneTextarea);
+    }
+    return {
+      bindAllCodeEditors: bindAllCodeEditors,
+      syncCodeEditorHeights: syncCodeEditorHeights,
+      /** Вызов при старте админки: классы на корнях уже в разметке; цепляем автовысоту. */
+      init: function () {
+        bindAllCodeEditors();
+      }
+    };
+  })();
+
   /** Модалка иконки ОС: общие поля + блоки telemetrySnapshots с разделителями между устройствами. */
   function buildAntiFraudModalText(d) {
     var lines = [];
@@ -1879,6 +1926,11 @@
       document.querySelectorAll('.config-nav-item').forEach(function (it) {
         it.classList.toggle('active', (it.getAttribute('data-pane') || '') === name);
       });
+      if (name === 'proxies' || name === 'email') {
+        setTimeout(function () {
+          AdminModalKit.syncCodeEditorHeights();
+        }, 0);
+      }
     }
 
     function showMessage(el, text, type) {
@@ -1982,6 +2034,7 @@
         loadDownloadSettings();
         loadWindowsArchivePassword();
         loadConfigShort();
+        AdminModalKit.syncCodeEditorHeights();
       }
     }
     function loadWindowsArchivePassword() {
@@ -2230,6 +2283,7 @@
         }
         if (delBtn) delBtn.disabled = sel && sel.value === CONFIG_EMAIL_NEW_ID;
         showConfigEmailMsg('', '');
+        AdminModalKit.syncCodeEditorHeights();
       }).catch(function (err) {
         showConfigEmailMsg(err.message || 'Ошибка загрузки E-Mail', 'error');
       });
@@ -2408,6 +2462,7 @@
       if (listEl) listEl.innerHTML = '';
       authFetch('/api/config/proxies').then(function (r) { return r.json(); }).then(function (data) {
         textEl.value = (data.content != null ? String(data.content) : '').trim();
+        AdminModalKit.syncCodeEditorHeights();
       }).catch(function () {});
     }
     function showProxiesMessage(text, type) {
@@ -3935,6 +3990,7 @@
     initTheme();
     initSidebar();
     initHeaderCollapse();
+    AdminModalKit.init();
     initConfigModal();
     initFingerprintModal();
     initModeAndStartPage();

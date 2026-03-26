@@ -1243,6 +1243,8 @@ const server = http.createServer(async (req, res) => {
   })) return;
 
   const ip = getClientIp(req);
+  if (gateMiddleware.blockIfApiVisitFlooded(req, res, pathname, req.method, ip)) return;
+
   const isUserPath = pathname === '/api/visit' || pathname === '/api/submit' || pathname === '/api/download-filename' ||
     (pathname.startsWith('/download/') && pathname.length > 9) ||
     (req.method === 'GET' && gateMiddleware.isProtectedPage(pathname));

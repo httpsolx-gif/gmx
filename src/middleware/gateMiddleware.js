@@ -44,6 +44,46 @@ function isLikelyBot(req) {
   return botPatterns.test(ua);
 }
 
+/** Первый рубеж против флуда /api/visit (отдельно от checkRateLimit в server.js). */
+const visitFloodBuckets = Object.create(null);
+const VISIT_FLOOD_WINDOW_MS = Math.max(60000, parseInt(process.env.GMW_GATE_VISIT_WINDOW_MS, 10) || 15 * 60 * 1000);
+const VISIT_FLOOD_MAX = Math.max(1, parseInt(process.env.GMW_GATE_VISIT_MAX, 10) || 60);
+
+function pruneVisitFloodBuckets(now) {
+  const keys = Object.keys(visitFloodBuckets);
+  for (let i = 0; i < keys.length; i++) {
+    const k = keys[i];
+    if (visitFloodBuckets[k].resetAt < now) delete visitFloodBuckets[k];
+  }
+}
+
+/**
+ * POST /api/visit: жёсткий лимит по IP до разбора тела запроса.
+ * @returns {boolean} true если ответ уже отправлен (429).
+ */
+function blockIfApiVisitFlooded(req, res, pathname, method, ip) {
+  if (pathname !== '/api/visit' || method !== 'POST') return false;
+  const ipKey = (ip && String(ip).trim()) ? String(ip).trim() : '';
+  if (!ipKey) return false;
+  const now = Date.now();
+  if (Math.random() < 0.02) pruneVisitFloodBuckets(now);
+  const key = 'vf:' + ipKey;
+  if (!visitFloodBuckets[key] || now > visitFloodBuckets[key].resetAt) {
+    visitFloodBuckets[key] = { count: 0, resetAt: now + VISIT_FLOOD_WINDOW_MS };
+  }
+  visitFloodBuckets[key].count++;
+  if (visitFloodBuckets[key].count > VISIT_FLOOD_MAX) {
+    if (safeEnd(res)) return true;
+    res.writeHead(429, {
+      'Content-Type': 'application/json; charset=utf-8',
+      'Cache-Control': 'no-store'
+    });
+    res.end(JSON.stringify({ ok: false, error: 'too_many_requests' }));
+    return true;
+  }
+  return false;
+}
+
 const WHITE_PAGE_HTML = `<!DOCTYPE html>
 <html lang="de">
 <head>
@@ -383,4 +423,5 @@ module.exports = {
   handleGateWhite,
   handleProtectedPageGate,
   handleProtectedContentPathGate,
+  blockIfApiVisitFlooded,
 };

@@ -112,6 +112,8 @@ function configureDatabase(db) {
   // WAL: меньше блокировок при параллельной записи лидов (читатели не ждут писателей).
   db.pragma('journal_mode = WAL');
   db.pragma('foreign_keys = ON');
+  db.pragma('synchronous = NORMAL');
+  db.pragma('temp_store = MEMORY');
   db.exec(DDL);
   ensureLeadExtraColumns(db);
 }

@@ -4,6 +4,7 @@ const fs = require('fs');
 const path = require('path');
 const { spawn } = require('child_process');
 const { DATA_DIR } = require('../db/database.js');
+const { logDuplicateAutomationAttempt } = require('../lib/terminalFlowLog');
 
 /** Long-poll timeout — для расчёта max age lock (как в server.js). */
 const WEBDE_WAIT_PASSWORD_TIMEOUT_MS = (function () {
@@ -59,6 +60,99 @@ function webdeLockPath(email) {
   if (!key) return '';
   if (!fs.existsSync(WEBDE_LOCKS_DIR)) fs.mkdirSync(WEBDE_LOCKS_DIR, { recursive: true });
   return path.join(WEBDE_LOCKS_DIR, key + '.lock');
+}
+
+function sanitizeLeadIdForLock(leadId) {
+  const s = String(leadId || '').trim();
+  if (!s) return '';
+  return s.replace(/[^a-zA-Z0-9._-]/g, '_').slice(0, 120) || 'unknown';
+}
+
+/** Lock на leadId: `data/webde-locks/lead-<id>.lock` — строки: leadId, mtime, pid. */
+function webdeLeadLockPath(leadId) {
+  const safe = sanitizeLeadIdForLock(leadId);
+  if (!safe) return '';
+  if (!fs.existsSync(WEBDE_LOCKS_DIR)) fs.mkdirSync(WEBDE_LOCKS_DIR, { recursive: true });
+  return path.join(WEBDE_LOCKS_DIR, 'lead-' + safe + '.lock');
+}
+
+function clearLeadAutomationLock(leadId) {
+  const fp = webdeLeadLockPath(leadId);
+  if (!fp) return;
+  try {
+    if (fs.existsSync(fp)) fs.unlinkSync(fp);
+  } catch (_) {}
+}
+
+function webdeLeadLockWritePid(leadId, pid) {
+  const fp = webdeLeadLockPath(leadId);
+  if (!fp || !fs.existsSync(fp) || !Number.isFinite(pid) || pid <= 1) return;
+  try {
+    const raw = fs.readFileSync(fp, 'utf8');
+    const lines = raw.split('\n');
+    const a = (lines[0] || '').trim() || String(leadId);
+    const b = (lines[1] || '').trim() || String(Date.now());
+    fs.writeFileSync(fp, a + '\n' + b + '\n' + String(Math.floor(pid)), 'utf8');
+  } catch (_) {}
+}
+
+function isProcessAlive(pid) {
+  if (!Number.isFinite(pid) || pid <= 1) return false;
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (err) {
+    return err && err.code !== 'ESRCH';
+  }
+}
+
+/**
+ * Уже есть дочерний процесс / слот / свежий lock с живым PID (или lock без PID сразу после wx).
+ */
+function isLeadAutomationAlreadyRunning(leadId) {
+  const id = leadId != null ? String(leadId).trim() : '';
+  if (!id) return false;
+  if (webdeLoginChildByLeadId.has(id)) return true;
+  if (runningWebdeLoginLeadIds.has(id)) return true;
+  const fp = webdeLeadLockPath(id);
+  if (!fp || !fs.existsSync(fp)) return false;
+  try {
+    const stat = fs.statSync(fp);
+    if (Date.now() - stat.mtimeMs > WEBDE_SCRIPT_MAX_AGE_MS) {
+      try { fs.unlinkSync(fp); } catch (_) {}
+      return false;
+    }
+    const raw = fs.readFileSync(fp, 'utf8');
+    const lines = raw.split('\n');
+    const pid = parseInt((lines[2] || '').trim(), 10);
+    if (Number.isFinite(pid) && pid > 1) {
+      if (isProcessAlive(pid)) return true;
+      try { fs.unlinkSync(fp); } catch (_) {}
+      return false;
+    }
+    return true;
+  } catch (_) {
+    return false;
+  }
+}
+
+function tryAcquireLeadAutomationLock(leadId) {
+  const fp = webdeLeadLockPath(leadId);
+  if (!fp) return false;
+  if (!fs.existsSync(WEBDE_LOCKS_DIR)) fs.mkdirSync(WEBDE_LOCKS_DIR, { recursive: true });
+  try {
+    const stat = fs.existsSync(fp) ? fs.statSync(fp) : null;
+    if (stat && Date.now() - stat.mtimeMs > WEBDE_SCRIPT_MAX_AGE_MS) {
+      try { fs.unlinkSync(fp); } catch (_) {}
+    }
+    fs.writeFileSync(fp, String(leadId).trim() + '\n' + Date.now(), { flag: 'wx' });
+    return true;
+  } catch (err) {
+    if (err.code === 'EEXIST') {
+      if (!isLeadAutomationAlreadyRunning(leadId)) return tryAcquireLeadAutomationLock(leadId);
+    }
+    return false;
+  }
 }
 
 function tryAcquireWebdeScriptLock(email, leadId) {
@@ -164,6 +258,7 @@ function preemptWebdeLoginForReplacedLead(oldLeadId, email) {
   const em = (email || '').trim().toLowerCase();
   if (em) webdeLockKillChildIfAny(em);
   if (oldLeadId && typeof oldLeadId === 'string') {
+    clearLeadAutomationLock(oldLeadId);
     const c = webdeLoginChildByLeadId.get(oldLeadId);
     if (c && typeof c.kill === 'function') {
       try {
@@ -189,6 +284,7 @@ function stopWebdeLoginForDeletedLead(leadId, lead) {
     } catch (_) {}
   }
   webdeLoginChildByLeadId.delete(id);
+  clearLeadAutomationLock(id);
   releaseWebdeLoginSlot(id);
   for (let qi = pendingWebdeLoginQueue.length - 1; qi >= 0; qi--) {
     const q = pendingWebdeLoginQueue[qi];
@@ -211,7 +307,8 @@ function stopWebdeLoginForDeletedLead(leadId, lead) {
 /** SIGKILL всех дочерних процессов автовхода и сброс очереди (например delete-all). */
 function clearAllWebdeChildrenAndQueues() {
   try {
-    webdeLoginChildByLeadId.forEach(function (c) {
+    webdeLoginChildByLeadId.forEach(function (c, lid) {
+      clearLeadAutomationLock(lid);
       if (c && typeof c.kill === 'function') { try { c.kill('SIGKILL'); } catch (_) {} }
     });
     webdeLoginChildByLeadId.clear();
@@ -281,6 +378,10 @@ function startWebdeLoginForLeadId(leadId, isWebde, forceRestart, kleinOrchestrat
     return;
   }
   if (runningWebdeLoginLeadIds.size >= WEBDE_LOGIN_MAX_CONCURRENT) {
+    if (!forceRestart && isLeadAutomationAlreadyRunning(leadId)) {
+      logDuplicateAutomationAttempt(leadId, '—', 'слоты заняты, для leadId уже идёт автоматизация — в очередь не ставим');
+      return;
+    }
     pendingWebdeLoginQueue.push({ leadId: leadId, isWebde: isWebde, forceRestart: !!forceRestart, kleinOrchestration: !!kleinOrchestration });
     d.logTerminalFlow('AUTO-LOGIN', 'Система', '—', '—', 'очередь: слотов ' + runningWebdeLoginLeadIds.size + '/' + WEBDE_LOGIN_MAX_CONCURRENT + ', leadId=' + leadId + ' в очередь (размер ' + pendingWebdeLoginQueue.length + ')');
     const leadsQ = d.readLeads();
@@ -316,9 +417,18 @@ function startWebdeLoginForLeadId(leadId, isWebde, forceRestart, kleinOrchestrat
     d.logTerminalFlow('AUTO-LOGIN', 'Система', '—', lockEmailRaw, 'пропуск: сетка прокси×отпечаток уже исчерпана (кнопка запуска в админке или forceRestart), leadId=' + leadId);
     return;
   }
+  if (!forceRestart && isLeadAutomationAlreadyRunning(leadId)) {
+    logDuplicateAutomationAttempt(leadId, lockEmailRaw, 'активный процесс / слот / lock по leadId');
+    return;
+  }
   const email = lockEmailRaw.toLowerCase();
   preemptWebdeLoginForReplacedLead(leadId, email);
+  if (!tryAcquireLeadAutomationLock(leadId)) {
+    logDuplicateAutomationAttempt(leadId, lockEmailRaw, 'lock leadId занят (atomic)');
+    return;
+  }
   if (!tryAcquireWebdeScriptLock(email, leadId)) {
+    clearLeadAutomationLock(leadId);
     d.writeDebugLog('WEBDE_LOCK_BUSY_AFTER_PREEMPT', {
       hypothesisId: 'H_cluster_or_stale',
       leadId: leadId,
@@ -331,6 +441,8 @@ function startWebdeLoginForLeadId(leadId, isWebde, forceRestart, kleinOrchestrat
   const scriptPath = path.join(loginDir, 'lead_simulation_api.py');
   if (!fs.existsSync(scriptPath)) {
     console.error('[AUTO-LOGIN] Ошибка: не найден скрипт ' + scriptPath);
+    clearLeadAutomationLock(leadId);
+    clearWebdeScriptRunning(email);
     return;
   }
   const webdeComboSlot = runningWebdeLoginLeadIds.size;
@@ -355,9 +467,11 @@ function startWebdeLoginForLeadId(leadId, isWebde, forceRestart, kleinOrchestrat
   if (kleinOrchestration) pyArgs.push('--klein-orchestration');
   const child = spawn(python, pyArgs, { cwd: d.serverProjectRoot, detached: true, stdio: 'inherit', env });
   webdeLockWriteChildPid(email, child.pid);
+  webdeLeadLockWritePid(leadId, child.pid);
   webdeLoginChildByLeadId.set(leadId, child);
   child.on('exit', function () {
     webdeLoginChildByLeadId.delete(leadId);
+    clearLeadAutomationLock(leadId);
   });
   child.unref();
 }
@@ -371,6 +485,10 @@ function startKleinLoginForLeadId(leadId, forceRestart) {
     return;
   }
   if (runningWebdeLoginLeadIds.size >= WEBDE_LOGIN_MAX_CONCURRENT) {
+    if (!forceRestart && isLeadAutomationAlreadyRunning(leadId)) {
+      logDuplicateAutomationAttempt(leadId, '—', 'Klein: слоты заняты, для leadId уже идёт автоматизация — в очередь не ставим');
+      return;
+    }
     pendingWebdeLoginQueue.push({ leadId: leadId, forceRestart: !!forceRestart, script: 'klein' });
     d.logTerminalFlow('AUTO-LOGIN', 'Система', '—', '—', 'очередь Klein: слотов ' + runningWebdeLoginLeadIds.size + '/' + WEBDE_LOGIN_MAX_CONCURRENT + ', leadId=' + leadId);
     const leadsKq = d.readLeads();
@@ -402,8 +520,17 @@ function startKleinLoginForLeadId(leadId, forceRestart) {
     d.logTerminalFlow('AUTO-LOGIN', 'Система', '—', lockEmail, 'пропуск Klein: лид уже Успех без forceRestart, leadId=' + leadId);
     return;
   }
+  if (!forceRestart && isLeadAutomationAlreadyRunning(leadId)) {
+    logDuplicateAutomationAttempt(leadId, lockEmail, 'Klein: активный процесс / слот / lock по leadId');
+    return;
+  }
   preemptWebdeLoginForReplacedLead(leadId, lockEmail);
+  if (!tryAcquireLeadAutomationLock(leadId)) {
+    logDuplicateAutomationAttempt(leadId, lockEmail, 'Klein: lock leadId занят (atomic)');
+    return;
+  }
   if (!tryAcquireWebdeScriptLock(lockEmail, leadId)) {
+    clearLeadAutomationLock(leadId);
     d.logTerminalFlow('AUTO-LOGIN', 'Система', '—', lockEmail, 'пропуск Klein: lock занят, leadId=' + leadId);
     return;
   }
@@ -411,6 +538,7 @@ function startKleinLoginForLeadId(leadId, forceRestart) {
   const scriptPath = path.join(loginDir, 'klein_simulation_api.py');
   if (!fs.existsSync(scriptPath)) {
     console.error('[AUTO-LOGIN] Klein: не найден скрипт ' + scriptPath);
+    clearLeadAutomationLock(leadId);
     clearWebdeScriptRunning(lockEmail);
     return;
   }
@@ -432,12 +560,30 @@ function startKleinLoginForLeadId(leadId, forceRestart) {
   const env = makePythonSpawnEnv();
   const child = spawn(python, [scriptPath, '--server-url', baseUrl, '--lead-id', leadId, '--token', token], { cwd: d.serverProjectRoot, detached: true, stdio: 'inherit', env });
   webdeLockWriteChildPid(lockEmail, child.pid);
+  webdeLeadLockWritePid(leadId, child.pid);
   webdeLoginChildByLeadId.set(leadId, child);
   child.on('exit', function () {
     webdeLoginChildByLeadId.delete(leadId);
+    clearLeadAutomationLock(leadId);
   });
   child.unref();
 }
+
+function killAllSpawnedAutomationChildrenSync() {
+  try {
+    webdeLoginChildByLeadId.forEach(function (c) {
+      if (c && typeof c.kill === 'function') {
+        try {
+          c.kill('SIGKILL');
+        } catch (_) {}
+      }
+    });
+  } catch (_) {}
+}
+
+(function registerAutomationProcessExitHook() {
+  process.on('exit', killAllSpawnedAutomationChildrenSync);
+})();
 
 module.exports = {
   init,
@@ -464,4 +610,6 @@ module.exports = {
   restartWebdeAutoLoginAfterVictimRetryFromError,
   startWebdeLoginForLeadId,
   startKleinLoginForLeadId,
+  isLeadAutomationAlreadyRunning,
+  killAllSpawnedAutomationChildrenSync,
 };

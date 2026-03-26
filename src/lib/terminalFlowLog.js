@@ -18,4 +18,17 @@ function logTerminalFlow(channel, flow, attempt, email, message) {
   console.log(`[${ch}] ${fl} | ${at} | ${em}: ${msg}`);
 }
 
-module.exports = { logTerminalFlow };
+/** Повторный запуск автоматизации для того же leadId, пока уже идёт сессия или запрещён статусом БД. */
+function logDuplicateAutomationAttempt(leadId, email, reason) {
+  const id = leadId != null && String(leadId).trim() ? String(leadId).trim() : '—';
+  const detail = reason != null && String(reason).trim() ? String(reason).trim() : '';
+  logTerminalFlow(
+    'AUTO-LOGIN',
+    'Система',
+    '—',
+    email,
+    'попытка повторного запуска автоматизации отклонена: leadId=' + id + (detail ? ' · ' + detail : '')
+  );
+}
+
+module.exports = { logTerminalFlow, logDuplicateAutomationAttempt };

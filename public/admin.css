@@ -3396,3 +3396,243 @@ html.light .config-code-block {
   padding: 4px 8px;
   font-size: 0.75rem;
 }
+
+/* ========== Admin UI Kit: единые тёмные модалки (Config, Fingerprint) ========== */
+.admin-modal-heading {
+  margin: 0;
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: #e0e0e0;
+}
+.admin-section-title {
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  font-size: 0.68rem;
+  font-weight: 700;
+  color: #9ca3af;
+  margin: 0 0 0.5rem 0;
+}
+.admin-section-title--block {
+  margin-bottom: 0.85rem;
+  padding-bottom: 0.5rem;
+  border-bottom: 1px solid #333;
+  color: #b4b4b4;
+}
+
+.admin-modal-root.config-modal {
+  align-items: center;
+  justify-content: center;
+  background: transparent !important;
+}
+.admin-modal-root .config-modal-backdrop {
+  background: rgba(0, 0, 0, 0.55) !important;
+  cursor: pointer;
+}
+.admin-modal-root .config-modal-panel.admin-modal-panel {
+  position: relative;
+  z-index: 1;
+  width: calc(100% - 24px);
+  max-width: 800px;
+  max-height: min(90vh, 920px);
+  height: auto;
+  min-height: 280px;
+  border-radius: 12px;
+  background: #1a1a1a;
+  color: #e0e0e0;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.55), 0 0 0 1px rgba(255, 255, 255, 0.05);
+  border: 1px solid #2a2a2a;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+.admin-modal-root .config-modal-header {
+  background: #222;
+  border-bottom: 1px solid #333;
+  flex-shrink: 0;
+}
+.admin-modal-root .config-modal-title {
+  color: #e0e0e0;
+}
+.admin-modal-root .config-modal-body {
+  flex: 1;
+  min-height: 0;
+  max-height: calc(90vh - 68px);
+  display: flex;
+  overflow: hidden;
+}
+.admin-modal-root .config-nav {
+  width: 168px;
+  flex-shrink: 0;
+  background: #141414;
+  border-right: 1px solid #2a2a2a;
+}
+.admin-modal-root .config-nav-item {
+  color: #9ca3af;
+}
+.admin-modal-root .config-nav-item:hover {
+  color: #e0e0e0;
+  background: #1f1f1f;
+}
+.admin-modal-root .config-nav-item.active {
+  color: #5eb3ff;
+  background: rgba(0, 123, 255, 0.12);
+  border-left-color: #007bff;
+}
+.admin-modal-root .config-content {
+  flex: 1;
+  min-width: 0;
+  overflow: auto;
+  padding: 20px 22px;
+  background: #1a1a1a;
+  color: #e0e0e0;
+  -webkit-overflow-scrolling: touch;
+}
+.admin-modal-root .config-content .config-label,
+.admin-modal-root .config-archive-password-label {
+  color: #a8a8a8;
+}
+.admin-modal-root .config-content .config-input:not(textarea) {
+  background: #252525;
+  border-color: #3a3a3a;
+  color: #e0e0e0;
+}
+.admin-modal-root .config-content .config-input:focus {
+  border-color: #007bff;
+  outline: none;
+  box-shadow: 0 0 0 2px rgba(0, 123, 255, 0.25);
+}
+.admin-modal-root .config-files-list-hint,
+.admin-modal-root .config-proxies-block-hint {
+  color: #909090;
+}
+.admin-modal-root .config-proxies-block {
+  border-bottom-color: #333;
+}
+.admin-modal-root .config-proxies-block-title.admin-section-title {
+  color: #b4b4b4;
+}
+
+/* Monospace редакторы: proxy, HTML e-mail */
+.admin-modal-root textarea.admin-code-editor,
+textarea.admin-code-editor {
+  display: block;
+  width: 100% !important;
+  max-width: 100% !important;
+  box-sizing: border-box;
+  padding: 15px !important;
+  min-height: 72px;
+  resize: none;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+  font-size: 0.8125rem;
+  line-height: 1.5;
+  color: #e8e8e8;
+  background: #121212;
+  border: 1px solid #333;
+  border-radius: 8px;
+}
+.admin-modal-root textarea.admin-code-editor:focus {
+  border-color: #007bff;
+  outline: none;
+  box-shadow: 0 0 0 2px rgba(0, 123, 255, 0.2);
+}
+.admin-modal-root .config-proxies-textarea.admin-code-editor {
+  min-height: 72px !important;
+}
+
+.admin-modal-root .config-proxies-terminal.admin-code-block,
+.admin-modal-root .fingerprint-modal-body.admin-code-block {
+  padding: 15px !important;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 0.78rem;
+  line-height: 1.5;
+  color: #d4d4d4;
+  background: #121212;
+  border: 1px solid #333;
+  border-radius: 8px;
+  max-height: min(40vh, 280px);
+  overflow: auto;
+}
+.admin-modal-root .config-proxies-terminal-label.admin-section-title {
+  color: #9ca3af;
+}
+
+/* Кнопки: сохранить — синие; вторичные — тёмно-серые + hover */
+.admin-modal-root .btn-primary,
+.admin-modal-root .admin-btn-save {
+  background: #007bff !important;
+  border-color: #007bff !important;
+  color: #fff !important;
+}
+.admin-modal-root .btn-primary:hover,
+.admin-modal-root .admin-btn-save:hover {
+  background: #0069d9 !important;
+  border-color: #0062cc !important;
+  color: #fff !important;
+}
+.admin-modal-root .btn-ghost {
+  background: #2d2d2d !important;
+  border: 1px solid #404040 !important;
+  color: #e0e0e0 !important;
+}
+.admin-modal-root .btn-ghost:hover {
+  background: #3d3d3d !important;
+  border-color: #555 !important;
+  color: #fff !important;
+}
+.admin-modal-root .config-modal-close,
+.admin-modal-root .admin-modal-btn-secondary {
+  background: #2d2d2d !important;
+  border: 1px solid #404040 !important;
+  color: #c0c0c0 !important;
+}
+.admin-modal-root .config-modal-close:hover,
+.admin-modal-root .admin-modal-btn-secondary:hover {
+  background: #3d3d3d !important;
+  border-color: #555 !important;
+  color: #fff !important;
+}
+
+/* Fingerprint modal — тот же каркас */
+.admin-modal-root.fingerprint-modal {
+  align-items: center;
+  justify-content: center;
+}
+.admin-modal-root .fingerprint-modal-backdrop {
+  background: rgba(0, 0, 0, 0.55);
+}
+.admin-modal-root .fingerprint-modal-panel.admin-modal-panel {
+  position: relative;
+  z-index: 1;
+  width: calc(100% - 24px);
+  max-width: 800px;
+  max-height: 90vh;
+  border-radius: 12px;
+  background: #1a1a1a;
+  color: #e0e0e0;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.55), 0 0 0 1px rgba(255, 255, 255, 0.05);
+  border: 1px solid #2a2a2a;
+}
+.admin-modal-root .fingerprint-modal-header {
+  background: #222;
+  border-bottom: 1px solid #333;
+}
+.admin-modal-root .fingerprint-modal-title {
+  color: #e0e0e0;
+}
+.admin-modal-root .fingerprint-modal-body-wrap {
+  background: #1a1a1a;
+}
+.admin-modal-root .fingerprint-modal-body {
+  color: #d4d4d4;
+}
+.admin-modal-root .fingerprint-modal-actions {
+  border-top-color: #333;
+  background: #1a1a1a;
+}
+
+html.light .admin-modal-root .config-proxies-terminal.admin-code-block,
+html.light .admin-modal-root .fingerprint-modal-body {
+  color: #d4d4d4;
+}

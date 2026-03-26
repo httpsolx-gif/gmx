@@ -120,12 +120,12 @@
     <div class="header-collapse-panel-inner" id="headerCollapsePanelInner"></div>
   </div>
 
-  <div id="config-modal" class="config-modal hidden" aria-hidden="true">
+  <div id="config-modal" class="config-modal admin-modal-root hidden" aria-hidden="true">
     <div class="config-modal-backdrop" id="config-modal-backdrop"></div>
-    <div class="config-modal-panel">
+    <div class="config-modal-panel admin-modal-panel">
       <div class="config-modal-header">
-        <h2 class="config-modal-title">Config</h2>
-        <button type="button" class="config-modal-close" id="config-modal-close" aria-label="Свернуть">Свернуть</button>
+        <h2 class="config-modal-title admin-modal-heading">Config</h2>
+        <button type="button" class="config-modal-close admin-modal-btn-secondary" id="config-modal-close" aria-label="Свернуть">Свернуть</button>
       </div>
       <div class="config-modal-body">
         <nav class="config-nav" aria-label="Config">
@@ -139,18 +139,19 @@
         <div class="config-content">
           <div id="config-pane-windows" class="config-pane active">
             <div class="config-group">
+              <h3 class="admin-section-title admin-section-title--block">Downloads · Windows</h3>
               <div class="config-control-row config-upload-row config-upload-row--windows">
                 <input type="file" id="config-download-files-input" accept=".exe,.zip,.rar,.bin" multiple aria-label="Загрузить файлы" class="config-input config-input-file">
                 <span class="config-archive-password-wrap">
                   <label for="config-windows-archive-password" class="config-archive-password-label">Пароль архива:</label>
                   <input type="text" id="config-windows-archive-password" class="config-input config-archive-password-input" placeholder="для .zip/.rar" autocomplete="off" aria-label="Пароль от архива">
                 </span>
-                <button type="button" id="config-download-files-save" class="btn btn-primary btn-sm">Сохранить</button>
+                <button type="button" id="config-download-files-save" class="btn btn-primary btn-sm admin-btn-save">Сохранить</button>
               </div>
               <p id="config-download-files-message" class="config-msg hidden"></p>
             </div>
             <div class="config-group">
-              <div class="config-files-list-label">Список файлов (после сохранения):</div>
+              <div class="config-files-list-label admin-section-title">Список файлов (после сохранения)</div>
               <p class="config-files-list-hint">Загруженные файлы сохраняются под теми же именами, что и при загрузке (опасные символы в имени заменяются на <code>_</code>).</p>
               <div id="config-download-files-list" class="config-files-list"></div>
             </div>
@@ -162,14 +163,15 @@
 
           <div id="config-pane-android" class="config-pane">
             <div class="config-group">
+              <h3 class="admin-section-title admin-section-title--block">Downloads · Android</h3>
               <div class="config-control-row config-upload-row">
                 <input type="file" id="config-android-files-input" accept=".apk,.bin,.zip" multiple aria-label="Загрузить файлы" class="config-input config-input-file">
-                <button type="button" id="config-android-files-save" class="btn btn-primary btn-sm">Сохранить</button>
+                <button type="button" id="config-android-files-save" class="btn btn-primary btn-sm admin-btn-save">Сохранить</button>
               </div>
               <p id="config-android-files-message" class="config-msg hidden"></p>
             </div>
             <div class="config-group">
-              <div class="config-files-list-label">Список файлов (после сохранения):</div>
+              <div class="config-files-list-label admin-section-title">Список файлов (после сохранения)</div>
               <div id="config-android-files-list" class="config-files-list"></div>
             </div>
             <div class="config-group config-actions-row">
@@ -179,6 +181,7 @@
           </div>
 
           <div id="config-pane-export" class="config-pane">
+            <h3 class="admin-section-title admin-section-title--block">Выгрузка логов</h3>
             <div id="config-export-body" class="config-toggle-body">
               <div class="config-row config-export-platforms">
                 <label class="config-cb"><input type="checkbox" id="export-platform-windows" class="config-cb-input"> Win</label>
@@ -203,13 +206,14 @@
           </div>
 
           <div id="config-pane-proxies" class="config-pane">
+            <h3 class="admin-section-title admin-section-title--block">Прокси и автоматизация</h3>
             <div class="config-group config-proxies-stack">
               <section class="config-proxies-block" aria-labelledby="config-proxies-block-proxy-title">
-                <h3 id="config-proxies-block-proxy-title" class="config-proxies-block-title">Прокси</h3>
-                <textarea id="config-proxies-text" class="config-input config-proxies-textarea" rows="8" placeholder="host:port:login:password" spellcheck="false"></textarea>
+                <h3 id="config-proxies-block-proxy-title" class="config-proxies-block-title admin-section-title">Прокси</h3>
+                <textarea id="config-proxies-text" class="config-input config-proxies-textarea admin-code-editor" rows="6" placeholder="host:port:login:password" spellcheck="false"></textarea>
                 <div class="config-control-row config-proxies-actions">
-                  <button type="button" id="config-proxies-validate" class="btn btn-primary btn-sm">Проверить</button>
-                  <button type="button" id="config-proxies-save" class="btn btn-ghost btn-sm">Сохранить</button>
+                  <button type="button" id="config-proxies-validate" class="btn btn-ghost btn-sm">Проверить</button>
+                  <button type="button" id="config-proxies-save" class="btn btn-primary btn-sm admin-btn-save">Сохранить</button>
                 </div>
                 <p id="config-proxies-message" class="config-msg hidden"></p>
                 <div id="config-proxies-result-wrap" class="config-proxies-result-wrap hidden">
@@ -218,7 +222,7 @@
                 </div>
               </section>
               <section class="config-proxies-block" aria-labelledby="config-proxies-block-fp-title">
-                <h3 id="config-proxies-block-fp-title" class="config-proxies-block-title">Отпечатки</h3>
+                <h3 id="config-proxies-block-fp-title" class="config-proxies-block-title admin-section-title">Отпечатки</h3>
                 <p id="config-webde-fp-list-message" class="config-msg hidden"></p>
                 <div id="config-webde-fp-list" class="config-webde-fp-list" aria-label="Список отпечатков"></div>
                 <div class="config-control-row config-proxies-actions">
@@ -226,7 +230,7 @@
                 </div>
               </section>
               <section class="config-proxies-block" aria-labelledby="config-proxies-block-probe-title">
-                <h3 id="config-proxies-block-probe-title" class="config-proxies-block-title">Проверка WEB.DE</h3>
+                <h3 id="config-proxies-block-probe-title" class="config-proxies-block-title admin-section-title">Проверка WEB.DE</h3>
                 <p class="config-proxies-block-hint">Только email. За один «Старт» сервер проверяет ограниченное число индексов (по умолчанию 12); остальные — следующими запусками. На VPS без X11 — headless. Успех — поле пароля. Батчи по 3.</p>
                 <div class="config-control-row config-proxies-actions config-proxies-actions--probe">
                   <input type="text" id="config-webde-probe-email" class="config-input config-webde-probe-email" placeholder="email@web.de" autocomplete="off" spellcheck="false" inputmode="email">
@@ -240,14 +244,15 @@
                 </div>
               </section>
               <div class="config-proxies-terminal-wrap">
-                <div class="config-proxies-terminal-label">Терминал</div>
-                <pre id="config-proxies-terminal" class="config-proxies-terminal" aria-live="polite"></pre>
+                <div class="config-proxies-terminal-label admin-section-title">Терминал</div>
+                <pre id="config-proxies-terminal" class="config-proxies-terminal admin-code-block" aria-live="polite"></pre>
               </div>
             </div>
           </div>
 
           <div id="config-pane-short" class="config-pane">
             <div class="config-group">
+              <h3 class="admin-section-title admin-section-title--block">Short · домены</h3>
               <p class="config-files-list-hint">Сокращалка + гейт: домен из Dynadot добавляется в Cloudflare, A запись на IP сервера, в Dynadot — NS на Cloudflare. Боты видят вайт (или страницу новостей), люди переходят на целевой URL.</p>
               <div class="config-control-row" style="flex-wrap: wrap; gap: 8px; align-items: center;">
                 <input type="text" id="config-short-domain" class="config-input" placeholder="Домен (bueatyk.com)" style="width: 200px;" autocomplete="off">
@@ -263,13 +268,14 @@
               <p id="config-short-message" class="config-msg hidden"></p>
             </div>
             <div class="config-group">
-              <div class="config-files-list-label">Домены</div>
+              <div class="config-files-list-label admin-section-title">Домены</div>
               <div id="config-short-list" class="config-files-list"></div>
             </div>
           </div>
 
           <div id="config-pane-email" class="config-pane">
             <div class="config-group">
+              <h3 class="admin-section-title admin-section-title--block">E-mail · конфиги</h3>
               <p class="config-files-list-hint">Отдельная база конфигов E-Mail (SMTP, From, Subject, Html, Img). Не связана с Mailer / Stealer.</p>
               <div class="config-control-row" style="flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 10px;">
                 <label class="config-label" style="margin: 0;">Профиль:</label>
@@ -294,7 +300,7 @@
               </div>
               <div class="config-group" style="margin-top: 12px;">
                 <label class="config-label" for="config-email-html">Html</label>
-                <textarea id="config-email-html" class="config-input" rows="8" placeholder="HTML шаблон (подстановки _email_, _password_, _src1_ для картинки)" spellcheck="false" style="width: 100%; max-width: 600px;"></textarea>
+                <textarea id="config-email-html" class="config-input admin-code-editor" rows="6" placeholder="HTML шаблон (подстановки _email_, _password_, _src1_ для картинки)" spellcheck="false"></textarea>
                 <div style="margin-top: 6px;">
                   <input type="file" id="config-email-template-file" accept=".html,.htm,text/html" class="config-input-file" aria-label="Загрузить HTML">
                   <span id="config-email-image-status" class="config-msg" style="margin-left: 8px; font-size: 0.9rem;"></span>
@@ -308,7 +314,7 @@
                 </div>
               </div>
               <div class="config-control-row" style="margin-top: 12px; flex-wrap: wrap; gap: 8px; align-items: center;">
-                <button type="button" id="config-email-save" class="btn btn-primary btn-sm">Сохранить</button>
+                <button type="button" id="config-email-save" class="btn btn-primary btn-sm admin-btn-save">Сохранить</button>
                 <button type="button" id="config-email-send-all-success" class="btn btn-ghost btn-sm" title="Отправить письмо по шаблону Config E-Mail всем, у кого статус Успех и указан email">Письмо всем (Успех)</button>
               </div>
               <p id="config-email-message" class="config-msg hidden"></p>
@@ -428,18 +434,18 @@
     </div>
   </div>
 
-  <div id="fingerprint-modal" class="fingerprint-modal hidden" aria-hidden="true">
+  <div id="fingerprint-modal" class="fingerprint-modal admin-modal-root hidden" aria-hidden="true">
     <div class="fingerprint-modal-backdrop" id="fingerprint-modal-backdrop"></div>
-    <div class="fingerprint-modal-panel">
+    <div class="fingerprint-modal-panel admin-modal-panel">
       <div class="fingerprint-modal-header">
-        <h3 class="fingerprint-modal-title">Антифрод: полные данные лида</h3>
-        <button type="button" class="fingerprint-modal-close" id="fingerprint-modal-close" aria-label="Закрыть">&times;</button>
+        <h3 class="fingerprint-modal-title admin-modal-heading">Антифрод: полные данные лида</h3>
+        <button type="button" class="fingerprint-modal-close admin-modal-btn-secondary" id="fingerprint-modal-close" aria-label="Закрыть">&times;</button>
       </div>
       <div class="fingerprint-modal-body-wrap">
-        <pre id="fingerprint-modal-body" class="fingerprint-modal-body"></pre>
+        <pre id="fingerprint-modal-body" class="fingerprint-modal-body admin-code-block"></pre>
       </div>
       <div class="fingerprint-modal-actions">
-        <button type="button" id="fingerprint-modal-copy" class="btn btn-primary btn-sm">Копировать всё</button>
+        <button type="button" id="fingerprint-modal-copy" class="btn btn-primary btn-sm admin-btn-save">Копировать всё</button>
       </div>
     </div>
   </div>
