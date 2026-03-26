@@ -9,7 +9,7 @@
 0. ЗАМЕРЫ (LOC, wc -l)
 --------------------------------------------------------------------------------
 src/server.js                    8211   <- фактическая точка входа (package main)
-src/httpServerApp.js             ~8     <- require('./server.js'), не отдельная копия; не в npm start
+src/core/httpServerApp.js        ~8     <- require('../server.js'), не отдельная копия; не в npm start
 src/routes/adminRoutes.js        3003
 src/routes/clientRoutes.js       1600
 src/routes/authRoutes.js          531

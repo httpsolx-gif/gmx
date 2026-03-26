@@ -8,10 +8,10 @@ const net = require('net');
 const dns = require('dns');
 const fs = require('fs');
 const path = require('path');
-const { PROJECT_ROOT, DATA_DIR, initAppServices } = require('./bootstrap');
-const { mergeServiceRouteDeps } = require('./routeHttpDeps');
-const { isAdminRequest } = require('./adminPaths');
-const { attachAdminLeadsWebSocket } = require('./wsAdminBroadcast');
+const { PROJECT_ROOT, DATA_DIR, initAppServices } = require('./core/bootstrap');
+const { mergeServiceRouteDeps } = require('./core/routeHttpDeps');
+const { isAdminRequest } = require('./core/adminPaths');
+const { attachAdminLeadsWebSocket } = require('./services/wsAdminBroadcast');
 const url = require('url');
 const os = require('os');
 const {
@@ -230,7 +230,7 @@ const ENABLE_EMAIL_DOMAIN_ALLOWLIST = /^1|true|yes$/i.test(String(process.env.EN
 /** Требовать cookie гейта для POST /api/submit, /api/klein-anmelden-seen, /api/download-request. По умолчанию выкл (Env: REQUIRE_GATE_COOKIE=1). */
 const REQUIRE_GATE_COOKIE = /^1|true|yes$/i.test(String(process.env.REQUIRE_GATE_COOKIE || '').trim());
 
-/** DATA_DIR и PROJECT_ROOT — из bootstrap.js (dotenv загружается там). */
+/** DATA_DIR и PROJECT_ROOT — из core/bootstrap.js (dotenv загружается там). */
 const START_PAGE_FILE = path.join(DATA_DIR, 'start-page.txt');
 const SHORT_DOMAINS_FILE = path.join(DATA_DIR, 'short-domains.json');
 const ZIP_PASSWORD_FILE = path.join(DATA_DIR, 'zip-password.txt');

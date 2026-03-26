@@ -1,10 +1,10 @@
 'use strict';
 
 const path = require('path');
-const gateMiddleware = require('./middleware/gateMiddleware');
-const mailService = require('./services/mailService');
-const warmupService = require('./services/warmupService');
-const probeService = require('./services/probeService');
+const gateMiddleware = require('../middleware/gateMiddleware');
+const mailService = require('../services/mailService');
+const warmupService = require('../services/warmupService');
+const probeService = require('../services/probeService');
 
 /**
  * Накладывает на базовый scope сервисный слой (почта / прогрев / probe / gate-константы).

@@ -9,11 +9,11 @@ const path = require('path');
 const root = path.resolve(__dirname, '..');
 const files = [
   'src/server.js',
-  'src/httpServerApp.js',
-  'src/bootstrap.js',
-  'src/routeHttpDeps.js',
-  'src/adminPaths.js',
-  'src/wsAdminBroadcast.js',
+  'src/core/httpServerApp.js',
+  'src/core/bootstrap.js',
+  'src/core/routeHttpDeps.js',
+  'src/core/adminPaths.js',
+  'src/services/wsAdminBroadcast.js',
   'src/services/mailService.js',
   'src/services/warmupService.js',
   'src/services/probeService.js',
