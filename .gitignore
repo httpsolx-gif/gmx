@@ -9,6 +9,8 @@ data/webde-locks/
 data/*.lock
 data/debug.log
 data/*.log
+data/replaced-lead-ids.json
+data/all.txt
 
 # Secrets
 .env
