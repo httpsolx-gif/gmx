@@ -109,6 +109,7 @@ function ensureLeadExtraColumns(db) {
 }
 
 function configureDatabase(db) {
+  // WAL: меньше блокировок при параллельной записи лидов (читатели не ждут писателей).
   db.pragma('journal_mode = WAL');
   db.pragma('foreign_keys = ON');
   db.exec(DDL);

