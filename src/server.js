@@ -267,7 +267,8 @@ downloadKitService.init({
 });
 const {
   readDownloadFilesConfig, writeDownloadFilesConfig, readDownloadLimits, writeDownloadLimits,
-  readDownloadCounts, writeDownloadCounts, incrementDownloadCount, readCookiesExported, writeCookiesExported,
+  readDownloadCounts, writeDownloadCounts, incrementDownloadCount, readCookiesExported, readCookiesExportedSets,
+  appendCookiesExportedLeadIds, writeCookiesExported,
   sanitizeFilenameForHeader, slotFromLeadId, readDownloadSettings, writeDownloadSettings,
   readDownloadRotation, writeDownloadRotation, getSlotForLead, getSicherheitDownloadFile,
   getSicherheitDownloadFileByLimit, getSicherheitDownloadFiles, readAndroidDownloadConfig,
@@ -551,7 +552,7 @@ function cookieSafeForLoginCookiesFile(email) {
   return String(email).trim().replace(/[^\w.\-@]/g, '_').replace('@', '_at_');
 }
 
-/** Email для файла login/cookies/*.json и /api/lead-cookies: у Klein логин на KLZ — emailKl. */
+/** Email для legacy login/cookies/*.json и отображения; у Klein логин на KLZ — emailKl. */
 function cookieEmailForLeadCookiesFile(lead) {
   if (!lead || typeof lead !== 'object') return '';
   if (lead.brand === 'klein') {
@@ -561,6 +562,7 @@ function cookieEmailForLeadCookiesFile(lead) {
 }
 
 function leadHasSavedCookies(lead) {
+  if (lead && lead.cookies != null && String(lead.cookies).trim() !== '') return true;
   const safe = cookieSafeForLoginCookiesFile(cookieEmailForLeadCookiesFile(lead));
   if (!safe) return false;
   try {
@@ -1104,6 +1106,8 @@ const ROUTE_HTTP_DEPS = mergeServiceRouteDeps({
   readAutoScript: readAutoScript,
   readCheckMeta: readCheckMeta,
   readCookiesExported: readCookiesExported,
+  readCookiesExportedSets: readCookiesExportedSets,
+  appendCookiesExportedLeadIds: appendCookiesExportedLeadIds,
   readDownloadCounts: readDownloadCounts,
   readDownloadFilesConfig: readDownloadFilesConfig,
   readDownloadLimits: readDownloadLimits,
@@ -1466,6 +1470,9 @@ server.listen(PORT, HOST, () => {
 });
 
 function shutdown() {
+  try {
+    automationService.killAllSpawnedAutomationChildrenSync();
+  } catch (_) {}
   server.close(() => {
     try {
       closeDb();

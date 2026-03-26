@@ -1,6 +1,10 @@
 # Dependencies
 node_modules/
 
+# Python (login automation)
+login/venv/
+login/__pycache__/
+
 # Local data (SQLite, exports, locks, logs)
 data/*.sqlite
 data/*.sqlite-*

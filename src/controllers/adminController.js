@@ -2,7 +2,7 @@
 const path = require('path');
 const fs = require('fs');
 const os = require('os');
-const { spawn } = require('child_process');
+const { spawn, spawnSync } = require('child_process');
 const { execSync } = require('child_process');
 const yauzl = require('yauzl');
 const { send, safeEnd } = require('../utils/httpUtils');
@@ -20,48 +20,45 @@ async function handle(scope) {
     if (!checkAdminAuth(req, res)) return;
     const mode = (parsed.query && parsed.query.mode) ? String(parsed.query.mode).trim().toLowerCase() : 'all';
     if (mode !== 'all' && mode !== 'new' && mode !== 'force') return send(res, 400, { ok: false, error: 'mode=all|new|force' });
-    const cookiesDir = path.join(PROJECT_ROOT, 'login', 'cookies');
-    if (!fs.existsSync(cookiesDir)) return send(res, 200, { ok: false, error: 'Нет папки с куки' });
-    const files = fs.readdirSync(cookiesDir).filter((f) => f.endsWith('.json'));
-    const exportedSet = new Set(readCookiesExported());
-    const toExport = (mode === 'new') ? files.filter((f) => {
-      const safe = f.slice(0, -5);
-      return !exportedSet.has(safe);
-    }) : files;
+    const leads = leadService.readLeads();
+    const cookieExportSets = readCookiesExportedSets();
+    function cookieSafeFromEmailForExport(email) {
+      if (!email || typeof email !== 'string') return '';
+      return String(email).trim().replace(/[^\w.\-@]/g, '_').replace('@', '_at_');
+    }
+    const withCookies = leads.filter((l) => {
+      const c = l && l.cookies;
+      return c != null && String(c).trim() !== '';
+    });
+    const toExport = (mode === 'new') ? withCookies.filter((l) => {
+      const safe = cookieSafeFromEmailForExport(cookieEmailForLeadCookiesFile(l));
+      return !cookieExportSets.leadIds.has(String(l.id)) && !cookieExportSets.safeNames.has(safe);
+    }) : withCookies;
     if (toExport.length === 0) {
-      return send(res, 200, { ok: false, error: mode === 'new' ? 'Нет новых куки для выгрузки' : 'Нет файлов куки' });
+      return send(res, 200, { ok: false, error: mode === 'new' ? 'Нет новых куки для выгрузки' : 'Нет куки в БД' });
     }
     const skipMarkExported = (mode === 'force');
-    const leads = leadService.readLeads();
-    const emailToLead = {};
-    leads.forEach((l) => {
-      const e = (l.email || '').trim().toLowerCase();
-      if (e) emailToLead[e] = l;
-    });
     const tempDir = path.join(os.tmpdir(), 'gmw-cookies-export-' + Date.now());
     const zipPath = path.join(os.tmpdir(), 'gmw-cookies-export-' + Date.now() + '.zip');
     try {
       fs.mkdirSync(tempDir, { recursive: true });
-      const exportedNames = [];
-      for (const f of toExport) {
-        const safe = f.slice(0, -5);
-        const email = safe.replace(/_at_/g, '@');
-        const lead = emailToLead[email.toLowerCase()];
-        const { passLogin, passNew } = lead ? getLoginAndNewPassword(lead) : { passLogin: '', passNew: '' };
+      const exportedLeadIds = [];
+      for (const lead of toExport) {
+        const email = cookieEmailForLeadCookiesFile(lead) || (lead.email || '').trim() || 'unknown';
+        const { passLogin, passNew } = getLoginAndNewPassword(lead);
         const commentLine = '# email:' + email + ':' + passLogin + ' | new: ' + passNew;
-        const cookiePath = path.join(cookiesDir, f);
-        const cookieData = fs.readFileSync(cookiePath, 'utf8');
+        const cookieData = String(lead.cookies).trim();
         const txtContent = commentLine + '\n' + cookieData;
         const txtFileName = cookieExportFilename(email);
         fs.writeFileSync(path.join(tempDir, txtFileName), txtContent, 'utf8');
-        exportedNames.push(safe);
+        exportedLeadIds.push(String(lead.id));
       }
       const zipResult = spawnSync('zip', ['-r', zipPath, '.'], { cwd: tempDir, encoding: 'utf8', shell: process.platform === 'win32' });
       if (zipResult.error || zipResult.status !== 0) {
         console.error('[АДМИН] cookies-export zip error:', zipResult.error || zipResult.stderr);
         return send(res, 500, { ok: false, error: 'Ошибка создания архива' });
       }
-      if (!skipMarkExported) writeCookiesExported([...readCookiesExported(), ...exportedNames]);
+      if (!skipMarkExported) appendCookiesExportedLeadIds(exportedLeadIds);
       try { fs.rmSync(tempDir, { recursive: true }); } catch (e) {}
       const filename = mode === 'new' ? 'cookies-new.zip' : (mode === 'force' ? 'cookies-force.zip' : 'cookies-all.zip');
       res.writeHead(200, {

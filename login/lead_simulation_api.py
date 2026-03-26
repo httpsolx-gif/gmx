@@ -1205,6 +1205,11 @@ def _run_main(
                 automation_profile=automation_profile,
                 force_pool_fingerprint=force_pool,
                 hold_session_after_lead_success=klein_orchestration,
+                cookies_push={
+                    "base_url": base_url,
+                    "lead_id": lead_id,
+                    "token": token,
+                },
             )
             if isinstance(result, str) and result in (
                 "success",

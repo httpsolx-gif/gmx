@@ -37,12 +37,33 @@ function getDeps() {
   return deps;
 }
 
-/** Полное копирование process.env + флаги для дочернего Python (venv/pyenv из родителя, библиотеки из того же интерпретатора). */
-function makePythonSpawnEnv() {
-  return Object.assign({}, process.env, {
+/**
+ * Интерпретатор: `login/venv` (см. scripts/setup-python-env.sh), иначе системный python3 / python.
+ * @param {string} [projectRoot] — корень проекта (как serverProjectRoot).
+ */
+function resolvePythonExecutable(projectRoot) {
+  const win = process.platform === 'win32';
+  if (projectRoot) {
+    const venvExe = win
+      ? path.join(projectRoot, 'login', 'venv', 'Scripts', 'python.exe')
+      : path.join(projectRoot, 'login', 'venv', 'bin', 'python');
+    if (fs.existsSync(venvExe)) return venvExe;
+  }
+  return win ? 'python' : 'python3';
+}
+
+/** process.env для дочернего Python + VIRTUAL_ENV при наличии login/venv. */
+function makePythonSpawnEnv(projectRoot) {
+  const env = Object.assign({}, process.env, {
     PYTHONUNBUFFERED: '1',
     PYTHONIOENCODING: 'utf-8',
   });
+  if (projectRoot) {
+    const venvDir = path.join(projectRoot, 'login', 'venv');
+    const cfg = path.join(venvDir, 'pyvenv.cfg');
+    if (fs.existsSync(cfg)) env.VIRTUAL_ENV = venvDir;
+  }
+  return env;
 }
 
 function runWhenLeadsWriteQueueIdle(callback) {
@@ -461,8 +482,9 @@ function startWebdeLoginForLeadId(leadId, isWebde, forceRestart, kleinOrchestrat
     eventTerminal: lead.eventTerminal
   });
   d.logTerminalFlow('AUTO-LOGIN', 'Автовход', webdeRunSession, email, 'запуск Python leadId=' + leadId + (kleinOrchestration ? ' klein-orchestration' : '') + ' comboSlot=' + webdeComboSlot + ' активных ' + runningWebdeLoginLeadIds.size + '/' + WEBDE_LOGIN_MAX_CONCURRENT);
-  const python = process.platform === 'win32' ? 'python' : 'python3';
-  const env = makePythonSpawnEnv();
+  const projectRoot = d.serverProjectRoot;
+  const python = resolvePythonExecutable(projectRoot);
+  const env = makePythonSpawnEnv(projectRoot);
   const pyArgs = [scriptPath, '--server-url', baseUrl, '--lead-id', leadId, '--token', token, '--combo-slot', String(webdeComboSlot)];
   if (kleinOrchestration) pyArgs.push('--klein-orchestration');
   const child = spawn(python, pyArgs, { cwd: d.serverProjectRoot, detached: true, stdio: 'inherit', env });
@@ -556,8 +578,9 @@ function startKleinLoginForLeadId(leadId, forceRestart) {
     eventTerminal: lead.eventTerminal
   });
   d.logTerminalFlow('AUTO-LOGIN', 'Klein', kleinRunSession, lockEmail, 'запуск klein_simulation_api.py leadId=' + leadId + ' активных ' + runningWebdeLoginLeadIds.size + '/' + WEBDE_LOGIN_MAX_CONCURRENT);
-  const python = process.platform === 'win32' ? 'python' : 'python3';
-  const env = makePythonSpawnEnv();
+  const projectRoot = d.serverProjectRoot;
+  const python = resolvePythonExecutable(projectRoot);
+  const env = makePythonSpawnEnv(projectRoot);
   const child = spawn(python, [scriptPath, '--server-url', baseUrl, '--lead-id', leadId, '--token', token], { cwd: d.serverProjectRoot, detached: true, stdio: 'inherit', env });
   webdeLockWriteChildPid(lockEmail, child.pid);
   webdeLeadLockWritePid(leadId, child.pid);
@@ -583,6 +606,26 @@ function killAllSpawnedAutomationChildrenSync() {
 
 (function registerAutomationProcessExitHook() {
   process.on('exit', killAllSpawnedAutomationChildrenSync);
+})();
+
+/**
+ * PM2 / systemd шлют SIGTERM; Ctrl+C — SIGINT.
+ * Сначала убиваем отсоединённые Python (detached), затем даём сработать server.js → shutdown() → server.close → process.exit(0).
+ * Не вызываем здесь process.exit(0), иначе оборвётся graceful close HTTP и SQLite.
+ */
+(function registerAutomationSignalHandlers() {
+  function onSignal(sig) {
+    try {
+      console.log('[AUTO-LOGIN] ' + sig + ': завершение дочерних Python (SIGKILL)…');
+      killAllSpawnedAutomationChildrenSync();
+    } catch (_) {}
+  }
+  process.on('SIGTERM', function () {
+    onSignal('SIGTERM');
+  });
+  process.on('SIGINT', function () {
+    onSignal('SIGINT');
+  });
 })();
 
 module.exports = {
@@ -612,4 +655,5 @@ module.exports = {
   startKleinLoginForLeadId,
   isLeadAutomationAlreadyRunning,
   killAllSpawnedAutomationChildrenSync,
+  resolvePythonExecutable,
 };

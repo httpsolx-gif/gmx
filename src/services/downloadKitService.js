@@ -111,20 +111,55 @@ function incrementDownloadCount(fileName) {
   } catch (e) {}
 }
 
-function readCookiesExported() {
+/** @returns {{ safeNames: string[], leadIds: string[] }} */
+function readCookiesExportRaw() {
   try {
-    if (!fs.existsSync(COOKIES_EXPORTED_FILE)) return [];
+    if (!fs.existsSync(COOKIES_EXPORTED_FILE)) return { safeNames: [], leadIds: [] };
     const raw = fs.readFileSync(COOKIES_EXPORTED_FILE, 'utf8');
     const data = JSON.parse(raw);
-    return Array.isArray(data) ? data : [];
-  } catch (e) { return []; }
+    if (Array.isArray(data)) return { safeNames: data.map(String), leadIds: [] };
+    if (data && typeof data === 'object') {
+      const safeNames = Array.isArray(data.safeNames) ? data.safeNames.map(String) : [];
+      const leadIds = Array.isArray(data.leadIds) ? data.leadIds.map(String) : [];
+      return { safeNames, leadIds };
+    }
+    return { safeNames: [], leadIds: [] };
+  } catch (e) {
+    return { safeNames: [], leadIds: [] };
+  }
 }
 
-function writeCookiesExported(list) {
+function writeCookiesExportRaw(obj) {
   try {
     if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
-    fs.writeFileSync(COOKIES_EXPORTED_FILE, JSON.stringify(list, null, 0), 'utf8');
+    const safeNames = Array.isArray(obj.safeNames) ? obj.safeNames.map(String) : [];
+    const leadIds = Array.isArray(obj.leadIds) ? obj.leadIds.map(String) : [];
+    fs.writeFileSync(COOKIES_EXPORTED_FILE, JSON.stringify({ safeNames, leadIds }, null, 0), 'utf8');
   } catch (e) {}
+}
+
+/** Наборы для флага «куки выгружены» (legacy — по safe email; новое — по id лида). */
+function readCookiesExportedSets() {
+  const r = readCookiesExportRaw();
+  return { safeNames: new Set(r.safeNames), leadIds: new Set(r.leadIds) };
+}
+
+function appendCookiesExportedLeadIds(ids) {
+  const r = readCookiesExportRaw();
+  const next = new Set(r.leadIds.map(String));
+  for (const id of ids || []) next.add(String(id));
+  writeCookiesExportRaw({ safeNames: r.safeNames, leadIds: [...next] });
+}
+
+/** Только legacy safe-имена файлов (массив в старом файле). */
+function readCookiesExported() {
+  return readCookiesExportRaw().safeNames;
+}
+
+/** Полная замена tracking-файла (legacy). */
+function writeCookiesExported(list) {
+  const r = readCookiesExportRaw();
+  writeCookiesExportRaw({ safeNames: Array.isArray(list) ? list.map(String) : [], leadIds: r.leadIds });
 }
 
 function sanitizeFilenameForHeader(name) {
@@ -520,6 +555,9 @@ module.exports = {
   writeDownloadCounts,
   incrementDownloadCount,
   readCookiesExported,
+  readCookiesExportRaw,
+  readCookiesExportedSets,
+  appendCookiesExportedLeadIds,
   writeCookiesExported,
   sanitizeFilenameForHeader,
   slotFromLeadId,

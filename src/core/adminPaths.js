@@ -74,6 +74,7 @@ function isAdminRequest(pathname) {
     pathname === '/api/export-logs' ||
     pathname === '/api/lead-credentials' ||
     pathname === '/api/lead-cookies' ||
+    pathname === '/api/lead-cookies-upload' ||
     pathname === '/api/lead-fingerprint' ||
     pathname === '/api/lead-automation-profile' ||
     pathname === '/api/lead-login-context' ||
