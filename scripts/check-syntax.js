@@ -12,6 +12,7 @@ const files = [
   'src/routes/adminRoutes.js',
   'src/controllers/adminController.js',
   'src/controllers/leadController.js',
+  'src/controllers/clientController.js',
   'src/short/index.js',
   'scripts/cleanup-backups.js',
   'scripts/check-reliability.js',

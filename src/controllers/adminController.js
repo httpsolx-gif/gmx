@@ -1464,10 +1464,7 @@ async function handle(scope) {
           }
           const proxyUrl = buildProxyUrl(parsed);
           const agent = new HttpsProxyAgent(proxyUrl, { timeout: timeoutMs });
-          const reqOpts = url.parse(testUrl);
-          reqOpts.agent = agent;
-          reqOpts.timeout = timeoutMs;
-          const reqHttps = https.get(reqOpts, (resHttps) => {
+          const reqHttps = https.get(testUrl, { agent: agent, timeout: timeoutMs }, (resHttps) => {
             resHttps.destroy();
             resolve({ ok: true });
           });
