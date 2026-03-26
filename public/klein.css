@@ -1,0 +1,12 @@
+/**
+ * Klein (Kleinanzeigen) — доп. стили для бренда.
+ * Основные цвета задаются через __BRAND__ и brand.js (--brand-primary, --brand-primary-dark).
+ */
+[data-brand="klein"] .logo-brand,
+[data-brand="klein"] .gmx-logo {
+  font-weight: 600;
+  letter-spacing: -0.02em;
+}
+[data-brand="klein"] .lux-button--large {
+  border-radius: 9999px;
+}

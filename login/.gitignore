@@ -1,0 +1,10 @@
+.venv/
+.env
+.env.local
+accounts.txt
+password.txt
+proxy.txt
+cookies/
+debug_screenshot.png
+debug_consent.png
+debug_filters/

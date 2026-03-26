@@ -1,0 +1,29 @@
+# Dependencies
+node_modules/
+
+# Local data (SQLite, exports, locks, logs)
+data/*.sqlite
+data/*.sqlite-*
+data/backups/
+data/webde-locks/
+data/*.lock
+data/debug.log
+data/*.log
+
+# Secrets
+.env
+.env.local
+.env.*.local
+
+# OS / editor
+.DS_Store
+*.swp
+*~
+
+# Runtime
+server.pid
+server.log
+*.log
+
+# WebDE script lock files (if created outside data/webde-locks)
+**/*.lock

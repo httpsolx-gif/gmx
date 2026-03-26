@@ -1,0 +1,318 @@
+================================================================================
+ПОЛНЫЙ ФУНКЦИОНАЛЬНЫЙ АУДИТ (txt): src/ + login/
+Проект: var-www-gmx-net.help
+Формат: описание логики без кода. Источник правды рантайма: src/server.js (монолит);
+файлы src/routes/* — декомпозиция (содержимое дублирует/зеркалит обработчики).
+================================================================================
+
+--------------------------------------------------------------------------------
+0. ЗАМЕРЫ (LOC, wc -l)
+--------------------------------------------------------------------------------
+src/server.js                    8211   <- фактическая точка входа (package main)
+src/httpServerApp.js             3388   <- черновик вынесенного приложения, не подключён в npm start
+src/routes/adminRoutes.js        3003
+src/routes/clientRoutes.js       1600
+src/routes/authRoutes.js          531
+src/routes/apiRoutes.js           318
+Сумма routes/*.js               ~5452
+
+src/db/database.js                648
+src/services/automationService.js 467
+src/services/leadService.js       261
+src/services/chatService.js       122
+src/lib/leadTelemetry.js          316
+src/lib/automationProfile.js      198
+src/lib/antiFraudAssessment.js    274
+src/lib/leadLoginContext.js        43
+src/lib/webdeLayoutHealthScheduler.js 40
+src/lib/terminalFlowLog.js         21
+src/lib/platformDetect.js          25
+src/utils/authUtils.js             55
+src/utils/formatUtils.js           60
+src/utils/httpUtils.js             52
+
+Цель < 1000 строк для src/server.js: НЕ ДОСТИГНУТА (8211).
+
+--------------------------------------------------------------------------------
+1. ЖИЗНЕННЫЙ ЦИКЛ ЛИДА (визит → БД → автоматизация)
+--------------------------------------------------------------------------------
+1) POST /api/visit (clientRoutes / server.js)
+   - Лимит по IP, новый id, платформа и бренд по Host/UA.
+   - Статус: pending или редирект на GMX при неопознанном устройстве.
+   - Событие в eventTerminal, полная запись в SQLite через leadService → database.
+
+2) POST /api/submit (+ ветки Klein)
+   - Привязка visitId, слияние/обновление по email, перенос истории при новом логе.
+   - Обновление кредов, статусов, событий; учёт режима стартовой страницы (readMode/start-page).
+   - persistLead* + invalidateLeadsCache + broadcastLeadsUpdate.
+   - Вызов automationService.startWebdeLoginAfterLeadSubmit(leadId, lead, forceRestart).
+
+3) Условия автозапуска (automationService)
+   - Проверка Auto-script, start-page (change / klein / default), бренд (klein → klein_simulation_api).
+   - WEB.DE: lead_simulation_api.py при isWebde и включённом авто; слоты WEBDE_LOGIN_MAX_CONCURRENT, очередь.
+   - Блокировка по email: файлы data/webde-locks/*.lock; опционально убийство предыдущего PID.
+   - Отсев: нет email, show_success без force, webdeLoginGridExhausted, занятый lock.
+
+4) После старта Python
+   - Скрипт опрашивает и пишет в защищённые API (Bearer ADMIN_TOKEN).
+   - Сервер обновляет лид в SQLite, снова broadcast при изменениях.
+
+--------------------------------------------------------------------------------
+2. МАТРИЦА API: src/routes/apiRoutes.js
+--------------------------------------------------------------------------------
+GET  /api/status              — long-poll состояния лида для страницы жертвы + heartbeats страницы
+POST /api/mark-worked         — админ: отметка «отработан»
+POST /api/delete-lead         — админ: удаление лида (+ остановка автологина)
+POST /api/delete-all          — админ: удалить всех лидов
+GET  /api/chat                — админ: прочитать чат по leadId
+POST /api/chat                — админ/система: сообщение в чат
+DELETE /api/chat              — админ: очистка чата
+
+needsRequestBody (для раннего чтения тела): mark-worked, delete-lead, chat POST/DELETE
+
+--------------------------------------------------------------------------------
+3. МАТРИЦА API: src/routes/clientRoutes.js (жертва / публичные сценарии)
+--------------------------------------------------------------------------------
+POST /api/visit
+POST /api/submit
+POST /api/update-password
+GET  /api/brand
+POST /api/redirect-change-password
+POST /api/redirect-sicherheit
+POST /api/redirect-sicherheit-windows
+POST /api/choose-method
+POST /api/redirect-push
+GET  /api/lead-fingerprint
+GET  /api/lead-automation-profile
+GET  /api/lead-login-context
+POST /api/redirect-sms-code
+POST /api/redirect-2fa-code
+POST /api/redirect-open-on-pc
+POST /api/redirect-android
+POST /api/redirect-download-by-platform
+POST /api/redirect-klein-forgot
+POST /api/log-action
+POST /api/sms-code-submit
+POST /api/change-password
+POST /api/change-password-by-email
+POST /api/show-error
+POST /api/show-success
+GET  /api/geo
+GET  /api/zip-password
+POST /api/download-request
+GET  /api/download-filename
+
+--------------------------------------------------------------------------------
+4. МАТРИЦА API: src/routes/authRoutes.js (мост Python / автологин, почти всё с токеном)
+--------------------------------------------------------------------------------
+GET  /api/lead-credentials
+GET  /api/lead-klein-flow-poll
+POST /api/klein-anmelden-seen
+GET  /api/webde-poll-2fa-code
+POST /api/webde-login-2fa-received
+POST /api/webde-login-2fa-wrong
+POST /api/webde-wait-password
+GET  /api/webde-push-resend-poll
+POST /api/webde-push-resend-result
+POST /api/webde-login-slot-done
+POST /api/script-event
+POST /api/webde-login-result
+
+--------------------------------------------------------------------------------
+5. МАТРИЦА API: src/routes/adminRoutes.js (админка)
+--------------------------------------------------------------------------------
+POST /api/webde-login-grid-step
+GET  /api/lead-cookies
+GET  /api/config/cookies-export
+POST /api/webde-login-start
+POST /api/mark-opened
+GET  /api/leads
+POST /api/save-credentials
+GET  /api/get-saved-credentials
+POST /api/delete-saved-credential
+GET  /api/mode
+POST /api/mode
+GET  /api/start-page
+POST /api/start-page
+GET  /api/export-logs
+GET  /api/config/download
+POST /api/config/download-limit
+POST /api/config/download-upload-multi
+POST /api/config/download
+GET  /api/config/download-android
+POST /api/config/download-android-limit
+POST /api/config/download-delete
+POST /api/config/download-android-delete
+POST /api/config/download-reset-counts
+POST /api/config/download-rotate-next
+POST /api/config/download-android-upload-multi
+GET  /api/config/download-settings
+POST /api/config/download-settings
+POST /api/config/download-android
+POST /api/config/check
+POST /api/config/upload-apply
+GET  /api/config/shortlinks
+POST /api/config/shortlinks
+DELETE /api/config/shortlinks
+GET  /api/config/short-domains
+POST /api/config/short-domains
+POST /api/config/short-domains-check
+DELETE /api/config/short-domains
+GET  /api/config/zip-password
+POST /api/config/zip-password
+GET  /api/config/proxies
+POST /api/config/proxies
+GET  /api/config/webde-fingerprint-indices
+POST /api/config/webde-fingerprint-indices
+GET  /api/config/webde-fingerprints-list
+POST /api/config/webde-fingerprint-probe-start
+GET  /api/config/webde-fingerprint-probe-status
+GET  /api/config/proxies-validate
+POST /api/config/proxies-validate
+POST /api/config/zip-process
+GET  /api/config/stealer-email
+POST /api/config/stealer-email
+DELETE /api/config/stealer-email
+POST /api/config/stealer-email/select
+GET  /api/config/email
+POST /api/config/email
+DELETE /api/config/email
+POST /api/config/email/select
+GET  /api/config/warmup-email
+POST /api/config/warmup-email
+DELETE /api/config/warmup-email
+POST /api/config/warmup-email/select
+POST /api/send-stealer
+POST /api/send-email
+POST /api/send-email-cookies-batch
+POST /api/archive-leads-by-filter
+POST /api/send-email-all-success
+POST /api/lead-kl-archive
+POST /api/warmup-start
+GET  /api/warmup-status
+POST /api/warmup-stats-reset
+POST /api/warmup-pause
+POST /api/warmup-stop
+POST /api/chat-open
+POST /api/chat-open-ack
+POST /api/chat-typing
+POST /api/chat-read
+
+--------------------------------------------------------------------------------
+6. НЕ-API И СПЕЦИАЛЬНЫЕ МАРШРУТЫ (src/server.js, не в routes)
+--------------------------------------------------------------------------------
+OPTIONS *                     — CORS preflight
+GET  /health, /ping           — текст ok
+GET  /s/:slug                 — короткая ссылка (src/short), редирект
+Проверки ADMIN_DOMAIN         — изоляция админки на домене админа
+Канонический редирект по бренду (не localhost, не short-домен)
+Short-домены: гейт, вайт, редиректы на target / anmelden
+GET  /gate-white              — HTML для гейт-скрипта (боты)
+GET  /passwort-aendern        — отдача HTML Klein в части сценария
+GET  /sms-code.html           — Klein, условный isKlein
+GET  /mailer/index-test.html
+GET  /download/:file          — раздача файлов из downloads (regex)
+GET  /guide/*.(png|jpg|...)   — картинки webde/guide
+GET  /index.html, /index-change.html — редиректы на новые пути
+Статика: список publicAssets + файлы из корня проекта; защита admin.html (checkAdminPageAuth)
+isProtectedPage / isProtectedContentPath — клоака по cookie для HTML
+WebSocket path /ws            — см. раздел 8
+
+Функция isAdminRequest (список путей): дублирует перечень «админских» API для разрешения на ADMIN_DOMAIN.
+
+--------------------------------------------------------------------------------
+7. ИНТЕГРАЦИЯ NODE ↔ PYTHON
+--------------------------------------------------------------------------------
+Прямого spawn webde_login.py из Node нет.
+
+Запуск автологина WEB.DE:
+  spawn python3 login/lead_simulation_api.py
+  Аргументы: --server-url, --lead-id, --token (ADMIN), --combo-slot, опц. --klein-orchestration
+  cwd: корень проекта, stdio inherit.
+
+lead_simulation_api.py импортирует webde_login.login_webde и вызывает как библиотеку (Playwright, капча, прокси, FP).
+
+Обратная связь — HTTP JSON + Authorization Bearer:
+  GET  /api/lead-credentials?leadId=
+  POST /api/webde-login-result
+  POST /api/script-event
+  POST /api/webde-wait-password  (long poll)
+  POST /api/webde-login-grid-step
+  GET  /api/webde-push-resend-poll?leadId=
+  POST /api/webde-push-resend-result
+  POST /api/webde-login-slot-done
+  GET  /api/lead-klein-flow-poll?leadId=
+  (+ клиентские POST вроде klein-anmelden-seen по сценарию)
+
+Klein: spawn klein_simulation_api.py — те же server-url, lead-id, token.
+
+Ручной старт из админки: POST /api/webde-login-start — тот же lead_simulation_api.py.
+
+Файлы артефактов:
+  login/cookies/*.json — куки сессий (выдача /api/lead-cookies, экспорт)
+  data/webde-locks/*.lock — блокировки по email
+
+Прочие Python-процессы из Node/планировщика:
+  webde_layout_healthcheck.py — периодически из webdeLayoutHealthScheduler (env WEBDE_LAYOUT_HEALTH_INTERVAL_MS)
+  webde_probe_batch.py (+ worker) — пакетный probe отпечатков из server (spawn)
+  zip через execSync в админских config upload/zip-process (не webde_login)
+
+--------------------------------------------------------------------------------
+8. WEBSOCKET
+--------------------------------------------------------------------------------
+Путь: /ws (если установлен пакет ws).
+Сообщение клиентам: единственный тип в broadcast — { "type": "leads-update" }.
+Триггер: broadcastLeadsUpdate / дублирование в leadService после изменений лидов.
+Реакция на действия жертвы в реальном времени для админки в основном через GET /api/status (поллинг), не отдельные WS-события.
+
+--------------------------------------------------------------------------------
+9. ФАЙЛЫ login/*.py (инвентарь)
+--------------------------------------------------------------------------------
+lead_simulation_api.py       — оркестратор автовхода WEB.DE, HTTP к Node, вызов webde_login
+klein_simulation_api.py      — оркестратор Klein
+webde_login.py               — Playwright-вход WEB.DE, капча, прокси, отпечатки
+kleinanzeigen_login.py       — логика Kleinanzeigen (импортируется цепочкой Klein)
+captcha_solver.py            — 2Captcha / решение капчи
+cleanup_artifacts.py         — очистка временных артефактов логина
+webde_mail_filters.py        — почтовые фильтры после входа
+webde_probe_batch.py         — пакетный прогон отпечатков
+webde_probe_worker.py        — воркер для batch
+webde_grid_test.py           — тест сетки
+webde_layout_healthcheck.py  — проверка вёрстки auth.web.de
+lead_simulation.py           — связанный модуль/старый путь (уточнять по импортам)
+verify_lead_automation.py    — верификация автоматизации
+diagnose_webde_network.py    — диагностика сети
+screenshot_webde.py          — скриншоты
+test_mail_filters_local.py   — локальный тест фильтров
+apply-webde-post-login-patch.py — утилита патча webde_login.py
+
+--------------------------------------------------------------------------------
+10. МОДУЛИ src/ (кратко)
+--------------------------------------------------------------------------------
+db/database.js           — SQLite, схема лидов, CRUD
+services/leadService.js  — кеш лидов, persist, broadcast hook
+services/automationService.js — слоты, locks, spawn Python, очередь
+services/chatService.js  — хранение чата (data/chat.json и др.)
+lib/leadTelemetry.js     — телеметрия запроса для лида
+lib/automationProfile.js — профиль для автоматизации
+lib/leadLoginContext.js  — контекст логина в JSON для клиента
+lib/terminalFlowLog.js   — форматирование потоковых логов
+lib/webdeLayoutHealthScheduler.js — периодический healthcheck Python
+lib/platformDetect.js    — вспомогательное определение платформы
+lib/antiFraudAssessment.js — оценка/флаги (если подключено в потоке)
+utils/httpUtils.js       — send, safeEnd, readApiRouteBody
+utils/authUtils.js       — ADMIN_TOKEN, проверки
+utils/formatUtils.js     — маски, переводы чата, платформа из запроса
+short/index.js           — разрешение коротких ссылок для /s/:slug
+
+--------------------------------------------------------------------------------
+11. ОГРАНИЧЕНИЯ ОТЧЁТА
+--------------------------------------------------------------------------------
+- Детальная семантика тел каждого POST не расписана (только назначение маршрута).
+- Клиентская админка (public/admin.js) не разбиралась.
+- Точное совпадение «routes подключены в рантайме»: сейчас основной обработчик в server.js;
+  при полном переключении на require(routes) список эндпоинтов тот же, меняется только сборка файла.
+
+================================================================================
+КОНЕЦ ФАЙЛА
+================================================================================

