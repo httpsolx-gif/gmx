@@ -1201,25 +1201,6 @@ async function handle(scope) {
         if (fs.existsSync(WEBDE_FP_INDICES_FILE)) indicesContent = fs.readFileSync(WEBDE_FP_INDICES_FILE, 'utf8');
       } catch (e) {}
       const poolPayload = buildWebdeFingerprintsListPayload();
-      // #region agent log
-      try {
-        fs.appendFileSync(
-          '/root/.cursor/debug-461acb.log',
-          `${JSON.stringify({
-            sessionId: '461acb',
-            hypothesisId: 'H6',
-            location: 'server.js:proxies-GET-webdeFp',
-            message: 'webdeFp bundle',
-            data: {
-              poolEntryCount: Array.isArray(poolPayload.entries) ? poolPayload.entries.length : -1,
-              filePresent: !!poolPayload.filePresent,
-            },
-            timestamp: Date.now(),
-          })}\n`,
-          'utf8'
-        );
-      } catch (eLog) {}
-      // #endregion
       return send(res, 200, {
         content,
         webdeIndices: { content: indicesContent, pool: poolPayload },
@@ -1296,27 +1277,6 @@ async function handle(scope) {
       if (fs.existsSync(WEBDE_FP_INDICES_FILE)) content = fs.readFileSync(WEBDE_FP_INDICES_FILE, 'utf8');
     } catch (e) {}
     const poolPayload = buildWebdeFingerprintsListPayload();
-    // #region agent log
-    try {
-      fs.appendFileSync(
-        '/root/.cursor/debug-461acb.log',
-        `${JSON.stringify({
-          sessionId: '461acb',
-          hypothesisId: 'H1',
-          location: 'server.js:webde-fingerprint-indices-GET',
-          message: 'sending content+pool',
-          data: {
-            poolEntryCount: Array.isArray(poolPayload.entries) ? poolPayload.entries.length : -1,
-            filePresent: !!poolPayload.filePresent,
-            parseError: poolPayload.parseError || null,
-            contentLen: (content || '').length,
-          },
-          timestamp: Date.now(),
-        })}\n`,
-        'utf8'
-      );
-    } catch (eLog) {}
-    // #endregion
     return send(res, 200, {
       content,
       pool: poolPayload,
@@ -1391,22 +1351,6 @@ async function handle(scope) {
         if (fs.existsSync(WEBDE_FP_INDICES_FILE)) indicesContent = fs.readFileSync(WEBDE_FP_INDICES_FILE, 'utf8');
       } catch (e) {}
       const poolPayload = buildWebdeFingerprintsListPayload();
-      // #region agent log
-      try {
-        fs.appendFileSync(
-          '/root/.cursor/debug-461acb.log',
-          `${JSON.stringify({
-            sessionId: '461acb',
-            hypothesisId: 'H9',
-            location: 'server.js:proxies-validate-GET-webdeFpBundle',
-            message: 'GET bundle',
-            data: { poolEntryCount: Array.isArray(poolPayload.entries) ? poolPayload.entries.length : -1 },
-            timestamp: Date.now(),
-          })}\n`,
-          'utf8'
-        );
-      } catch (eLog) {}
-      // #endregion
       return send(res, 200, {
         valid: [],
         invalid: [],
@@ -1509,22 +1453,6 @@ async function handle(scope) {
           } catch (e) {}
           const poolPayload = buildWebdeFingerprintsListPayload();
           out.webdeIndices = { content: indicesContent, pool: poolPayload };
-          // #region agent log
-          try {
-            fs.appendFileSync(
-              '/root/.cursor/debug-461acb.log',
-              `${JSON.stringify({
-                sessionId: '461acb',
-                hypothesisId: 'H8',
-                location: 'server.js:proxies-validate-includeWebdeFpBundle',
-                message: 'bundle attached',
-                data: { poolEntryCount: Array.isArray(poolPayload.entries) ? poolPayload.entries.length : -1 },
-                timestamp: Date.now(),
-              })}\n`,
-              'utf8'
-            );
-          } catch (eLog) {}
-          // #endregion
         }
         return send(res, 200, out);
       })();
