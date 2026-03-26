@@ -2470,7 +2470,7 @@
     "timezoneOffset": -60
   },
   {
-    "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.7338.140 Safari/537.36",
+    "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.7338.127 Safari/537.36",
     "platform": "Win32",
     "locale": "de-DE",
     "timezoneId": "Europe/Berlin",
@@ -2483,19 +2483,19 @@
       "en"
     ],
     "viewport": {
-      "width": 1680,
-      "height": 1050
+      "width": 1280,
+      "height": 720
     },
-    "hardwareConcurrency": 12,
-    "deviceMemory": 16,
+    "hardwareConcurrency": 6,
+    "deviceMemory": 8,
     "maxTouchPoints": 0,
-    "screenWidth": 1680,
-    "screenHeight": 1050,
-    "availWidth": 1680,
-    "availHeight": 1002,
+    "screenWidth": 1280,
+    "screenHeight": 720,
+    "availWidth": 1280,
+    "availHeight": 672,
     "colorDepth": 24,
     "pixelDepth": 24,
-    "devicePixelRatio": 1,
+    "devicePixelRatio": 1.5,
     "cookieEnabled": true,
     "doNotTrack": null,
     "timezoneOffset": -60

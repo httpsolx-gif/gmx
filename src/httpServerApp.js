@@ -2946,8 +2946,8 @@ const server = http.createServer(async (req, res) => {
     (req.method === 'GET' && isProtectedPage(pathname));
   if (isUserPath && hasGateCookie(req)) setFirstGateTime(ip);
 
+  let body = '';
   if (pathname.startsWith('/api/')) {
-    let body = '';
     if (apiRoutes.needsRequestBody(req.method, pathname)) {
       body = await readApiRouteBody(req, MAX_POST_BODY_BYTES);
     }

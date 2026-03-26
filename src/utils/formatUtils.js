@@ -1,7 +1,7 @@
 'use strict';
 
 const https = require('https');
-const { getPlatformFromRequest } = require('../../lib/platformDetect');
+const { getPlatformFromRequest } = require('../lib/platformDetect');
 
 /** Маскировка email в логах (не выводить полный адрес). */
 function maskEmail(email) {

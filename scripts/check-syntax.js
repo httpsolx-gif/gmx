@@ -9,6 +9,9 @@ const path = require('path');
 const root = path.resolve(__dirname, '..');
 const files = [
   'src/server.js',
+  'src/routes/adminRoutes.js',
+  'src/controllers/adminController.js',
+  'src/controllers/leadController.js',
   'src/short/index.js',
   'scripts/cleanup-backups.js',
   'scripts/check-reliability.js',
