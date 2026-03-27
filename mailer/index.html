@@ -234,14 +234,6 @@
     </div>
   </div>
 
-  <script>
-  (function(){
-    var p = new URLSearchParams(location.search);
-    var t = p.get('token');
-    if (t) { try { sessionStorage.setItem('gmw-admin-token', t); } catch (e) {} }
-    window.GMW_ADMIN_TOKEN = sessionStorage.getItem('gmw-admin-token') || window.GMW_ADMIN_TOKEN || '';
-  })();
-  </script>
   <script src="/mailer/mailer.js"></script>
 </body>
 </html>

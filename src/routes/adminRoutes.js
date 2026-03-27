@@ -1,5 +1,6 @@
 'use strict';
 
+const authController = require('../controllers/authController');
 const adminController = require('../controllers/adminController');
 const leadController = require('../controllers/leadController');
 
@@ -23,9 +24,10 @@ async function handleRoute(req, res, parsedUrl, body, d) {
     method: req.method,
     body,
   });
+  if (await authController.handle(scope)) return true;
   if (await adminController.handle(scope)) return true;
   if (await leadController.handle(scope)) return true;
   return false;
 }
 
-module.exports = { handleRoute, normalizePathname };
+module.exports = { handleRoute };

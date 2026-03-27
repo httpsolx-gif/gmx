@@ -5,7 +5,6 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 FILES = [
     ROOT / "src" / "routes" / "clientRoutes.js",
-    ROOT / "src" / "routes" / "authRoutes.js",
     ROOT / "src" / "routes" / "adminRoutes.js",
 ]
 

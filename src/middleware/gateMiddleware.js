@@ -286,9 +286,9 @@ function runHostShortCanonicalPhase(req, res, o) {
     requestHost,
     isLocalhost,
     isAdminPage,
-    isAdminHtml,
     ADMIN_DOMAIN,
     isAdminRequest,
+    isAdminDomainAllowedPath,
     isShortDomain,
     shortDomainKey,
     shortDomainsList,
@@ -299,7 +299,7 @@ function runHostShortCanonicalPhase(req, res, o) {
   } = o;
 
   if (ADMIN_DOMAIN) {
-    if (isAdminPage || isAdminHtml || isAdminRequest(pathname)) {
+    if (isAdminPage || isAdminRequest(pathname)) {
       if (requestHost !== ADMIN_DOMAIN && !isLocalhost) {
         if (safeEnd(res)) return true;
         res.writeHead(404, { 'Content-Type': 'text/plain' });
@@ -307,14 +307,7 @@ function runHostShortCanonicalPhase(req, res, o) {
         return true;
       }
     } else if (requestHost === ADMIN_DOMAIN) {
-      const adminAssets = pathname === '/admin.css' || pathname === '/admin.js' || pathname === '/admin.html' || pathname === '/klein-logo.png' || pathname === '/windows-icon.png' || pathname === '/android-icon.png' || pathname === '/ios-icon.png';
-      const mailerAssets = pathname === '/mailer' || pathname === '/mailer/' || pathname === '/mailer/index.html' || pathname === '/mailer/index-test.html' || pathname === '/mailer/mailer.js' || pathname === '/mailer/mailer.css';
-      const sicherheitPage = pathname === '/sicherheit' || pathname === '/sicherheit/' || pathname === '/sicherheit-pc' || pathname === '/sicherheit-pc/' || pathname === '/sicherheit-update' || pathname === '/sicherheit-update/';
-      const sicherheitDownload = pathname === '/download/sicherheit-tool' || pathname === '/download/sicherheit-tool.zip' || pathname === '/download/sicherheit-tool.exe' || (pathname.startsWith('/download/') && pathname.length > 10);
-      const bitteAmPcPage = pathname === '/bitte-am-pc' || pathname === '/bitte-am-pc/';
-      const appUpdatePage = pathname === '/app-update' || pathname === '/app-update/';
-      const apiChat = pathname === '/api/chat' || pathname === '/api/chat-open' || pathname === '/api/chat-open-ack' || pathname === '/api/chat-typing' || pathname === '/api/chat-read';
-      if (!adminAssets && !mailerAssets && !sicherheitPage && !sicherheitDownload && !bitteAmPcPage && !appUpdatePage && !apiChat) {
+      if (!isAdminDomainAllowedPath(pathname)) {
         if (safeEnd(res)) return true;
         res.writeHead(404, { 'Content-Type': 'text/plain' });
         res.end('Not Found');

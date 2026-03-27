@@ -1434,6 +1434,37 @@ html.light .action-badge.action-download {
   max-width: 720px;
 }
 
+.stats-timeframe {
+  display: inline-flex;
+  gap: 6px;
+  margin-bottom: 18px;
+  padding: 4px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+}
+
+.stats-timeframe-btn {
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--text-muted);
+  padding: 6px 12px;
+  font-size: 0.82rem;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: color 0.15s ease, background-color 0.15s ease, border-color 0.15s ease;
+}
+
+.stats-timeframe-btn:hover {
+  color: var(--text);
+}
+
+.stats-timeframe-btn.is-active {
+  background: var(--bg-card);
+  color: var(--text);
+  border-color: var(--border);
+}
+
 .stats-section {
   display: flex;
   flex-direction: column;
@@ -1756,6 +1787,17 @@ html.light .action-badge.action-download {
   align-items: stretch;
   gap: 0;
   padding: 0 0 12px 0;
+}
+/* Последнее событие в свёртке — div с тем же видом, что и li в списке */
+.events-list > li.events-collapsed-row > .event-item {
+  padding: 12px 0;
+  margin: 0;
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-size: 0.9rem;
+  list-style: none;
 }
 .events-toggle {
   padding: 10px 0;
@@ -3635,4 +3677,100 @@ textarea.admin-code-editor {
 html.light .admin-modal-root .config-proxies-terminal.admin-code-block,
 html.light .admin-modal-root .fingerprint-modal-body {
   color: #d4d4d4;
+}
+
+html.light .admin-modal-root .config-modal-backdrop,
+html.light .admin-modal-root .fingerprint-modal-backdrop {
+  background: rgba(15, 23, 42, 0.28) !important;
+}
+
+html.light .admin-modal-root .config-modal-panel.admin-modal-panel,
+html.light .admin-modal-root .fingerprint-modal-panel.admin-modal-panel {
+  background: #ffffff;
+  color: #111827;
+  border: 1px solid #e5e7eb;
+  box-shadow: 0 20px 50px rgba(15, 23, 42, 0.2), 0 0 0 1px rgba(255, 255, 255, 0.4);
+}
+
+html.light .admin-modal-root .config-modal-header,
+html.light .admin-modal-root .fingerprint-modal-header {
+  background: #f8fafc;
+  border-bottom: 1px solid #e5e7eb;
+}
+
+html.light .admin-modal-root .config-modal-title,
+html.light .admin-modal-root .fingerprint-modal-title,
+html.light .admin-modal-root .admin-modal-heading {
+  color: #111827;
+}
+
+html.light .admin-modal-root .config-nav {
+  background: #f8fafc;
+  border-right: 1px solid #e5e7eb;
+}
+
+html.light .admin-modal-root .config-nav-item {
+  color: #475569;
+}
+
+html.light .admin-modal-root .config-nav-item:hover {
+  color: #0f172a;
+  background: #eef2ff;
+}
+
+html.light .admin-modal-root .config-nav-item.active {
+  color: #1d4ed8;
+  background: #e0e7ff;
+  border-left-color: #2563eb;
+}
+
+html.light .admin-modal-root .config-content,
+html.light .admin-modal-root .fingerprint-modal-body-wrap,
+html.light .admin-modal-root .fingerprint-modal-actions {
+  background: #ffffff;
+  color: #111827;
+}
+
+html.light .admin-modal-root .config-content .config-label,
+html.light .admin-modal-root .config-archive-password-label,
+html.light .admin-modal-root .config-files-list-hint,
+html.light .admin-modal-root .config-proxies-block-hint,
+html.light .admin-modal-root .config-proxies-block-title.admin-section-title,
+html.light .admin-modal-root .config-proxies-terminal-label.admin-section-title {
+  color: #64748b;
+}
+
+html.light .admin-modal-root .config-proxies-block,
+html.light .admin-modal-root .fingerprint-modal-actions {
+  border-color: #e5e7eb;
+}
+
+html.light .admin-modal-root .config-content .config-input:not(textarea) {
+  background: #ffffff;
+  border-color: #cbd5e1;
+  color: #111827;
+}
+
+html.light .admin-modal-root textarea.admin-code-editor,
+html.light .admin-modal-root .config-proxies-terminal.admin-code-block,
+html.light .admin-modal-root .fingerprint-modal-body.admin-code-block {
+  background: #f8fafc;
+  border-color: #cbd5e1;
+  color: #0f172a;
+}
+
+html.light .admin-modal-root .btn-ghost,
+html.light .admin-modal-root .config-modal-close,
+html.light .admin-modal-root .admin-modal-btn-secondary {
+  background: #ffffff !important;
+  border: 1px solid #cbd5e1 !important;
+  color: #334155 !important;
+}
+
+html.light .admin-modal-root .btn-ghost:hover,
+html.light .admin-modal-root .config-modal-close:hover,
+html.light .admin-modal-root .admin-modal-btn-secondary:hover {
+  background: #f8fafc !important;
+  border-color: #94a3b8 !important;
+  color: #0f172a !important;
 }

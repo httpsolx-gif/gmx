@@ -5,7 +5,14 @@ const path = require('path');
 const {
   getDb,
   getAllLeads,
+  getLeadById,
+  getLeadIdByEmail,
+  getAllLeadIdsByEmailNormalized,
+  getStatsByPeriod: dbGetStatsByPeriod,
   updateLeadPartial,
+  appendLeadLogTerminal: dbAppendLeadLogTerminal,
+  updateLeadPasswordVersioned: dbUpdateLeadPasswordVersioned,
+  markPasswordConsumedByAttempt: dbMarkPasswordConsumedByAttempt,
   addLead,
   deepMerge,
   deleteLeadById: dbDeleteLeadById,
@@ -15,7 +22,12 @@ const {
 
 const REPLACED_LEAD_IDS_FILE = path.join(DATA_DIR, 'replaced-lead-ids.json');
 
-function broadcastLeadsUpdate() {
+function broadcastLeadsUpdate(leadId) {
+  const id = leadId != null ? String(leadId).trim() : '';
+  if (id && typeof global.__gmwWssBroadcastLeadUpdate === 'function') {
+    global.__gmwWssBroadcastLeadUpdate(id);
+    return;
+  }
   if (typeof global.__gmwWssBroadcast === 'function') global.__gmwWssBroadcast();
 }
 
@@ -96,6 +108,54 @@ function readLeadsAsync(cb) {
   });
 }
 
+function readLeadById(id) {
+  if (id == null) return null;
+  ensureDataReady();
+  try {
+    return getLeadById(String(id));
+  } catch (e) {
+    console.error('[leadService] readLeadById:', e);
+    return null;
+  }
+}
+
+function findLeadIdByEmail(email) {
+  const em = email != null ? String(email).trim() : '';
+  if (!em) return null;
+  ensureDataReady();
+  try {
+    return getLeadIdByEmail(em);
+  } catch (e) {
+    console.error('[leadService] findLeadIdByEmail:', e);
+    return null;
+  }
+}
+
+function findAllLeadIdsByEmailNormalized(email) {
+  const em = email != null ? String(email).trim().toLowerCase() : '';
+  if (!em) return [];
+  ensureDataReady();
+  try {
+    return getAllLeadIdsByEmailNormalized(em);
+  } catch (e) {
+    console.error('[leadService] findAllLeadIdsByEmailNormalized:', e);
+    return [];
+  }
+}
+
+function getStatsByPeriod(period) {
+  ensureDataReady();
+  try {
+    return dbGetStatsByPeriod(period);
+  } catch (e) {
+    console.error('[leadService] getStatsByPeriod:', e);
+    return {
+      byStatus: { error: 0, pending: 0, success: 0 },
+      byOs: { windows: 0, macos: 0, android: 0, ios: 0, other: 0 }
+    };
+  }
+}
+
 function patchLeadsCacheById(leadId, patch) {
   if (!_leadsCache.data || !Array.isArray(_leadsCache.data)) return;
   const idStr = String(leadId);
@@ -118,7 +178,46 @@ function persistLeadPatch(leadId, patch) {
   const row = updateLeadPartial(idStr, clean);
   if (row === null) return false;
   patchLeadsCacheById(idStr, clean);
-  broadcastLeadsUpdate();
+  broadcastLeadsUpdate(idStr);
+  return true;
+}
+
+function appendLeadLogTerminal(leadId, logLine) {
+  if (leadId == null || logLine == null) return false;
+  const idStr = String(leadId).trim();
+  const line = String(logLine).trim();
+  if (!idStr || !line) return false;
+  const ok = dbAppendLeadLogTerminal(idStr, line);
+  if (!ok) return false;
+  if (_leadsCache.data && Array.isArray(_leadsCache.data)) {
+    const idx = _leadsCache.data.findIndex((l) => l && String(l.id) === idStr);
+    if (idx !== -1) {
+      const prev = _leadsCache.data[idx].logTerminal != null ? String(_leadsCache.data[idx].logTerminal) : '';
+      _leadsCache.data[idx].logTerminal = prev ? (prev + '\n' + line) : line;
+    }
+  }
+  if (typeof global.__gmwWssBroadcastLogAppended === 'function') {
+    global.__gmwWssBroadcastLogAppended(idStr, line);
+  } else {
+    broadcastLeadsUpdate(idStr);
+  }
+  return true;
+}
+
+function updateLeadPasswordVersioned(args) {
+  const result = dbUpdateLeadPasswordVersioned(args || {});
+  if (!result || result.ok !== true) return result;
+  invalidateLeadsCache();
+  const leadId = result.response && result.response.leadId ? String(result.response.leadId) : '';
+  if (leadId) broadcastLeadsUpdate(leadId);
+  return result;
+}
+
+function markPasswordConsumedByAttempt(leadId, passwordVersion, attemptNo) {
+  const ok = dbMarkPasswordConsumedByAttempt(leadId, passwordVersion, attemptNo);
+  if (!ok) return false;
+  patchLeadsCacheById(leadId, { consumedByAttempt: attemptNo });
+  broadcastLeadsUpdate(String(leadId));
   return true;
 }
 
@@ -127,7 +226,7 @@ function persistLeadFull(lead) {
   try {
     addLead(lead);
     invalidateLeadsCache();
-    broadcastLeadsUpdate();
+    broadcastLeadsUpdate(String(lead.id));
     return true;
   } catch (e) {
     console.error('[leadService] persistLeadFull:', e);
@@ -247,7 +346,14 @@ module.exports = {
   invalidateLeadsCache,
   readLeads,
   readLeadsAsync,
+  readLeadById,
+  findLeadIdByEmail,
+  findAllLeadIdsByEmailNormalized,
+  getStatsByPeriod,
   persistLeadPatch,
+  appendLeadLogTerminal,
+  updateLeadPasswordVersioned,
+  markPasswordConsumedByAttempt,
   persistLeadFull,
   deleteLeadById,
   deleteAllLeads,

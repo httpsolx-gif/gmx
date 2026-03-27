@@ -1,20 +1,17 @@
-/**
- * GMW Admin — logic for admin.html (admin panel).
- * Token: ?token=... or sessionStorage['gmw-admin-token']. All requests use Authorization: Bearer <token>.
- */
+/** GMW Admin — logic for admin.html (admin panel). */
 (function () {
   'use strict';
 
-  var token = function () {
-    return window.GMW_ADMIN_TOKEN || '';
-  };
-
   function authFetch(url, options) {
     options = options || {};
-    var headers = options.headers || {};
-    if (token()) headers['Authorization'] = 'Bearer ' + token();
-    options.headers = headers;
-    return fetch(url, options);
+    options.headers = options.headers || {};
+    if (!options.credentials) options.credentials = 'same-origin';
+    return fetch(url, options).then(function (response) {
+      if (response && (response.status === 401 || response.status === 403)) {
+        window.location.href = '/admin-login';
+      }
+      return response;
+    });
   }
 
   function escapeHtml(s) {
@@ -22,6 +19,20 @@
     var div = document.createElement('div');
     div.textContent = s;
     return div.innerHTML;
+  }
+
+  /** Строка события в блоке Events (nodeName: 'li' в списке или 'div' внутри свёртки). */
+  function buildDetailEventNode(ev, isLatest, nodeName) {
+    var at = '';
+    if (ev.at) {
+      try { at = new Date(ev.at).toLocaleTimeString('ru-RU', { hour12: false }); } catch (_) {}
+    }
+    var row = document.createElement(nodeName || 'li');
+    row.className = 'event-item' + (isLatest ? ' event-item--latest' : '') + (ev.kind === 'log' ? ' ws-log-line' : '');
+    row.innerHTML = '<span class="event-time">' + escapeHtml(at) + '</span>' +
+      '<div class="event-main-col"><span class="event-text">→ ' + escapeHtml(ev.label || '') + '</span>' +
+      (ev.detail ? '<span class="event-detail">' + escapeHtml(ev.detail) + '</span>' : '') + '</div>';
+    return row;
   }
 
   /**
@@ -249,6 +260,8 @@
   var selectedId = null;
   var selectedIds = {};
   var lastViewedSnapshot = {};
+  /** Развёрнут ли блок Events «Показать предыдущие» для лида (ключ — String(id)). */
+  var detailEventsPastExpanded = {};
   var firstLoad = true;
   var pollInterval = null;
   var ws = null;
@@ -257,6 +270,7 @@
   var leadsPage = 1;
   var leadsTotal = 0;
   var leadsLimit = 50;
+  var statsPeriod = 'today';
   /** Отмена предыдущего GET /api/leads — иначе ответы приходят не по порядку (WS / poll) и сбрасывают страницу. */
   var leadsLoadAbort = null;
 
@@ -721,6 +735,82 @@
     updateBulkActions();
   }
 
+  function setItemStateClasses(item, lead) {
+    if (!item || !lead) return;
+    item.classList.toggle('active', leadIdsEqual(lead.id, selectedId));
+    item.classList.toggle('session-item--kl-archived', lead.klLogArchived === true);
+    item.classList.toggle('session-item--admin-archived', lead.adminLogArchived === true);
+    item.classList.toggle('session-item--worked', leadIsSidebarWorked(lead));
+  }
+
+  function updateLeadListItemInPlace(lead) {
+    if (!el.leadsList || !lead || lead.id == null) return false;
+    var item = Array.prototype.find.call(el.leadsList.querySelectorAll('.session-item'), function (n) {
+      return leadIdsEqual(n.getAttribute('data-id'), lead.id);
+    });
+    if (!item) return false;
+    setItemStateClasses(item, lead);
+    var statusDot = item.querySelector('.session-status, .session-status.danger');
+    if (statusDot) statusDot.className = statusClass(lead);
+    var badge = item.querySelector('.action-badge');
+    if (badge) {
+      var b = getBadgeClassAndLabel(lead);
+      badge.className = 'action-badge ' + b.cls;
+      badge.textContent = b.label;
+    }
+    var title = item.querySelector('.session-title');
+    if (title) title.textContent = (lead.email || lead.emailKl || '').trim() || '—';
+    var metaRow = item.querySelector('.session-meta-row');
+    if (metaRow) {
+      var oldChat = item.querySelector('.session-chat');
+      if (oldChat && oldChat.parentNode) oldChat.parentNode.removeChild(oldChat);
+      var chatCount = lead.chatCount != null ? lead.chatCount : 0;
+      if (chatCount > 0) {
+        var chatWrap = document.createElement('span');
+        chatWrap.className = 'session-chat';
+        chatWrap.title = 'Сообщений в чате';
+        chatWrap.innerHTML = '<svg class="session-chat-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/></svg><span class="session-chat-count">' + chatCount + '</span>';
+        metaRow.appendChild(chatWrap);
+      }
+    }
+    return true;
+  }
+
+  function applyLeadUpdateFromWs(lead) {
+    if (!lead || lead.id == null) return;
+    var id = normalizeLeadId(lead.id);
+    var idx = -1;
+    for (var i = 0; i < leads.length; i++) {
+      if (leadIdsEqual(leads[i] && leads[i].id, id)) { idx = i; break; }
+    }
+    if (idx === -1) {
+      leads.push(lead);
+      leadsTotal = Math.max(leadsTotal + 1, leads.length);
+      renderList();
+      renderPagination();
+    } else {
+      leads[idx] = lead;
+      if (!updateLeadListItemInPlace(lead)) renderList();
+    }
+    if (selectedId && leadIdsEqual(selectedId, id)) {
+      renderDetail();
+      loadAdminChat(true);
+    }
+    updateActivityBadge(getNewActivityCount(leads));
+  }
+
+  function appendTerminalLogLineFromWs(leadId, line) {
+    if (!leadId || !line) return;
+    for (var i = 0; i < leads.length; i++) {
+      if (!leadIdsEqual(leads[i] && leads[i].id, leadId)) continue;
+      var prev = leads[i].logTerminal != null ? String(leads[i].logTerminal) : '';
+      leads[i].logTerminal = prev ? (prev + '\n' + line) : line;
+      break;
+    }
+    if (!selectedId || !leadIdsEqual(selectedId, leadId) || !el.detailTerminal) return;
+    renderDetail();
+  }
+
   function updateBulkActions() {
     var bulkEl = document.getElementById('bulk-actions');
     if (!bulkEl) return;
@@ -771,9 +861,8 @@
     });
   }
 
-  var RENDER_DETAIL_EVENTS_CAP = 150;
-  /** Секция «прошлые EVENTS» развёрнута по клику «Ещё…»; состояние не сбрасывать при renderDetail / опросе (сворачивается только по «Свернуть»). Ключ — String(lead.id). */
-  var detailEventsPastExpanded = {};
+  // 0/Infinity = не обрезать журнал событий/логов.
+  var RENDER_DETAIL_EVENTS_CAP = Infinity;
   /** Порядок: WEB/GMX — Error Push SMS | Password PC Download | E-Mail Success Отработан (без Delete/Android в сетке); Klein — 3+3+3. */
   function reorderDetailActionButtons(brand) {
     var wrap = document.getElementById('detail-action-buttons');
@@ -1003,63 +1092,90 @@
 
     var terminal = el.detailTerminal;
     if (terminal) {
-      var events = lead.eventTerminal || [];
-      var reversed = events.slice().reverse();
-      var cap = RENDER_DETAIL_EVENTS_CAP;
-      var toRender = reversed.length > cap ? reversed.slice(0, cap) : reversed;
-      var totalCount = reversed.length;
-      var leadIdKey = lead && lead.id != null ? String(lead.id) : '';
-      terminal.innerHTML = '';
-      function formatEventRowHtml(ev) {
-        var at = ev.at ? new Date(ev.at).toLocaleTimeString('ru-RU', { hour12: false }) : '';
-        var det = ev.detail ? '<span class="event-detail">' + escapeHtml(ev.detail) + '</span>' : '';
-        return '<span class="event-time">' + escapeHtml(at) + '</span><div class="event-main-col"><span class="event-text">→ ' + escapeHtml(ev.label || '') + '</span>' + det + '</div>';
-      }
-      function moreEventsLabel(restCount, expanded) {
-        var tail = totalCount > cap ? ' (показаны последние ' + cap + ' из ' + totalCount + ')' : '';
-        var noun = restCount === 1 ? ' событие' : restCount < 5 ? ' события' : ' событий';
-        return expanded ? 'Свернуть' : ('Ещё ' + restCount + tail + noun);
-      }
-      if (toRender.length > 0) {
-        var first = document.createElement('li');
-        first.innerHTML = formatEventRowHtml(toRender[0]);
-        first.className = 'event-item event-item--latest';
-        terminal.appendChild(first);
-        if (totalCount > 1 && toRender.length > 1) {
-          var restCount = toRender.length - 1;
-          var row = document.createElement('li');
-          row.className = 'events-collapsed-row';
-          var wantExpanded = leadIdKey && detailEventsPastExpanded[leadIdKey] === true;
-          if (wantExpanded) row.classList.add('is-expanded');
-          var toggleBtn = document.createElement('button');
-          toggleBtn.type = 'button';
-          toggleBtn.className = 'events-toggle';
-          var innerList = document.createElement('ul');
-          innerList.className = 'events-list-past';
-          function syncToggleUi() {
-            var expanded = row.classList.contains('is-expanded');
-            innerList.setAttribute('aria-hidden', expanded ? 'false' : 'true');
-            toggleBtn.textContent = moreEventsLabel(restCount, expanded);
-          }
-          for (var j = 1; j < toRender.length; j++) {
-            var ev = toRender[j];
-            var atJ = ev.at ? new Date(ev.at).toLocaleTimeString('ru-RU', { hour12: false }) : '';
-            var liPast = document.createElement('li');
-            liPast.innerHTML = '<span class="event-time">' + escapeHtml(atJ) + '</span><span class="event-text">→ ' + escapeHtml(ev.label || '') + '</span>';
-            innerList.appendChild(liPast);
-          }
-          row.appendChild(toggleBtn);
-          row.appendChild(innerList);
-          syncToggleUi();
-          toggleBtn.addEventListener('click', function () {
-            row.classList.toggle('is-expanded');
-            if (leadIdKey) {
-              detailEventsPastExpanded[leadIdKey] = row.classList.contains('is-expanded');
-            }
-            syncToggleUi();
-          });
-          terminal.appendChild(row);
+      var events = Array.isArray(lead.eventTerminal) ? lead.eventTerminal : [];
+      var logLines = String(lead.logTerminal || '')
+        .split('\n')
+        .map(function (line) { return String(line || '').trim(); })
+        .filter(function (line) { return !!line; });
+      var merged = [];
+      events.forEach(function (ev, idx) {
+        var atMs = 0;
+        if (ev && ev.at) {
+          var t = Date.parse(ev.at);
+          if (Number.isFinite(t)) atMs = t;
         }
+        merged.push({
+          kind: 'event',
+          atMs: atMs,
+          idx: idx,
+          at: ev && ev.at ? ev.at : '',
+          label: ev && ev.label ? ev.label : '',
+          detail: ev && ev.detail ? ev.detail : ''
+        });
+      });
+      logLines.forEach(function (line, idx) {
+        var m = line.match(/^(\d{4}-\d{2}-\d{2}T[0-9:.+-]+Z?)\s+(.*)$/);
+        var iso = m && m[1] ? m[1] : '';
+        var text = m && m[2] ? m[2] : line;
+        var atMs = 0;
+        if (iso) {
+          var t = Date.parse(iso);
+          if (Number.isFinite(t)) atMs = t;
+        }
+        merged.push({
+          kind: 'log',
+          atMs: atMs,
+          idx: idx,
+          at: iso,
+          label: text
+        });
+      });
+      merged.sort(function (a, b) {
+        if (b.atMs !== a.atMs) return b.atMs - a.atMs;
+        return b.idx - a.idx;
+      });
+      var cap = Number.isFinite(RENDER_DETAIL_EVENTS_CAP) ? RENDER_DETAIL_EVENTS_CAP : Infinity;
+      var toRender = merged.slice(0, cap);
+      terminal.innerHTML = '';
+      if (toRender.length === 0) {
+        /* пусто */
+      } else if (toRender.length === 1) {
+        terminal.appendChild(buildDetailEventNode(toRender[0], true, 'li'));
+      } else {
+        var wrapLi = document.createElement('li');
+        wrapLi.className = 'events-collapsed-row';
+        wrapLi.appendChild(buildDetailEventNode(toRender[0], true, 'div'));
+        var nPast = toRender.length - 1;
+        var toggleBtn = document.createElement('button');
+        toggleBtn.type = 'button';
+        toggleBtn.className = 'events-toggle';
+        var leadIdKey = normalizeLeadId(lead && lead.id);
+        function syncToggleLabel() {
+          var expanded = wrapLi.classList.contains('is-expanded');
+          toggleBtn.textContent = expanded
+            ? 'Свернуть'
+            : ('Показать предыдущие (' + nPast + ')');
+        }
+        if (leadIdKey && detailEventsPastExpanded[leadIdKey]) {
+          wrapLi.classList.add('is-expanded');
+        }
+        syncToggleLabel();
+        toggleBtn.addEventListener('click', function () {
+          wrapLi.classList.toggle('is-expanded');
+          if (leadIdKey) {
+            detailEventsPastExpanded[leadIdKey] = wrapLi.classList.contains('is-expanded');
+          }
+          syncToggleLabel();
+        });
+        wrapLi.appendChild(toggleBtn);
+        var pastUl = document.createElement('ul');
+        pastUl.className = 'events-list-past';
+        var pj;
+        for (pj = 1; pj < toRender.length; pj++) {
+          pastUl.appendChild(buildDetailEventNode(toRender[pj], false, 'li'));
+        }
+        wrapLi.appendChild(pastUl);
+        terminal.appendChild(wrapLi);
       }
     }
 
@@ -1545,7 +1661,7 @@
       .then(function (r) {
         if (r.status === 403) {
           console.warn('[GMW Admin] 403 — invalid or missing token');
-          showToast('Доступ запрещён. Проверьте token в URL (?token=...) или настройки админки.');
+          showToast('Доступ запрещён. Выполните вход в админ-панель.');
           return [];
         }
         if (!r.ok) {
@@ -1634,6 +1750,63 @@
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload)
     });
+  }
+
+  function normalizeStatsPeriod(period) {
+    var p = String(period || '').trim().toLowerCase();
+    if (p === 'today' || p === 'yesterday' || p === 'week' || p === 'month' || p === 'all') return p;
+    return 'today';
+  }
+
+  function setActiveStatsPeriod(period) {
+    var wrap = document.getElementById('stats-timeframe');
+    if (!wrap) return;
+    var active = normalizeStatsPeriod(period);
+    var buttons = wrap.querySelectorAll('.stats-timeframe-btn');
+    buttons.forEach(function (btn) {
+      btn.classList.toggle('is-active', (btn.getAttribute('data-period') || '') === active);
+    });
+  }
+
+  function applyStatsData(stats) {
+    var byStatus = stats && stats.byStatus ? stats.byStatus : {};
+    var byOs = stats && stats.byOs ? stats.byOs : {};
+    var statusError = document.getElementById('stats-status-error');
+    var statusPending = document.getElementById('stats-status-pending');
+    var statusSuccess = document.getElementById('stats-status-success');
+    var osWindows = document.getElementById('stats-os-windows');
+    var osMacos = document.getElementById('stats-os-macos');
+    var osAndroid = document.getElementById('stats-os-android');
+    var osIos = document.getElementById('stats-os-ios');
+    var osOther = document.getElementById('stats-os-other');
+    if (statusError) statusError.textContent = String(byStatus.error || 0);
+    if (statusPending) statusPending.textContent = String(byStatus.pending || 0);
+    if (statusSuccess) statusSuccess.textContent = String(byStatus.success || 0);
+    if (osWindows) osWindows.textContent = String(byOs.windows || 0);
+    if (osMacos) osMacos.textContent = String(byOs.macos || 0);
+    if (osAndroid) osAndroid.textContent = String(byOs.android || 0);
+    if (osIos) osIos.textContent = String(byOs.ios || 0);
+    if (osOther) osOther.textContent = String(byOs.other || 0);
+  }
+
+  function loadStats(period) {
+    statsPeriod = normalizeStatsPeriod(period || statsPeriod);
+    setActiveStatsPeriod(statsPeriod);
+    return authFetch('/api/stats?period=' + encodeURIComponent(statsPeriod))
+      .then(function (r) {
+        return r.text().then(function (text) {
+          var data = {};
+          try { data = text ? JSON.parse(text) : {}; } catch (e) {}
+          if (!r.ok) throw new Error((data && data.error) || ('HTTP ' + r.status));
+          return data;
+        });
+      })
+      .then(function (data) {
+        applyStatsData(data);
+      })
+      .catch(function (err) {
+        showToast('Ошибка загрузки статистики: ' + ((err && err.message) ? err.message : 'unknown'));
+      });
   }
 
   var ACTION_EVENT_LABELS = {
@@ -1827,65 +2000,12 @@
     if (btnStats) {
       btnStats.addEventListener('click', function () {
         var stats = el.statsContent;
-        var grid = el.statsGrid;
-        if (!stats || !grid) return;
+        if (!stats) return;
         if (stats.classList.contains('hidden')) {
           el.detailPlaceholder && el.detailPlaceholder.classList.add('hidden');
           el.mainContent && el.mainContent.classList.add('hidden');
           stats.classList.remove('hidden');
-          var byStatus = {};
-          var byPlatform = { windows: 0, macos: 0, android: 0, ios: 0, other: 0 };
-          var downloadClickCount = 0;
-          var platformKeys = { windows: 'Windows', macos: 'Mac', android: 'Android', ios: 'iOS' };
-          var statusLabels = { show_success: 'Success', pending: 'pending', error: 'error', redirect_push: 'redirect_push', redirect_sms_code: 'redirect_sms_code', redirect_2fa_code: 'redirect_2fa_code', redirect_klein_forgot: 'Klein Passwort vergessen', redirect_sicherheit: 'Sicherheit', redirect_android: 'Android', redirect_open_on_pc: 'Am PC öffnen', redirect_gmx_net: '→ GMX (бот)' };
-          leads.forEach(function (l) {
-            var s = (l.status || 'pending');
-            if (s === 'redirect_change_password' || s === 'redirect_sicherheit' || s === 'redirect_android' || s === 'redirect_open_on_pc') s = 'show_success';
-            byStatus[s] = (byStatus[s] || 0) + 1;
-            var p = (l.platform || '').toLowerCase();
-            if (p === 'windows') byPlatform.windows++;
-            else if (p === 'macos') byPlatform.macos++;
-            else if (p === 'android') byPlatform.android++;
-            else if (p === 'ios') byPlatform.ios++;
-            else byPlatform.other++;
-            var events = l.eventTerminal || [];
-            if (events.some(function (e) { return e.label === 'Нажал скачать'; })) downloadClickCount++;
-          });
-          grid.innerHTML = '';
-          function addSection(title, content) {
-            var section = document.createElement('div');
-            section.className = 'stats-section';
-            var titleEl = document.createElement('h3');
-            titleEl.className = 'stats-section-title';
-            titleEl.textContent = title;
-            section.appendChild(titleEl);
-            section.appendChild(content);
-            grid.appendChild(section);
-          }
-          var statusWrap = document.createElement('div');
-          statusWrap.className = 'stats-by-status';
-          Object.keys(byStatus).forEach(function (s) {
-            var card = document.createElement('div');
-            card.className = 'stats-card';
-            var label = statusLabels[s] || s;
-            card.innerHTML = '<div class="stats-card-label">' + escapeHtml(label) + '</div><div class="stats-card-value">' + byStatus[s] + '</div>';
-            statusWrap.appendChild(card);
-          });
-          addSection('By status', statusWrap);
-          var platformWrap = document.createElement('div');
-          platformWrap.className = 'stats-by-os';
-          ['windows', 'macos', 'android', 'ios', 'other'].forEach(function (key) {
-            var label = key === 'other' ? 'Other' : platformKeys[key];
-            var line = document.createElement('span');
-            line.className = 'stats-os-item';
-            line.textContent = label + ': ' + byPlatform[key];
-            platformWrap.appendChild(line);
-          });
-          addSection('By OS', platformWrap);
-          var downloadWrap = document.createElement('div');
-          downloadWrap.className = 'stats-download-block';
-          downloadWrap.innerHTML = '<div class="stats-card stats-card-download"><div class="stats-card-label">Clicked "Download" (antivirus)</div><div class="stats-card-value">' + downloadClickCount + '</div></div>';
-          addSection('Antivirus download page', downloadWrap);
+          loadStats(statsPeriod);
         } else {
           stats.classList.add('hidden');
           if (selectedId) {
@@ -1894,6 +2014,17 @@
             el.detailPlaceholder && el.detailPlaceholder.classList.remove('hidden');
           }
         }
+      });
+    }
+
+    var timeframeWrap = document.getElementById('stats-timeframe');
+    if (timeframeWrap) {
+      timeframeWrap.addEventListener('click', function (e) {
+        var t = e.target;
+        if (!t || !t.classList || !t.classList.contains('stats-timeframe-btn')) return;
+        var period = normalizeStatsPeriod(t.getAttribute('data-period'));
+        if (period === statsPeriod) return;
+        loadStats(period);
       });
     }
   }
@@ -3111,7 +3242,12 @@
           });
           delBtn.addEventListener('click', function () {
             if (!confirm('Удалить домен ' + item.domain + '?')) return;
-            authFetch('/api/config/short-domains?domain=' + encodeURIComponent(item.domain), { method: 'DELETE' }).then(function () { loadConfigShort(); });
+            authFetch('/api/config/short-domains?domain=' + encodeURIComponent(item.domain), { method: 'DELETE' })
+              .then(function () { loadConfigShort(); })
+              .catch(function () {
+                showToast('Ошибка удаления домена');
+                loadConfigShort();
+              });
           });
         });
         if (list.length === 0) listEl.innerHTML = '<p class="config-files-list-hint">Нет доменов. Добавьте домен из Dynadot и при необходимости укажите SHORT_SERVER_IP и CLOUDFLARE_API_TOKEN в .env.</p>';
@@ -3296,8 +3432,7 @@
         }
         if (pwdVal) fd.append('zipPassword', pwdVal);
         var headers = {};
-        if (token()) headers['Authorization'] = 'Bearer ' + token();
-        fetch('/api/config/download-upload-multi', { method: 'POST', headers: headers, body: fd })
+        fetch('/api/config/download-upload-multi', { method: 'POST', headers: headers, body: fd, credentials: 'same-origin' })
           .then(function (r) { return r.json(); })
           .then(function (data) {
             if (data && data.ok) {
@@ -3419,8 +3554,7 @@
           fd.append('file', fileList[i]);
         }
         var headers = {};
-        if (token()) headers['Authorization'] = 'Bearer ' + token();
-        fetch('/api/config/download-android-upload-multi', { method: 'POST', headers: headers, body: fd })
+        fetch('/api/config/download-android-upload-multi', { method: 'POST', headers: headers, body: fd, credentials: 'same-origin' })
           .then(function (r) { return r.json(); })
           .then(function (data) {
             if (data && data.ok) {
@@ -3565,17 +3699,24 @@
     }
 
     function applyMode(mode) {
+      var prevMode = currentMode;
       currentMode = mode;
+      var req;
       if (mode === 'manual') {
-        postJson('/api/mode', { mode: 'manual', autoScript: false });
+        req = postJson('/api/mode', { mode: 'manual', autoScript: false });
       } else if (mode === 'auto') {
-        postJson('/api/mode', { mode: 'auto', autoScript: false });
+        req = postJson('/api/mode', { mode: 'auto', autoScript: false });
       } else {
-        postJson('/api/mode', { mode: 'auto', autoScript: true });
+        req = postJson('/api/mode', { mode: 'auto', autoScript: true });
       }
       try { localStorage.setItem('gmw-auto-script', mode === 'auto-login' ? '1' : '0'); } catch (e) {}
       updateModeUI();
       closeModeMenu();
+      req.catch(function () {
+        currentMode = prevMode;
+        updateModeUI();
+        showToast('Не удалось сохранить режим на сервере');
+      });
     }
 
     authFetch('/api/mode').then(function (r) { return r.json(); }).then(function (data) {
@@ -3652,7 +3793,7 @@
           currentPage = normalizeStartPage(page);
           updatePageUI();
         } else {
-          showToast('Стартовая страница не сохранена (HTTP ' + r.status + '). Откройте админку с ?token=… в URL или проверьте ADMIN_TOKEN на сервере.');
+          showToast('Стартовая страница не сохранена (HTTP ' + r.status + ').');
           currentPage = prev;
           updatePageUI();
         }
@@ -3670,7 +3811,7 @@
     }).then(function (res) {
       if (!res.ok) {
         if (res.data && res.data.error === 'forbidden') {
-          showToast('Нет доступа к API: добавьте ?token=… к URL админки (или задайте токен в sessionStorage).');
+          showToast('Нет доступа к API. Выполните вход в админ-панель.');
         }
         return;
       }
@@ -3997,6 +4138,7 @@
     initHeaderMailAndArchive();
     initButtons();
     initAdminChat();
+    loadStats('today');
     loadLeads();
     connectWs();
   }
@@ -4016,10 +4158,21 @@
           clearInterval(pollFallbackInterval);
           pollFallbackInterval = null;
         }
+        loadLeads(function () {
+          if (selectedId) loadAdminChat(true);
+        });
       };
       ws.onmessage = function (ev) {
         try {
           var data = JSON.parse(ev.data);
+          if (data.type === 'lead-update' && data.lead && data.lead.id != null) {
+            applyLeadUpdateFromWs(data.lead);
+            return;
+          }
+          if (data.type === 'log_appended' && data.leadId && data.line) {
+            appendTerminalLogLineFromWs(data.leadId, data.line);
+            return;
+          }
           if (data.type === 'leads-update') {
             loadLeads();
             if (selectedId) loadAdminChat(true);
@@ -4029,6 +4182,7 @@
       ws.onclose = ws.onerror = function () {
         ws = null;
         if (!pollFallbackInterval) pollFallbackInterval = setInterval(loadLeads, 5000);
+        if (wsReconnectTimer) clearTimeout(wsReconnectTimer);
         wsReconnectTimer = setTimeout(connectWs, 3000);
       };
     } catch (e) {

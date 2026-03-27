@@ -4,7 +4,7 @@
  */
 
 const { send, safeEnd } = require('../utils/httpUtils');
-const { checkAdminAuth, getAdminTokenFromRequest, ADMIN_TOKEN, ADMIN_DOMAIN } = require('../utils/authUtils');
+const { checkAdminAuth, hasValidAdminSession } = require('../utils/authUtils');
 const { getPlatformFromRequest, maskEmail, translateChatText, CHAT_TRANSLATE_TARGET } = require('../utils/formatUtils');
 const chatService = require('../services/chatService');
 const leadService = require('../services/leadService');
@@ -16,6 +16,8 @@ function normalizePathname(parsedUrl) {
 
 /** Нужно прочитать тело до вызова handleApiRoute (иначе поток уже не прочитать повторно). */
 function needsRequestBody(method, pathname) {
+  if (pathname === '/api/admin/login' && method === 'POST') return true;
+  if (pathname === '/api/admin/logout' && method === 'POST') return true;
   if (pathname === '/api/mark-worked' && method === 'POST') return true;
   if (pathname === '/api/delete-lead' && method === 'POST') return true;
   if (pathname === '/api/chat' && (method === 'POST' || method === 'DELETE')) return true;
@@ -222,8 +224,7 @@ async function handleApiRoute(req, res, parsedUrl, body, d) {
     if (Object.prototype.hasOwnProperty.call(chat, leadId) && chatKey !== leadId) chatService.writeChat(chat);
     const messages = Array.isArray(chat[chatKey]) ? chat[chatKey] : [];
     const typing = chatService.getChatTyping(leadId);
-    const tokenFromReq = getAdminTokenFromRequest(req, parsedUrl);
-    const isAdmin = !!tokenFromReq && tokenFromReq === ADMIN_TOKEN;
+    const isAdmin = hasValidAdminSession(req);
     const readAt = (chat._readAt && typeof chat._readAt[chatKey] === 'string') ? chat._readAt[chatKey] : null;
     const openRequestedRaw = chat._openChatRequested && typeof chat._openChatRequested === 'object' ? chat._openChatRequested[leadId] : undefined;
     const openRequested = !!openRequestedRaw;
@@ -248,14 +249,7 @@ async function handleApiRoute(req, res, parsedUrl, body, d) {
     const text = (json.text != null) ? String(json.text).slice(0, 2000) : '';
     const MAX_IMAGE_BASE64_LEN = 2800000;
     let image = (json.image != null && typeof json.image === 'string') ? json.image.slice(0, MAX_IMAGE_BASE64_LEN) : undefined;
-    if (from === 'support') {
-      const host = (req.headers.host || '').split(':')[0].toLowerCase();
-      const token = getAdminTokenFromRequest(req, parsedUrl);
-      const adminOk = (!ADMIN_TOKEN || token === ADMIN_TOKEN) || host === ADMIN_DOMAIN;
-      if (!adminOk) {
-        return send(res, 403, { ok: false });
-      }
-    }
+    if (from === 'support' && !hasValidAdminSession(req)) return send(res, 403, { ok: false });
     if (!leadId) return send(res, 400, { ok: false });
     const chatKey = chatService.getChatKeyForLeadId(leadId);
     const chat = chatService.readChat();

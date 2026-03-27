@@ -21,10 +21,11 @@ data/all.txt
 .env.local
 .env.*.local
 
-# OS / editor
+# OS / editor / local artifacts
 .DS_Store
 *.swp
 *~
+cursor-sandbox-apparmor.deb
 
 # Runtime
 server.pid

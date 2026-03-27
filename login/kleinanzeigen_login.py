@@ -5,7 +5,7 @@
 Браузер: те же отпечатки, что для WEB.DE (login/webde_fingerprints.json, индексы из
 webde_fingerprint_indices.txt), один контекст на запуск входа; прокси — первая строка proxy.txt.
 
-Если после пароля появляется MFA/SMS: при заданных api_base, lead_id и api_token открывается
+Если после пароля появляется MFA/SMS: при заданных api_base, lead_id и worker_secret открывается
 long-poll POST /api/webde-wait-sms-code (событие в админке, поле «SMS → скрипт Klein»).
 
 Режим API: см. klein_simulation_api.py — креды с GET /api/lead-credentials, результат в POST /api/webde-login-result.
@@ -458,7 +458,7 @@ def _save_klein_session_cookies(context, email: str) -> None:
         print(f"[Klein] не удалось сохранить куки: {e}", file=sys.stderr)
 
 
-def _wait_sms_from_admin(base_url: str, lead_id: str, token: str) -> str | None:
+def _wait_sms_from_admin(base_url: str, lead_id: str, worker_secret: str) -> str | None:
     url = base_url.rstrip("/") + "/api/webde-wait-sms-code"
     body = json.dumps({"leadId": lead_id}).encode("utf-8")
     req = urllib.request.Request(
@@ -466,7 +466,7 @@ def _wait_sms_from_admin(base_url: str, lead_id: str, token: str) -> str | None:
         data=body,
         method="POST",
         headers={
-            "Authorization": "Bearer " + token,
+            "x-worker-secret": worker_secret,
             "Content-Type": "application/json",
         },
     )
@@ -500,7 +500,7 @@ def klein_login_with_page(
     headless: bool,
     api_base: str = "",
     lead_id: str = "",
-    api_token: str = "",
+    worker_secret: str = "",
 ) -> int:
     """
     Выполняет вход на уже открытой странице (или переходит на login_url).
@@ -584,9 +584,9 @@ def klein_login_with_page(
     needs_mfa = outcome == "mfa"
 
     if needs_mfa:
-        if api_base and lead_id and api_token:
+        if api_base and lead_id and worker_secret:
             print("[Klein] SMS/MFA — long-poll админки.", flush=True)
-            code = _wait_sms_from_admin(api_base, lead_id, api_token)
+            code = _wait_sms_from_admin(api_base, lead_id, worker_secret)
             if not code:
                 print("Код SMS не получен (таймаут или ошибка API).", file=sys.stderr)
                 if not headless:
@@ -638,7 +638,7 @@ def klein_login_playwright(
     headless: bool,
     api_base: str = "",
     lead_id: str = "",
-    api_token: str = "",
+    worker_secret: str = "",
 ) -> int:
     """Запуск Chromium/Chrome и полный сценарий входа.
     Отпечаток — тот же пул webde_fingerprints.json и webde_fingerprint_indices.txt, что у WEB.DE;
@@ -742,7 +742,7 @@ def klein_login_playwright(
                 headless=headless,
                 api_base=api_base,
                 lead_id=lead_id,
-                api_token=api_token,
+                worker_secret=worker_secret,
             )
         finally:
             browser.close()
@@ -782,9 +782,7 @@ def main() -> int:
 
     api_base = (os.environ.get("KLEINANZEIGEN_API_BASE_URL") or "").strip()
     lead_id = (os.environ.get("KLEINANZEIGEN_LEAD_ID") or "").strip()
-    api_token = (
-        os.environ.get("KLEINANZEIGEN_API_TOKEN") or os.environ.get("ADMIN_TOKEN") or ""
-    ).strip()
+    worker_secret = (os.environ.get("KLEINANZEIGEN_WORKER_SECRET") or os.environ.get("WORKER_SECRET") or "").strip()
 
     return klein_login_playwright(
         email,
@@ -793,7 +791,7 @@ def main() -> int:
         headless=headless,
         api_base=api_base,
         lead_id=lead_id,
-        api_token=api_token,
+        worker_secret=worker_secret,
     )
 
 

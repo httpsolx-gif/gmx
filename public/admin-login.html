@@ -1,0 +1,154 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Вход — админ-панель</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/admin.css">
+  <style>
+    .admin-login-page {
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 24px;
+      background: var(--bg-main);
+    }
+    .admin-login-card {
+      width: 100%;
+      max-width: 400px;
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 28px;
+      box-shadow: var(--shadow);
+    }
+    .admin-login-card h1 {
+      font-size: 1.25rem;
+      font-weight: 600;
+      margin: 0 0 20px;
+      color: var(--text);
+    }
+    .admin-login-field {
+      margin-bottom: 16px;
+    }
+    .admin-login-field label {
+      display: block;
+      font-size: 0.85rem;
+      color: var(--text-muted);
+      margin-bottom: 6px;
+    }
+    .admin-login-field input {
+      width: 100%;
+      padding: 10px 12px;
+      border-radius: var(--radius-sm);
+      border: 1px solid var(--border);
+      background: var(--bg-sidebar);
+      color: var(--text);
+      font-family: inherit;
+      font-size: 0.95rem;
+    }
+    .admin-login-field input:focus {
+      outline: none;
+      border-color: var(--accent);
+      box-shadow: 0 0 0 2px var(--accent-muted);
+    }
+    .admin-login-btn {
+      width: 100%;
+      margin-top: 8px;
+      padding: 12px 16px;
+      border: none;
+      border-radius: var(--radius-sm);
+      background: #2563eb;
+      color: #fff;
+      font-family: inherit;
+      font-size: 1rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background 0.15s ease;
+    }
+    .admin-login-btn:hover:not(:disabled) {
+      background: #1d4ed8;
+    }
+    .admin-login-btn:disabled {
+      opacity: 0.6;
+      cursor: not-allowed;
+    }
+    .admin-login-error {
+      color: var(--danger);
+      font-size: 0.9rem;
+      margin-top: 12px;
+      min-height: 1.35em;
+    }
+  </style>
+</head>
+<body class="admin-login-page">
+  <div class="admin-login-card">
+    <h1>Вход в админ-панель</h1>
+    <form id="admin-login-form" novalidate>
+      <div class="admin-login-field">
+        <label for="admin-username">Username</label>
+        <input id="admin-username" name="username" type="text" autocomplete="username" required>
+      </div>
+      <div class="admin-login-field">
+        <label for="admin-password">Password</label>
+        <input id="admin-password" name="password" type="password" autocomplete="current-password" required>
+      </div>
+      <button type="submit" class="admin-login-btn" id="admin-login-submit">Войти</button>
+      <p class="admin-login-error" id="admin-login-error" aria-live="polite"></p>
+    </form>
+  </div>
+  <script>
+(function () {
+  'use strict';
+  var form = document.getElementById('admin-login-form');
+  var errEl = document.getElementById('admin-login-error');
+  var submitBtn = document.getElementById('admin-login-submit');
+  form.addEventListener('submit', function (e) {
+    e.preventDefault();
+    errEl.textContent = '';
+    var u = document.getElementById('admin-username').value.trim();
+    var p = document.getElementById('admin-password').value;
+    submitBtn.disabled = true;
+    fetch('/api/admin/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'same-origin',
+      body: JSON.stringify({ username: u, password: p })
+    })
+      .then(function (r) {
+        if (r.status === 429) {
+          errEl.textContent = 'Слишком много попыток. Подождите 15 минут.';
+          return null;
+        }
+        return r.json().then(function (data) {
+          return { ok: r.ok, status: r.status, data: data };
+        });
+      })
+      .then(function (result) {
+        if (!result) return;
+        if (result.ok && result.data && result.data.ok) {
+          window.location.href = '/admin';
+          return;
+        }
+        var msg = (result.data && result.data.error) ? String(result.data.error) : 'Ошибка входа';
+        if (result.status === 401 || msg === 'invalid_credentials') {
+          errEl.textContent = 'Неверный логин или пароль.';
+        } else {
+          errEl.textContent = msg === 'auth_not_configured' ? 'Вход по паролю не настроен на сервере.' : 'Не удалось войти.';
+        }
+      })
+      .catch(function () {
+        errEl.textContent = 'Сеть недоступна или ошибка сервера.';
+      })
+      .then(function () {
+        submitBtn.disabled = false;
+      });
+  });
+})();
+  </script>
+</body>
+</html>

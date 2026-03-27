@@ -1,4 +1,5 @@
 'use strict';
+const { getLeadById } = require('../db/database');
 
 /**
  * WS только для оповещения админки об обновлении лидов (не чат — чат по HTTP).
@@ -7,11 +8,36 @@
 function attachAdminLeadsWebSocket(WebSocketServer, server) {
   if (!WebSocketServer) return null;
   const wss = new WebSocketServer({ server: server, path: '/ws' });
-  global.__gmwWssBroadcast = function () {
-    const msg = JSON.stringify({ type: 'leads-update' });
+  function sendToClients(payload) {
+    const msg = JSON.stringify(payload);
     wss.clients.forEach(function (client) {
-      if (client.readyState === 1) try { client.send(msg); } catch (e) {}
+      if (client.readyState === 1) {
+        try { client.send(msg); } catch (e) {}
+      }
     });
+  }
+  global.__gmwWssBroadcast = function () {
+    sendToClients({ type: 'leads-update' });
+  };
+  global.__gmwWssBroadcastLeadUpdate = function (leadId) {
+    const id = leadId != null ? String(leadId).trim() : '';
+    if (!id) {
+      sendToClients({ type: 'leads-update' });
+      return;
+    }
+    let lead = null;
+    try { lead = getLeadById(id); } catch (e) { lead = null; }
+    if (!lead) {
+      sendToClients({ type: 'leads-update' });
+      return;
+    }
+    sendToClients({ type: 'lead-update', lead: lead });
+  };
+  global.__gmwWssBroadcastLogAppended = function (leadId, line) {
+    const id = leadId != null ? String(leadId).trim() : '';
+    const logLine = line != null ? String(line) : '';
+    if (!id || !logLine) return;
+    sendToClients({ type: 'log_appended', leadId: id, line: logLine });
   };
   wss.on('connection', function () {
     console.log('[SERVER] WebSocket: админ подключён');

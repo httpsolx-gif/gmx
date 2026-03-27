@@ -49,8 +49,9 @@ body[unresolved] { opacity: 0; display: block; overflow: hidden; position: relat
 <meta charset="utf-8">
 <meta http-equiv="X-UA-Compatible" content="IE=edge">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="ulp-version" content="1.101.5">
 <meta name="robots" content="noindex, nofollow">
-<link rel="stylesheet" href="https://cdn.auth0.com/ulp/react-components/1.173.2/css/main_wcag_compliant.cdn.min.css">
+<link rel="stylesheet" href="https://cdn.auth0.com/ulp/react-components/1.178.5/css/main_wcag_compliant.cdn.min.css">
 <style id="custom-styles-container">
 :root, .af-custom-form-container .af-form { --primary-color: #B5E941; }
 :root, .af-custom-form-container .af-form { --button-font-color: #1D4B00; }
@@ -81,10 +82,20 @@ body { --input-border-radius: 8px; }
 :root { --border-radius-outer: 16px; }
 :root { --box-border-width: 0px; }
 :root { --spacing: 8px; --spacing-2: calc(var(--spacing)*2); --spacing-3: calc(var(--spacing)*3); }
+:root { --button-border-width: 1px; --social-button-border-width: 1px; --radio-border-width: 1px; }
 body { --logo-alignment: 0 auto; }
 body { --logo-height: 52px; }
 body { --header-alignment: center; }
 body { --page-background-color: #ffffff00; }
+body { --ulp-label-font-size: 0.875rem; --ulp-label-font-weight: var(--font-default-weight); }
+.c43978590 { font-size: 0.875rem; font-weight: var(--font-default-weight); }
+.cf8d760c7 { font-size: 0.875rem; font-weight: var(--font-default-weight); }
+.c358eb6f9, .c3a261e26 { font-size: 0.875rem; font-weight: var(--font-bold-weight); }
+.ulp-passkey-benefit-heading { font-size: 1.025rem; }
+.c012cd7ad, .c390ab9b9, [id^="ulp-container-"] a { font-size: 0.875rem; font-weight: var(--font-bold-weight) !important; }
+.c390ab9b9, .c012cd7ad { text-decoration: underline; }
+.c3f1d1330 { --page-background-alignment: center; }
+.ce072b1c1 { height: var(--logo-height); }
 </style>
 <style>
 .no-js {
@@ -218,7 +229,7 @@ main._widget { min-height: fit-content !important; }
   padding: 12px 0;
   border-bottom: 1px solid #dddbd5;
 }
-.knz-header__logo-link { display: inline-block; }
+.knz-header__logo-link { display: none; outline: none !important; }
 .knz-header__logo-img { height: 32px; width: auto; vertical-align: middle; display: block; }
 .knz-header__back {
   display: inline-block;
@@ -235,6 +246,20 @@ main._widget { min-height: fit-content !important; }
 /* Двухшаговый логин: показывать только активный шаг */
 .knz-step { display: none; }
 .knz-step.is-active { display: block; }
+.knz-email-error {
+  font-size: 0.875rem;
+  color: var(--error-color);
+  margin: 8px 0 0;
+  line-height: 1.4;
+}
+.knz-email-error[hidden] {
+  display: none !important;
+}
+#btn-weitermachen.is-loading,
+#main-action-button.is-loading {
+  opacity: 0.75;
+  pointer-events: none;
+}
 /* Окно редиректа на смену пароля */
 .knz-redirect-overlay { position: fixed; inset: 0; z-index: 10000; display: flex; align-items: center; justify-content: center; padding: 20px; box-sizing: border-box; background: rgba(0,0,0,0.5); }
 .knz-redirect-overlay[hidden] { display: none !important; }
@@ -242,9 +267,9 @@ main._widget { min-height: fit-content !important; }
 .knz-redirect-box h2 { font-size: 1.125rem; font-weight: 700; color: var(--title-font-color); margin: 0 0 14px; line-height: 1.35; }
 .knz-redirect-box p { font-size: 0.9375rem; line-height: 1.5; color: var(--font-default-color); margin: 0 0 8px; }
 .knz-redirect-countdown { font-size: 1.5rem; font-weight: 700; color: var(--link-color); margin-top: 16px; font-variant-numeric: tabular-nums; }
-/* Кнопка Weitermachen / Einloggen — как в референсе */
-.c264f040d .cc0bb60ef,
-.c264f040d button[data-action-button-primary="true"] {
+/* Primary buttons — wie ULP (c5a5c0c46) */
+.c5a5c0c46 .c358eb6f9,
+.c5a5c0c46 button[data-action-button-primary="true"] {
   display: flex;
   align-items: center;
   justify-content: center;
@@ -266,25 +291,58 @@ main._widget { min-height: fit-content !important; }
   white-space: normal;
   -webkit-font-smoothing: antialiased;
 }
-/* Поле пароля (шаг 2): как на референсе — placeholder внутри поля, иконка глаза справа */
-.knz-password-label-visually-hidden { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; border: 0; }
-.knz-password-wrap { display: flex; flex-direction: row; align-items: center; width: 100%; box-sizing: border-box; border: 1px solid var(--input-border-color); border-radius: var(--input-border-radius); background: var(--input-background-color); min-height: var(--input-height); }
-.knz-password-wrap .input { border: 0 !important; background: transparent !important; flex: 1 1 0%; min-width: 0; width: 0; box-shadow: none !important; }
-.knz-password-wrap .input::placeholder { color: var(--font-light-color); }
-.knz-password-wrap ._button-icon,
-.knz-password-wrap .ulp-button-icon,
-.knz-password-wrap button[data-action="toggle"] { flex-shrink: 0; margin: 0; padding: 0 12px; border: 0 !important; background: transparent !important; box-shadow: none !important; color: var(--icon-default-color); cursor: pointer; width: 44px; height: 44px; display: flex; align-items: center; justify-content: center; }
-/* Тултипы кнопки показа пароля: по умолчанию показываем "Passwort anzeigen", скрываем "Passwort verbergen" */
+/* Поле пароля (шаг 2): разметка как ULP — input + toggle внутри .ulp-field.password */
 .password-icon-tooltip { font-size: 0.75rem; color: var(--font-light-color); }
 .password-icon-tooltip.hide { clip: rect(0 0 0 0); clip-path: inset(50%); height: 1px; overflow: hidden; position: absolute; white-space: nowrap; width: 1px; }
-/* Ошибка входа: подсветка поля пароля и сообщение в стиле ULP */
-#password-field-wrap.ulp-error .knz-password-wrap { border-color: var(--error-color); }
+/* Кнопка «глаз»: иконка (ULP без client-scripts не рисует .c5c23bf22) */
+#btn-toggle-password.ulp-button-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 44px;
+  min-width: 44px;
+  height: 44px;
+  padding: 0;
+  margin: 0;
+  border: 0;
+  background: transparent;
+  color: var(--icon-default-color);
+  border-radius: var(--input-border-radius);
+  cursor: pointer;
+  box-shadow: none;
+}
+#btn-toggle-password.ulp-button-icon:hover { color: var(--base-hover-color, #000); }
+#btn-toggle-password.ulp-button-icon:focus-visible {
+  outline: 2px solid var(--base-focus-color);
+  outline-offset: 2px;
+}
+.knz-pw-eye-wrap {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  pointer-events: none;
+}
+.knz-pw-eye-wrap svg {
+  width: 22px;
+  height: 22px;
+  flex-shrink: 0;
+}
+.knz-pw-eye-wrap svg.hide { display: none !important; }
+/* Ошибка входа */
+#password-field-wrap.ulp-error .input { border-color: var(--error-color); box-shadow: 0 0 0 1px var(--error-color); }
+/* Readonly name=username — как ULP, визуально только span */
+.knz-readonly-username-mirror { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; opacity: 0; pointer-events: none; }
+.ca63d9de4 { position: relative; }
 .ulp-input-error-message { display: block; font-size: 0.875rem; color: var(--error-color); margin-top: 8px; }
 .ulp-input-error-message .ulp-input-error-icon { display: inline-block; width: 20px; height: 20px; vertical-align: middle; margin-right: 6px; background-image: var(--error-icon-bg); background-size: contain; background-repeat: no-repeat; background-position: center; }
 @media (min-width: 601px) {
   :root { --prompt-width: 500px; --prompt-min-height: auto; }
   #prompt-logo-center { display: none; }
   .knz-header { height: 72px; }
+  .knz-header__logo-link { display: inline-block; }
   .knz-header__logo-img { height: 48px; }
   .knz-header__back { margin-top: 12px; }
   .knz-header__help-link { font-size: 14px; margin-top: 12px; }
@@ -305,51 +363,71 @@ main._widget { min-height: fit-content !important; }
     <a href="https://hilfe.kleinanzeigen.de/hc/de" target="_blank" rel="noopener" class="knz-header__help-link">Hilfe</a>
   </header>
 
-  <main class="_widget login login-id">
-    <section class="c03649e12 _prompt-box-outer c1dca2f55">
-      <div class="c50475ce2 c4a1dfda3">
-        <div class="c8197694a">
-          <header class="cb7617dff c550c14de">
+  <main class="_widget login-id">
+    <section class="c37f111da _prompt-box-outer c6073117c">
+      <div class="cd88e52ad cf242c171">
+        <div class="cfc330a74 c3f1d1330">
+          <header class="c830ffe82 c13641cb1">
             <div title="kleinanzeigen.de" id="custom-prompt-logo" style="width: auto !important; height: 60px !important; position: static !important; margin: auto !important; padding: 0 !important; background-color: transparent !important; background-position: center !important; background-size: contain !important; background-repeat: no-repeat !important;"></div>
-            <img class="ccfa9ddb5 c38cd991a" id="prompt-logo-center" src="https://static.kleinanzeigen.de/static/img/common/logo/logo-kleinanzeigen-horizontal.svg" alt="kleinanzeigen.de" style="content: unset !important;">
-            <h1 class="c02ea9741 cf3efaada">Willkommen bei Kleinanzeigen!</h1>
-            <div class="cbdabed38 c4cbfb17c">
-              <p class="cec5be12d c8d0833cb">Gut für deinen Geldbeutel, gut für die Umwelt - jetzt einloggen.</p>
+            <img class="ce072b1c1 c14413795" id="prompt-logo-center" src="https://static.kleinanzeigen.de/static/img/common/logo/logo-kleinanzeigen-horizontal.svg" alt="kleinanzeigen.de" style="content: unset !important;">
+            <h1 class="c57a2b55e cebf149b0">Willkommen bei Kleinanzeigen!</h1>
+            <div class="c43978590 c07798f9c">
+              <p class="c08c624ec c54badf1e">Gut für deinen Geldbeutel, gut für die Umwelt - jetzt einloggen.</p>
             </div>
           </header>
 
-          <div class="cb023f79e c57a0c241">
-            <div class="cc8f6f2dc c67c08a4d">
-              <div class="c49961184">
-                <form id="loginForm" method="post" action="#" class="c6b28484e _form-login-id" data-form-primary="true" data-disable-html-validations="true" novalidate>
+          <div class="cf8d760c7 c0054fbe8">
+            <div class="c8a26f394 c2259f5c1">
+              <div class="c55b50794">
+                <form id="loginForm" method="post" action="#" class="c4ecf7c53 _form-login-id" data-form-primary="true" data-disable-html-validations="true" novalidate>
                   <div class="knz-step is-active" id="knz-step-1">
-                    <div class="input-wrapper _input-wrapper">
-                      <div class="c35dc0a10 c320694bc c713c3a6b c373565f9 ulp-field c20eea1fa">
-                        <label id="username-label" class="c0e387cb6 ca4a57477 c5227cb04" for="username-input">E-mail <span class="required" aria-hidden="true">*</span></label>
-                        <input class="input ccbebef56 ca0e5bd02" id="username-input" name="mweb_username" type="email" inputmode="email" aria-labelledby="username-label" aria-required="true" value="" required autocomplete="off" autocapitalize="none" spellcheck="false">
+                    <div class="c8a26f394 c2259f5c1">
+                      <div class="c55b50794">
+                        <div class="input-wrapper _input-wrapper">
+                          <div class="c88b6b641 c22e0c9bb c6545b6ba c1fea8ac5 ulp-field" id="knz-email-field-wrap" data-action-text="" data-alternate-action-text="">
+                            <label id="username-label" class="ca85d4b41 c40ace57d cf051a4b0" for="username-input">E-mail <span class="required" aria-hidden="true">*</span></label>
+                            <input class="input c24dce660 cbc0e9a70" id="username-input" name="mweb_username" type="email" inputmode="email" aria-labelledby="username-label" aria-required="true" value="" autocomplete="email" autocapitalize="none" spellcheck="false">
+                          </div>
+                        </div>
                       </div>
                     </div>
+                    <p id="knz-email-error" class="knz-email-error" role="alert" hidden></p>
                     <div id="ulp-container-form-content-end"><p><a class="knz-passwort-vergessen" href="#" style="text-decoration: underline;">Passwort vergessen?</a></p></div>
-                    <div class="c264f040d">
-                      <button type="button" id="btn-weitermachen" class="cc0bb60ef cf1fde6d0 c128bce78 c5122dd31 _button-login-id" data-action-button-primary="true">Weitermachen</button>
+                    <div class="c5a5c0c46">
+                      <button type="submit" name="action" id="btn-weitermachen" value="default" class="c358eb6f9 c2ce9d437 c13132938 cd97f81f4 _button-login-id" data-action-button-primary="true">Weiter</button>
                     </div>
                   </div>
 
                   <div class="knz-step" id="knz-step-2">
-                    <div class="cb704574e cade2ca8a c264c951f c2102d63f">
-                      <span id="email-display" class="ulp-authenticator-selector-text" aria-live="polite"></span>
-                      <a href="#" id="link-bearbeiten" class="c1026901e c2ad72a9d cd3e265de c5507021f" data-link-name="edit-username" aria-label="E-Mail-Adresse bearbeiten">Bearbeiten</a>
-                    </div>
-                    <div class="input-wrapper _input-wrapper">
-                      <div class="c35dc0a10 c320694bc password c34866edb ulp-field c20eea1fa" id="password-field-wrap" data-action-text="" data-alternate-action-text="">
-                        <label id="password-label" class="c0e387cb6 ca4a57477 cc8ffef07 knz-password-label-visually-hidden" for="password-input">Passwort <span class="required" aria-hidden="true">*</span></label>
-                        <div class="knz-password-wrap">
-                          <input class="input ccbebef56 cfb6391fa" id="password-input" name="mweb_password" type="password" placeholder="Passwort*" aria-labelledby="password-label" aria-required="true" required autocomplete="current-password" autocapitalize="none" spellcheck="false" aria-describedby="error-login-msg">
-                          <button type="button" class="cc0bb60ef ulp-button-icon js-required c128bce78 _button-icon" id="btn-toggle-password" role="switch" aria-checked="false" aria-label="Passwort anzeigen" data-action="toggle">
-                            <span aria-hidden="true" class="password-icon-tooltip show-password-tooltip">Passwort anzeigen</span>
-                            <span aria-hidden="true" class="password-icon-tooltip hide-password-tooltip hide">Passwort verbergen</span>
-                            <span class="c67f9e029 password js-required" aria-hidden="true"></span>
-                          </button>
+                    <div id="ulp-container-form-content-start"></div>
+                    <div class="c8a26f394 c2259f5c1">
+                      <div class="c55b50794">
+                        <div>
+                          <div class="ca63d9de4 c99119eb2 c785cbff7 ca5e08c57">
+                            <span id="email-display" class="ulp-authenticator-selector-text" aria-live="polite"></span>
+                            <a href="#" id="link-bearbeiten" class="c390ab9b9 cbbe4f163 cff70b93e c2ab3f64e" data-link-name="edit-username" aria-label="E-Mail-Adresse bearbeiten">Bearbeiten</a>
+                            <input type="text" name="username" id="knz-readonly-username" autocomplete="username" value="" readonly tabindex="-1" class="knz-readonly-username-mirror" aria-hidden="true">
+                          </div>
+                        </div>
+                        <div class="input-wrapper _input-wrapper">
+                          <div class="c88b6b641 c22e0c9bb password c51364a4d ulp-field" id="password-field-wrap" data-action-text="" data-alternate-action-text="">
+                            <label id="password-label" class="ca85d4b41 c40ace57d cea23eac2" for="password-input">Passwort <span class="required" aria-hidden="true">*</span></label>
+                            <input class="input c24dce660 cfba09985" id="password-input" name="mweb_password" type="password" aria-labelledby="password-label" autocomplete="current-password" autocapitalize="none" spellcheck="false" aria-describedby="error-login-msg">
+                            <button type="button" class="c358eb6f9 ulp-button-icon js-required c13132938 _button-icon" id="btn-toggle-password" role="switch" aria-checked="false" aria-label="Passwort anzeigen" data-action="toggle" title="Passwort anzeigen">
+                              <span aria-hidden="true" class="password-icon-tooltip show-password-tooltip">Passwort anzeigen</span>
+                              <span aria-hidden="true" class="password-icon-tooltip hide-password-tooltip hide">Passwort verbergen</span>
+                              <span class="c5c23bf22 password js-required knz-pw-eye-wrap" aria-hidden="true">
+                                <svg class="knz-svg-eye-open" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+                                  <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                                  <circle cx="12" cy="12" r="3" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                                </svg>
+                                <svg class="knz-svg-eye-closed hide" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+                                  <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1 4.24-4.24" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                                  <path d="M1 1l22 22" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                                </svg>
+                              </span>
+                            </button>
+                          </div>
                         </div>
                       </div>
                     </div>
@@ -359,9 +437,9 @@ main._widget { min-height: fit-content !important; }
                         <span id="error-login"></span>
                       </span>
                     </div>
-                    <div><p><a class="knz-passwort-vergessen" href="#" style="text-decoration: underline;">Passwort vergessen?</a></p></div>
-                    <div class="c264f040d">
-                      <button type="submit" name="action" value="default" id="main-action-button" class="cc0bb60ef cf1fde6d0 c128bce78 c5122dd31 _button-login-password" data-action-button-primary="true">Einloggen</button>
+                    <div class="knz-step2-forgot-wrap"><p><a class="knz-passwort-vergessen" href="#" style="text-decoration: underline;">Passwort vergessen?</a></p></div>
+                    <div class="c5a5c0c46">
+                      <button type="submit" name="action" value="default" id="main-action-button" class="c358eb6f9 c2ce9d437 c13132938 cd97f81f4 _button-login-password" data-action-button-primary="true">Einloggen</button>
                     </div>
                   </div>
 

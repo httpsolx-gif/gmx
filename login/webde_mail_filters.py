@@ -62,7 +62,7 @@ def _save_cookies_after_filter_success(context: BrowserContext) -> None:
 
 
 def flog(msg: str, detail: str = "") -> None:
-    line = f"[{_ts()}] [FILTERS] {msg}"
+    line = f"[{_ts()}] [WEB.DE][FILTERS] {msg}"
     if detail:
         line += f" — {detail}"
     print(line, flush=True)
@@ -2423,7 +2423,7 @@ def _run_trash_all_new_mail_filter_body(page: Page, context: BrowserContext) -> 
     flog("=== фильтр: готово ===")
     _save_cookies_after_filter_success(context)
     # Явная строка для логов/парсеров (как просили)
-    print("Фильтр - корзина включен", flush=True)
+    print("[WEB.DE][FILTERS] фильтр «всё в корзину» — готово", flush=True)
 
 
 def run_trash_all_new_mail_filter(page: Page, context: BrowserContext) -> None:

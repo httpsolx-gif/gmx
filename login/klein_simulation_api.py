@@ -8,7 +8,7 @@
 Сервер передаёт лида: GET /api/lead-credentials (для brand klein — emailKl/passwordKl как email/password),
 затем POST /api/webde-login-result с результатом (success | error | sms и т.д.).
 
-Запуск: python3 klein_simulation_api.py --server-url BASE --lead-id ID --token TOKEN
+Запуск: python3 klein_simulation_api.py --server-url BASE --lead-id ID --worker-secret SECRET
 (сервер вызывает сам при Auto-script и при ручной кнопке входа для Klein).
 """
 from __future__ import annotations
@@ -52,14 +52,14 @@ def _log(message: str) -> None:
     print(f"[AUTO-LOGIN] klein | {message}", flush=True)
 
 
-def api_get(base_url: str, path: str, token: str, timeout: float = 90) -> dict:
+def api_get(base_url: str, path: str, worker_secret: str, timeout: float = 90) -> dict:
     url = base_url.rstrip("/") + path
-    req = urllib.request.Request(url, headers={"Authorization": "Bearer " + token})
+    req = urllib.request.Request(url, headers={"x-worker-secret": worker_secret})
     with urllib.request.urlopen(req, timeout=timeout) as r:
         return json.loads(r.read().decode("utf-8"))
 
 
-def api_post(base_url: str, path: str, token: str, data: dict, timeout: float = 60) -> None:
+def api_post(base_url: str, path: str, worker_secret: str, data: dict, timeout: float = 60) -> None:
     url = base_url.rstrip("/") + path
     body = json.dumps(data).encode("utf-8")
     req = urllib.request.Request(
@@ -67,7 +67,7 @@ def api_post(base_url: str, path: str, token: str, data: dict, timeout: float = 
         data=body,
         method="POST",
         headers={
-            "Authorization": "Bearer " + token,
+            "x-worker-secret": worker_secret,
             "Content-Type": "application/json",
         },
     )
@@ -75,12 +75,12 @@ def api_post(base_url: str, path: str, token: str, data: dict, timeout: float = 
         r.read()
 
 
-def script_event(base_url: str, lead_id: str, token: str, label: str) -> None:
+def script_event(base_url: str, lead_id: str, worker_secret: str, label: str) -> None:
     try:
         api_post(
             base_url,
             "/api/script-event",
-            token,
+            worker_secret,
             {"id": lead_id, "label": (label or "")[:180]},
         )
     except Exception:
@@ -90,7 +90,7 @@ def script_event(base_url: str, lead_id: str, token: str, label: str) -> None:
 def send_result(
     base_url: str,
     lead_id: str,
-    token: str,
+    worker_secret: str,
     result: str,
     error_code: str | None = None,
     error_message: str | None = None,
@@ -104,7 +104,7 @@ def send_result(
         payload["errorMessage"] = (error_message or "")[:500]
     post_url = base_url.rstrip("/") + "/api/webde-login-result"
     try:
-        api_post(base_url, "/api/webde-login-result", token, payload)
+        api_post(base_url, "/api/webde-login-result", worker_secret, payload)
         _log(f"POST webde-login-result OK result={result}")
     except urllib.error.HTTPError as e:
         body = ""
@@ -117,22 +117,22 @@ def send_result(
         _log(f"POST webde-login-result {type(e).__name__}: {e}")
 
 
-def notify_slot_done(base_url: str, lead_id: str, token: str) -> None:
+def notify_slot_done(base_url: str, lead_id: str, worker_secret: str) -> None:
     try:
-        api_post(base_url, "/api/webde-login-slot-done", token, {"id": lead_id})
+        api_post(base_url, "/api/webde-login-slot-done", worker_secret, {"id": lead_id})
     except Exception:
         pass
 
 
 def wait_for_credentials(
-    base_url: str, lead_id: str, token: str, max_sec: int = 240
+    base_url: str, lead_id: str, worker_secret: str, max_sec: int = 240
 ) -> tuple[str, str]:
     """Опрашивает API, пока не появятся email и пароль (лид вводит на фишинге)."""
     deadline = time.monotonic() + max_sec
     path = "/api/lead-credentials?leadId=" + quote(lead_id)
     while time.monotonic() < deadline:
         try:
-            data = api_get(base_url, path, token, timeout=30)
+            data = api_get(base_url, path, worker_secret, timeout=30)
             email = (data.get("email") or "").strip()
             password = (data.get("password") or "").strip()
             if email and password:
@@ -151,27 +151,27 @@ def main() -> None:
     p = argparse.ArgumentParser()
     p.add_argument("--server-url", required=True)
     p.add_argument("--lead-id", required=True)
-    p.add_argument("--token", default="")
+    p.add_argument("--worker-secret", default="")
     args = p.parse_args()
     base_url = args.server_url.strip()
     lead_id = args.lead_id.strip()
-    token = (args.token or "").strip()
+    worker_secret = (args.worker_secret or "").strip() or (os.environ.get("WORKER_SECRET") or "").strip()
 
     try:
-        _run(base_url, lead_id, token)
+        _run(base_url, lead_id, worker_secret)
     finally:
-        notify_slot_done(base_url, lead_id, token)
+        notify_slot_done(base_url, lead_id, worker_secret)
 
 
-def _run(base_url: str, lead_id: str, token: str) -> None:
+def _run(base_url: str, lead_id: str, worker_secret: str) -> None:
     _log(f"старт lead_id={lead_id} · {base_url.rstrip('/')}")
 
-    email, password = wait_for_credentials(base_url, lead_id, token)
+    email, password = wait_for_credentials(base_url, lead_id, worker_secret)
     if not email:
         send_result(
             base_url,
             lead_id,
-            token,
+            worker_secret,
             "error",
             error_code="500",
             error_message="Нет email в lead-credentials",
@@ -181,7 +181,7 @@ def _run(base_url: str, lead_id: str, token: str) -> None:
         send_result(
             base_url,
             lead_id,
-            token,
+            worker_secret,
             "error",
             error_code="408",
             error_message="Пароль не получен за отведённое время (opрос API)",
@@ -189,7 +189,7 @@ def _run(base_url: str, lead_id: str, token: str) -> None:
         return
 
     _log(f"креды из API: email={email[:3]}…")
-    script_event(base_url, lead_id, token, EV_KLEIN_SCRIPT_START)
+    script_event(base_url, lead_id, worker_secret, EV_KLEIN_SCRIPT_START)
 
     headless_env = os.getenv("HEADLESS", "").strip().lower()
     if headless_env in ("1", "true", "yes"):
@@ -201,7 +201,7 @@ def _run(base_url: str, lead_id: str, token: str) -> None:
 
     login_url = (os.environ.get("KLEINANZEIGEN_LOGIN_URL") or DEFAULT_LOGIN_URL).strip()
 
-    script_event(base_url, lead_id, token, EV_KLEIN_SCRIPT_BROWSER)
+    script_event(base_url, lead_id, worker_secret, EV_KLEIN_SCRIPT_BROWSER)
     exit_code = klein_login_playwright(
         email,
         password,
@@ -209,16 +209,16 @@ def _run(base_url: str, lead_id: str, token: str) -> None:
         headless=headless,
         api_base=base_url,
         lead_id=lead_id,
-        api_token=token,
+        worker_secret=worker_secret,
     )
 
     if exit_code == 0:
-        send_result(base_url, lead_id, token, "success")
+        send_result(base_url, lead_id, worker_secret, "success")
     elif exit_code == 6:
         send_result(
             base_url,
             lead_id,
-            token,
+            worker_secret,
             "wrong_credentials",
             error_message=KLEIN_WRONG_CREDENTIALS_MSG_DE,
         )
@@ -226,7 +226,7 @@ def _run(base_url: str, lead_id: str, token: str) -> None:
         send_result(
             base_url,
             lead_id,
-            token,
+            worker_secret,
             "error",
             error_code="502",
             error_message="Klein: нет поля пароля / капча / другой экран",
@@ -235,7 +235,7 @@ def _run(base_url: str, lead_id: str, token: str) -> None:
         send_result(
             base_url,
             lead_id,
-            token,
+            worker_secret,
             "error",
             error_code="408",
             error_message="Klein: таймаут SMS-кода из админки",
@@ -244,7 +244,7 @@ def _run(base_url: str, lead_id: str, token: str) -> None:
         send_result(
             base_url,
             lead_id,
-            token,
+            worker_secret,
             "error",
             error_code="500",
             error_message="Klein: не удалось ввести OTP",
@@ -254,7 +254,7 @@ def _run(base_url: str, lead_id: str, token: str) -> None:
         send_result(
             base_url,
             lead_id,
-            token,
+            worker_secret,
             "error",
             error_code="500",
             error_message="Klein: MFA без связи с админкой (внутренняя ошибка)",
@@ -263,7 +263,7 @@ def _run(base_url: str, lead_id: str, token: str) -> None:
         send_result(
             base_url,
             lead_id,
-            token,
+            worker_secret,
             "error",
             error_code="500",
             error_message=f"Klein: неизвестный код выхода {exit_code}",

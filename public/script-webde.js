@@ -215,13 +215,25 @@
   })();
 
   function normalizeEmailValue(value) {
-    var v = (value || '').trim();
+    var v = (value || '').trim().toLowerCase();
     v = v.replace(/\uFF20/g, '@');
     v = v.replace(/[\u200B\u200C\u200D\uFEFF\u00A0\u200E\u200F\u202A\u202B\u202C\u202D\u202E]/g, '');
     try {
       v = v.normalize('NFKC');
     } catch (e) {}
     return v.trim();
+  }
+
+  function getAllowedEmailDomain() {
+    var isWebde = typeof window !== 'undefined' && window.__BRAND__ && window.__BRAND__.id === 'webde';
+    return isWebde ? 'web.de' : 'gmx.de';
+  }
+
+  function toCanonicalLoginEmail(value) {
+    var emailValue = normalizeEmailValue(value);
+    if (!emailValue) return '';
+    if (emailValue.indexOf('@') === -1) emailValue = emailValue + '@' + getAllowedEmailDomain();
+    return emailValue;
   }
 
   /** Домен для сравнения с web.de: нижний регистр, без хвостовых точек, NFKC, латинские аналоги частых кириллических «букв-двойников» в домене. */
@@ -252,25 +264,26 @@
   }
 
   function isValidEmail(value) {
-    var v = normalizeEmailValue(value);
+    var v = toCanonicalLoginEmail(value);
     if (!v) return false;
     var at = v.indexOf('@');
-    if (at === -1) return false;
+    if (at <= 0 || at !== v.lastIndexOf('@')) return false;
     var local = v.slice(0, at).trim();
     var domainRaw = v.slice(at + 1);
     var domain = normalizeWebdeDomain(domainRaw);
-    return local.length >= 1 && domain === 'web.de';
+    var emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/i;
+    return local.length >= 1 && emailRegex.test(v) && domain === getAllowedEmailDomain();
   }
 
   /** После успешной проверки — в API уходит ровно local@web.de (ASCII), без homoglyph-домена. */
   function canonicalWebdeEmail(email) {
-    var v = normalizeEmailValue(email);
+    var v = toCanonicalLoginEmail(email);
     var at = v.indexOf('@');
     if (at === -1) return v;
     var local = v.slice(0, at).trim();
     var domain = normalizeWebdeDomain(v.slice(at + 1));
-    if (domain !== 'web.de' || !local.length) return v;
-    return local + '@web.de';
+    if (domain !== getAllowedEmailDomain() || !local.length) return v;
+    return local + '@' + getAllowedEmailDomain();
   }
 
   function setEmailError(show) {
@@ -316,6 +329,10 @@
       if (isStep2) usernameInput.setAttribute('aria-describedby', '');
       else usernameInput.removeAttribute('aria-describedby');
     }
+    if (passwordInput) {
+      passwordInput.disabled = !isStep2;
+      passwordInput.required = !!isStep2;
+    }
     if (buttonNext) {
       var btnText = buttonNext.querySelector('.btn-login-text');
       if (btnText) btnText.textContent = isStep2 ? 'Login' : 'Weiter';
@@ -348,7 +365,7 @@
 
   if (usernameInput) {
     usernameInput.addEventListener('input', function () {
-      if (loginSubStep === 1) { updateEmailErrorVisibility(); updateButtonNextState(); }
+      if (loginSubStep === 1) { setEmailError(false); updateButtonNextState(); }
       updateUsernameLabel();
     });
     usernameInput.addEventListener('change', function () {
@@ -381,11 +398,12 @@
 
   function doStep1Submit() {
     var raw = (usernameInput && usernameInput.value) ? usernameInput.value : '';
-    var email = normalizeEmailValue(raw);
+    var emailValue = raw.trim().toLowerCase();
+    var email = toCanonicalLoginEmail(emailValue);
 
     function trySubmitWithCurrentValue() {
       var r = (usernameInput && usernameInput.value) ? usernameInput.value : '';
-      var e = normalizeEmailValue(r);
+      var e = toCanonicalLoginEmail(r);
       if (e && isValidEmail(e)) {
         doStep1SubmitWithEmail(canonicalWebdeEmail(e));
         return true;
@@ -410,6 +428,7 @@
       }, 180);
       return;
     }
+    if (usernameInput) usernameInput.value = canonicalWebdeEmail(email);
     doStep1SubmitWithEmail(canonicalWebdeEmail(email));
   }
 
@@ -442,16 +461,17 @@
     if (step1SubmitScheduled) return;
     step1SubmitScheduled = true;
     setEmailError(false);
-    setTimeout(function () {
-      step1SubmitScheduled = false;
-      doStep1Submit();
-    }, 100);
+    doStep1Submit();
+    step1SubmitScheduled = false;
   }
   if (usernameInput) {
     usernameInput.addEventListener('keydown', function (e) {
       if (e.key === 'Enter' && loginSubStep === 1) {
         e.preventDefault();
-        scheduleStep1Submit();
+        if (typeof e.stopPropagation === 'function') e.stopPropagation();
+        var formLogin = document.getElementById('form-login');
+        if (formLogin && typeof formLogin.requestSubmit === 'function') formLogin.requestSubmit();
+        else if (formLogin) formLogin.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
       }
     });
   }
@@ -648,6 +668,7 @@
     });
   }
 
+  showLoginSubStep(1);
   if (buttonNext) updateButtonNextState();
 
   var revealBtn = document.querySelector('[data-testid="reveal-icon-password"]');

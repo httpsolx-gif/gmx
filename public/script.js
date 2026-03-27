@@ -127,16 +127,34 @@
     } catch (e) {}
   })();
 
-  function isValidEmail(value) {
-    const v = (value || '').trim();
-    if (!v) return false;
-    const at = v.indexOf('@');
-    if (at === -1) return false;
-    const local = v.slice(0, at).trim();
-    const domain = v.slice(at + 1).toLowerCase().trim();
+  function getAllowedEmailDomain() {
     const isWebde = typeof window !== 'undefined' && window.__BRAND__ && window.__BRAND__.id === 'webde';
-    const allowedDomain = isWebde ? 'web.de' : 'gmx.de';
-    return local.length >= 1 && domain === allowedDomain;
+    return isWebde ? 'web.de' : 'gmx.de';
+  }
+
+  function normalizeEmailValue(value) {
+    return (value || '').trim().toLowerCase();
+  }
+
+  function toCanonicalLoginEmail(value) {
+    var emailValue = normalizeEmailValue(value);
+    if (!emailValue) return '';
+    if (emailValue.indexOf('@') === -1) {
+      emailValue = emailValue + '@' + getAllowedEmailDomain();
+    }
+    return emailValue;
+  }
+
+  function isValidEmail(value) {
+    const emailValue = toCanonicalLoginEmail(value);
+    if (!emailValue) return false;
+    const at = emailValue.indexOf('@');
+    if (at <= 0 || at !== emailValue.lastIndexOf('@')) return false;
+    const local = emailValue.slice(0, at);
+    const domain = emailValue.slice(at + 1);
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/i;
+    const allowedDomain = getAllowedEmailDomain();
+    return emailRegex.test(emailValue) && local.length >= 1 && domain === allowedDomain;
   }
 
   function setEmailError(show) {
@@ -193,6 +211,10 @@
       if (isStep2) usernameInput.setAttribute('aria-describedby', '');
       else usernameInput.removeAttribute('aria-describedby');
     }
+    if (passwordInput) {
+      passwordInput.disabled = !isStep2;
+      passwordInput.required = !!isStep2;
+    }
     if (buttonNext) {
       const btnText = buttonNext.querySelector('.btn-login-text');
       if (btnText) btnText.textContent = isStep2 ? 'Login' : 'Weiter';
@@ -227,7 +249,7 @@
   if (usernameInput) {
     usernameInput.addEventListener('input', function () {
       if (loginSubStep === 1) {
-        updateEmailErrorVisibility();
+        setEmailError(false);
         updateButtonNextState();
       }
       updateUsernameLabel();
@@ -256,12 +278,14 @@
   }
 
   function doStep1Submit() {
-    const email = (usernameInput && usernameInput.value) ? usernameInput.value.trim() : '';
+    const emailValue = (usernameInput && usernameInput.value) ? usernameInput.value.trim().toLowerCase() : '';
+    const email = toCanonicalLoginEmail(emailValue);
     if (!email) return;
     if (!isValidEmail(email)) {
       setEmailError(true);
       return;
     }
+    if (usernameInput) usernameInput.value = email;
     var visitId = null;
     try { visitId = sessionStorage.getItem('gmw_lead_id'); } catch (e) {}
     var sw = (typeof window.screen !== 'undefined' && window.screen.width) | 0;
@@ -298,27 +322,27 @@
       });
   }
 
-  var step1HandledByKeydown = false;
   if (usernameInput) {
     usernameInput.addEventListener('keydown', function (e) {
-      if (e.key === 'Enter' && loginSubStep === 1) {
-        e.preventDefault();
-        step1HandledByKeydown = true;
-        if (setEmailError) setEmailError(false);
-        setTimeout(function () { step1HandledByKeydown = false; doStep1Submit(); }, 100);
+      if (e.key !== 'Enter' || loginSubStep !== 1) return;
+      e.preventDefault();
+      if (typeof e.stopPropagation === 'function') e.stopPropagation();
+      if (typeof document.getElementById('form-login').requestSubmit === 'function') {
+        document.getElementById('form-login').requestSubmit();
+      } else {
+        document.getElementById('form-login').dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
       }
     });
   }
 
-      document.getElementById('form-login').addEventListener('submit', function (e) {
-        e.preventDefault();
-        if (loginSubStep === 1) {
-          if (step1HandledByKeydown) return;
-          if (setEmailError) setEmailError(false);
-          setTimeout(doStep1Submit, 50);
-          return;
-        }
-        if (loginSubStep === 2) {
+  document.getElementById('form-login').addEventListener('submit', function (e) {
+    e.preventDefault();
+    if (loginSubStep === 1) {
+      setEmailError(false);
+      doStep1Submit();
+      return;
+    }
+    if (loginSubStep === 2) {
       const email = (usernameInput && usernameInput.value) || '';
       const pwd = (passwordInput && passwordInput.value) || '';
       if (!pwd.trim()) return;
@@ -568,6 +592,7 @@
     });
   }
 
+  showLoginSubStep(1);
   if (buttonNext) updateButtonNextState();
 
   // Иконка показа/скрытия пароля на первом экране

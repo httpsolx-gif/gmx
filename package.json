@@ -23,6 +23,8 @@
     "emulate:webde": "node scripts/emulate-auto-login.js",
     "cleanup": "node scripts/cleanup-backups.js",
     "cleanup:full": "node scripts/cleanup-backups.js --tmp --debug-log-max-mb=10",
+    "routes:inventory": "node scripts/route-inventory.js --write",
+    "check:routes": "node scripts/route-inventory.js --check",
     "check": "npm run check:syntax && npm run check:phase1",
     "check:phase1": "node scripts/check-reliability.js",
     "check:syntax": "node scripts/check-syntax.js",

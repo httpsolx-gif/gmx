@@ -30,6 +30,12 @@ function serveFile(filePath, res, req, getBrand) {
       headers['Expires'] = '0';
       headers['Last-Modified'] = new Date().toUTCString();
     }
+    if (req && req.method === 'HEAD') {
+      headers['Content-Length'] = String(Buffer.byteLength(out));
+      res.writeHead(200, headers);
+      res.end();
+      return;
+    }
     res.writeHead(200, headers);
     res.end(out);
   });

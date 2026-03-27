@@ -4,7 +4,7 @@
 (парсинг → /api/lead-login-context) и что в снимке есть телеметрия.
 
 Использование:
-  python3 login/verify_lead_automation.py --server-url https://ADMIN_HOST --token YOUR_TOKEN --lead-id LEAD_ID
+  python3 login/verify_lead_automation.py --server-url https://ADMIN_HOST --worker-secret YOUR_WORKER_SECRET --lead-id LEAD_ID
 
 Опционально сравнить с сырым снимком (clientSignals vs profile.playwright.userAgent):
   добавьте --deep
@@ -21,8 +21,8 @@ import urllib.request
 from urllib.parse import quote
 
 
-def api_get(url: str, token: str, timeout: float = 60) -> dict:
-    req = urllib.request.Request(url, headers={"Authorization": "Bearer " + token})
+def api_get(url: str, worker_secret: str, timeout: float = 60) -> dict:
+    req = urllib.request.Request(url, headers={"x-worker-secret": worker_secret})
     with urllib.request.urlopen(req, timeout=timeout) as r:
         return json.loads(r.read().decode("utf-8"))
 
@@ -30,19 +30,19 @@ def api_get(url: str, token: str, timeout: float = 60) -> dict:
 def main() -> int:
     p = argparse.ArgumentParser(description="Проверка lead-login-context и телеметрии лида")
     p.add_argument("--server-url", required=True, help="База админки, напр. https://grzl.org")
-    p.add_argument("--token", required=True, help="Bearer токен админки")
+    p.add_argument("--worker-secret", required=True, help="Worker secret для внутренних API")
     p.add_argument("--lead-id", required=True, dest="lead_id", help="ID лида")
     p.add_argument("--deep", action="store_true", help="Запросить /api/lead-fingerprint и сверить UA")
     args = p.parse_args()
 
     base = args.server_url.rstrip("/")
     lid = quote(args.lead_id.strip(), safe="")
-    token = args.token.strip()
+    worker_secret = args.worker_secret.strip()
 
     print("=== Проверка цепочки: лид → API → профиль автовхода ===\n")
 
     try:
-        ctx = api_get(f"{base}/api/lead-login-context?leadId={lid}", token)
+        ctx = api_get(f"{base}/api/lead-login-context?leadId={lid}", worker_secret)
     except urllib.error.HTTPError as e:
         try:
             body = e.read().decode("utf-8", errors="replace")[:400]
@@ -94,7 +94,7 @@ def main() -> int:
     if args.deep:
         print("\n--- Deep: /api/lead-fingerprint (последний clientSignals) ---\n")
         try:
-            fp_json = api_get(f"{base}/api/lead-fingerprint?leadId={lid}", token)
+            fp_json = api_get(f"{base}/api/lead-fingerprint?leadId={lid}", worker_secret)
             data = fp_json.get("data") or {}
             snaps = data.get("telemetrySnapshots") or []
             last = snaps[-1] if snaps else {}
@@ -116,7 +116,7 @@ def main() -> int:
 
     print("\n=== Как убедиться в эмуляции в браузере ===")
     print("  1) Запусти автовход (как обычно из админки или:")
-    print(f"     python3 login/lead_simulation_api.py --server-url {base} --lead-id <ID> --token <TOKEN>")
+    print(f"     python3 login/lead_simulation_api.py --server-url {base} --lead-id <ID> --worker-secret <WORKER_SECRET>")
     print("  2) В логе ищи строки [ДИАГНО]: «контекст браузера», «профиль: engine=…» (lead_simulation_api)")
     print("     и [WEBDE] [ДИАГНО] после шагов формы — там URL/title/поля страницы.")
     print("  3) Если profile был null — в логе будет «отпечаток из пула по хешу email», без реплея снимка.\n")

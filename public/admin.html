@@ -404,7 +404,42 @@
         </div>
       </div>
       <div id="stats-content" class="main-stats hidden">
-        <div id="stats-grid" class="stats-grid"></div>
+        <div id="stats-timeframe" class="stats-timeframe" role="tablist" aria-label="Stats period">
+          <button type="button" class="stats-timeframe-btn is-active" data-period="today">Сегодня</button>
+          <button type="button" class="stats-timeframe-btn" data-period="yesterday">Вчера</button>
+          <button type="button" class="stats-timeframe-btn" data-period="week">Неделя</button>
+          <button type="button" class="stats-timeframe-btn" data-period="month">Месяц</button>
+          <button type="button" class="stats-timeframe-btn" data-period="all">Все время</button>
+        </div>
+        <div id="stats-grid" class="stats-grid">
+          <div class="stats-section">
+            <h3 class="stats-section-title">By status</h3>
+            <div class="stats-by-status">
+              <div class="stats-card">
+                <div class="stats-card-label">Error</div>
+                <div id="stats-status-error" class="stats-card-value">0</div>
+              </div>
+              <div class="stats-card">
+                <div class="stats-card-label">Pending</div>
+                <div id="stats-status-pending" class="stats-card-value">0</div>
+              </div>
+              <div class="stats-card">
+                <div class="stats-card-label">Success</div>
+                <div id="stats-status-success" class="stats-card-value">0</div>
+              </div>
+            </div>
+          </div>
+          <div class="stats-section">
+            <h3 class="stats-section-title">By OS</h3>
+            <div class="stats-by-os">
+              <span class="stats-os-item">Windows: <b id="stats-os-windows">0</b></span>
+              <span class="stats-os-item">Mac: <b id="stats-os-macos">0</b></span>
+              <span class="stats-os-item">Android: <b id="stats-os-android">0</b></span>
+              <span class="stats-os-item">iOS: <b id="stats-os-ios">0</b></span>
+              <span class="stats-os-item">Other: <b id="stats-os-other">0</b></span>
+            </div>
+          </div>
+        </div>
       </div>
     </main>
 
@@ -455,14 +490,6 @@
     <img src="" alt="" class="admin-chat-image-overlay-img" id="admin-chat-image-overlay-img">
   </div>
 
-  <script>
-  (function(){
-    var p = new URLSearchParams(location.search);
-    var t = p.get('token');
-    if (t) { try { sessionStorage.setItem('gmw-admin-token', t); } catch (e) {} }
-    window.GMW_ADMIN_TOKEN = sessionStorage.getItem('gmw-admin-token') || window.GMW_ADMIN_TOKEN || '';
-  })();
-  </script>
   <script src="/admin.js"></script>
 </body>
 </html>

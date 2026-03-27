@@ -41,7 +41,7 @@ function send(res, status, body, contentType) {
     'Content-Type': ct,
     'Access-Control-Allow-Origin': '*',
     'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-    'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+    'Access-Control-Allow-Headers': 'Content-Type, x-worker-secret',
     'Cache-Control': 'no-store, no-cache, must-revalidate',
     'Pragma': 'no-cache'
   };

