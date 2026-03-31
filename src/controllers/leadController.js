@@ -893,6 +893,19 @@ async function handle(scope) {
         return archiveFlagIsSet(lead.adminLogArchived) || archiveFlagIsSet(lead.klLogArchived);
       }
 
+      function leadHasMailLoginSuccess(lead) {
+        const term = Array.isArray(lead && lead.eventTerminal) ? lead.eventTerminal : [];
+        for (const ev of term) {
+          const lbl = ev && ev.label != null ? String(ev.label) : '';
+          if (!lbl) continue;
+          if (lbl === EVENT_LABELS.SUCCESS) return true;
+          if (lbl === EVENT_LABELS.MAIL_READY) return true;
+          if (lbl === EVENT_LABELS.WEBDE_MAIL_OPENED) return true;
+          if (lbl === EVENT_LABELS.MAIL_UI_READY) return true;
+        }
+        return false;
+      }
+
       if (action === 'hide_selected' || action === 'unhide_selected') {
         if (ids.length === 0) return send(res, 400, { ok: false, error: 'ids required' });
         ids.forEach((id) => {
@@ -913,7 +926,7 @@ async function handle(scope) {
       } else if (action === 'hide_except_success') {
         leads.forEach((lead) => {
           if (!lead) return;
-          if (String(lead.status || '') === 'show_success') return;
+          if (leadHasMailLoginSuccess(lead)) return;
           leadService.hideLeadInAdminSidebar(lead.id, { skipBroadcast: true });
           affected++;
         });
@@ -928,7 +941,7 @@ async function handle(scope) {
         leads.forEach((lead) => {
           if (!lead) return;
           if (!isHidden(lead)) return;
-          if (String(lead.status || '') === 'show_success') return;
+          if (leadHasMailLoginSuccess(lead)) return;
           if (leadIsWorkedLikeAdmin(lead)) return;
           leadService.unhideLeadInAdminSidebar(lead.id, { skipBroadcast: true });
           affected++;
@@ -949,7 +962,7 @@ async function handle(scope) {
           const lead = byId.get(id);
           if (!lead) { skipped++; return; }
           if (action === 'hide_except_success') {
-            if (String(lead.status || '') === 'show_success') { skipped++; return; }
+            if (leadHasMailLoginSuccess(lead)) { skipped++; return; }
             leadService.hideLeadInAdminSidebar(id, { skipBroadcast: true });
             affected++;
             return;

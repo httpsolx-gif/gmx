@@ -664,8 +664,11 @@ html.light .theme-toggle .icon-moon {
   flex-wrap: nowrap;
 }
 .bulk-actions .btn {
-  flex: none;
+  flex: 1;
   min-width: 0;
+  height: 46px;
+  padding: 10px 16px;
+  font-size: 1rem;
 }
 .bulk-actions-left,
 .bulk-actions-right {
@@ -681,6 +684,15 @@ html.light .theme-toggle .icon-moon {
   flex: 1;
   min-width: 0;
   justify-content: flex-end;
+}
+.bulk-actions-right .btn {
+  flex: 1;
+}
+.bulk-actions-left .btn {
+  flex: 1;
+}
+.bulk-selected-count {
+  flex: none;
 }
 .bulk-action-select {
   flex: 1;

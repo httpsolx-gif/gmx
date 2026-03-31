@@ -884,9 +884,8 @@
       ? '<div class="leads-pagination-left">' +
           '<div class="leads-bulk-menu" id="leads-bulk-menu">' +
             '<button type="button" class="btn btn-ghost btn-sm leads-bulk-menu-trigger" id="btn-leads-bulk-menu" aria-haspopup="true" aria-expanded="false" title="Bulk">' +
-              '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">' +
-                '<line x1="12" y1="5" x2="12" y2="15"></line>' +
-                '<polyline points="7 11 12 16 17 11"></polyline>' +
+              '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
+                '<polyline points="6 9 12 15 18 9"></polyline>' +
               '</svg>' +
             '</button>' +
             '<div class="leads-bulk-menu-panel hidden" id="leads-bulk-menu-panel" role="menu" aria-hidden="true">' +
