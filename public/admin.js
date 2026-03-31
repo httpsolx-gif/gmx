@@ -638,7 +638,6 @@
           '</div>' +
           '<div class="session-meta-row">' +
             '<span class="action-badge ' + badge.cls + '">' + escapeHtml(badge.label) + '</span>' +
-            surfMeta +
             '<span class="session-icons-bottom">' +
               '<span class="session-icon-wrap session-icon-wrap--past">' + pastHistoryIconHtml + '</span>' +
               '<span class="session-icon-wrap session-icon-wrap--klein">' + brandIconHtml + '</span>' +
