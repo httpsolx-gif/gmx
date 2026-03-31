@@ -3,6 +3,7 @@
  * - Playwright автовхода WEB.DE (login/webde_login.py читает login/webde_fingerprints.json)
  * - Браузера: public/webde-fingerprints-pool.js (window.__GMW_FP_PRESETS)
  *
+ * Внимание: в репозитории может быть курируемый короткий пул — этот скрипт перезапишет JSON на 100 синтетических.
  * Запуск: node scripts/build-webde-fingerprints.mjs
  * Немецкие Win + Chrome (лиды + синтетика): node scripts/build-webde-fingerprints-de-win11.mjs
  * Все профили — десктоп Chromium (Chrome/Edge), реалистично для web.de.

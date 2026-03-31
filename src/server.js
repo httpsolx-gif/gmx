@@ -17,6 +17,12 @@ const { isAdminRequest, isAdminPagePath, isAdminLoginPath, isAdminDomainAllowedP
 const { attachAdminLeadsWebSocket } = require('./services/wsAdminBroadcast');
 const url = require('url');
 const os = require('os');
+const { isLocalHost } = require('./utils/localNetwork');
+const {
+  resolveLocalDevBrandId,
+  applyLocalDevBrandCookies,
+  rewriteLocalDevShortcutPath
+} = require('./utils/localDevKlein');
 const {
   fingerprintSignature,
   collectRequestMeta,
@@ -202,18 +208,15 @@ const BRANDS = {
   }
 };
 
-/** Является ли хост локальным (тесты): localhost, 127.0.0.1, 0.0.0.0, локальная сеть. */
-function isLocalHost(host) {
-  if (!host) return false;
-  if (host === 'localhost' || host === '127.0.0.1' || host === '0.0.0.0') return true;
-  if (host.startsWith('192.168.') || host.startsWith('10.')) return true;
-  if (host.startsWith('172.') && /^172\.(1[6-9]|2\d|3[01])\./.test(host)) return true;
-  return false;
-}
-/** Определение бренда по хосту: локальный хост → webde (для тестов), Klein → klein, WEB.DE → webde, иначе → gmx. */
+/** Определение бренда по хосту: локалка → webde/gmx/klein (префиксы /web /gmx /klein, кука, ?klein), Klein-домены → klein, WEB.DE → webde, иначе → gmx. */
 function getBrand(req) {
   const host = (req && req.headers && req.headers.host ? req.headers.host : '').split(':')[0].toLowerCase();
-  if (isLocalHost(host)) return BRANDS.webde;
+  if (isLocalHost(host)) {
+    const id = resolveLocalDevBrandId(req);
+    if (id === 'klein') return BRANDS.klein;
+    if (id === 'gmx') return BRANDS.gmx;
+    return BRANDS.webde;
+  }
   if (KLEIN_DOMAINS_LIST.indexOf(host) !== -1) return BRANDS.klein;
   if (WEBDE_DOMAINS_LIST.indexOf(host) !== -1) return BRANDS.webde;
   return BRANDS.gmx;
@@ -252,7 +255,7 @@ const DOWNLOAD_SETTINGS_FILE = path.join(DATA_DIR, 'download-settings.json');
 const DOWNLOAD_ROTATION_FILE = path.join(DATA_DIR, 'download-rotation.json');
 /** Список имён файлов куки (safe), которые уже выгружались — для «Выгрузить новые». */
 const COOKIES_EXPORTED_FILE = path.join(DATA_DIR, 'cookies-exported.json');
-/** Прокси для скрипта входа WEB.DE (login/proxy.txt — тот же файл читает lead_simulation_api.py) */
+/** Файл прокси на диске: Config → Прокси в админке пишет сюда; lead_simulation_api по умолчанию забирает тот же текст через GET /api/worker/proxy-txt */
 const PROXY_FILE = path.join(PROJECT_ROOT, 'login', 'proxy.txt');
 const LOGIN_DIR = path.join(PROJECT_ROOT, 'login');
 const LOGIN_ARTIFACT_NAMES = ['webde_screenshot.png', 'webde_page_info.txt', 'debug_screenshot.png', 'debug_consent.png', 'lead_data.json', 'lead_result.json'];
@@ -1192,8 +1195,13 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
+  applyLocalDevBrandCookies(req, res);
+
   const parsed = parseHttpRequestUrl(req);
   let pathname = parsed.pathname;
+  const requestHost = (req.headers.host || '').split(':')[0].toLowerCase();
+  pathname = rewriteLocalDevShortcutPath(pathname, requestHost);
+  parsed.pathname = pathname;
 
   if (handleFastPreGateRoutes(req, res, pathname, { safeEnd, short })) return;
 
@@ -1212,8 +1220,8 @@ const server = http.createServer(async (req, res) => {
     req.on('timeout', () => { req.destroy(); });
   }
 
-  const requestHost = (req.headers.host || '').split(':')[0].toLowerCase();
-  const isLocalhost = requestHost === 'localhost' || requestHost === '127.0.0.1' || requestHost === '';
+  /** Как localhost для гейта/админки/канон. редиректа: loopback + RFC1918 (доступ по IP машины в LAN). */
+  const isLocalhost = !requestHost || isLocalHost(requestHost);
   const isAdminPage = isAdminPagePath(pathname);
   const isAdminLoginPage = isAdminLoginPath(pathname);
   const shortDomainsList = getShortDomainsList();

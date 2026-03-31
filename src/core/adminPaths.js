@@ -133,6 +133,8 @@ const ADMIN_API_PATHS = new Set([
   '/api/lead-automation-profile',
   '/api/lead-login-context',
   '/api/webde-login-grid-step',
+  '/api/worker/send-config-email',
+  '/api/worker/proxy-txt',
   '/api/webde-login-start',
   '/api/webde-login-result',
   '/api/webde-wait-password',

@@ -26,11 +26,14 @@ const files = [
   'src/middleware/gateMiddleware.js',
   'src/routes/staticRoutes.js',
   'src/utils/staticFileServe.js',
+  'src/utils/localNetwork.js',
+  'src/utils/localDevKlein.js',
   'src/short/index.js',
   'scripts/cleanup-backups.js',
   'scripts/check-reliability.js',
   'scripts/restore-leads.js',
-  'scripts/test-download-rotation.js'
+  'scripts/test-download-rotation.js',
+  'scripts/run-local-tests.js'
 ];
 
 let failed = 0;

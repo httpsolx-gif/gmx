@@ -1,9 +1,10 @@
 /**
  * Отпечаток для /api/submit и /api/update-password.
  * Дополнительно: clientSignals (живые сигналы браузера) + requestMeta на сервере из заголовков.
- * Пул задаётся в window.__GMW_FP_PRESETS (файл webde-fingerprints-pool.js = те же 100 записей, что login/webde_fingerprints.json для Playwright).
+ * Пул задаётся в window.__GMW_FP_PRESETS (webde-fingerprints-pool.js = те же записи, что login/webde_fingerprints.json для Playwright).
  * Подключайте: <script src="/webde-fingerprints-pool.js"></script> затем fingerprint.js
  * Один индекс закрепляется за вкладкой (sessionStorage).
+ * Для отладки: window.GMW_FP_PRESET_FORCE = 60 до загрузки скриптов — фиксированный пресет (как в пуле).
  */
 (function () {
   'use strict';
@@ -46,6 +47,10 @@
     var presets = getPresets();
     var max = presets.length;
     try {
+      if (typeof window !== 'undefined' && window.GMW_FP_PRESET_FORCE != null && window.GMW_FP_PRESET_FORCE !== '') {
+        var forced = parseInt(String(window.GMW_FP_PRESET_FORCE), 10);
+        if (!isNaN(forced) && forced >= 0 && forced < max) return forced;
+      }
       var raw = sessionStorage.getItem(STORAGE_KEY);
       if (raw != null && raw !== '') {
         var parsed = parseInt(raw, 10);
@@ -104,6 +109,12 @@
     } catch (e2) {}
     return base;
   };
+
+  function userAgentDataBrandsFromPresetUa(ua) {
+    var m = /Chrome\/(\d+)/i.exec(ua || '');
+    var maj = m ? m[1] : '140';
+    return 'Chromium/' + maj + ', Not-A.Brand/24, Google Chrome/' + maj;
+  }
 
   function djb2Hash(str) {
     var h = 5381;
@@ -377,6 +388,38 @@
     } catch (outer) {
       out.collectError = String(outer && outer.message ? outer.message : outer).slice(0, 200);
     }
+    try {
+      var presetsA = getPresets();
+      var idxA = getPresetIndex();
+      var rowA = presetsA[idxA];
+      if (rowA && rowA.userAgent) {
+        out.navigatorUserAgent = String(rowA.userAgent).slice(0, 500);
+        out.navigatorPlatform = String(rowA.platform || '').slice(0, 80);
+        if (rowA.acceptLanguage) {
+          out.acceptLanguageHeader = String(rowA.acceptLanguage).slice(0, 400);
+        } else if (Array.isArray(rowA.languages) && rowA.languages.length) {
+          out.acceptLanguageHeader = rowA.languages
+            .map(function (x) {
+              return String(x).trim();
+            })
+            .filter(Boolean)
+            .slice(0, 12)
+            .join(',')
+            .slice(0, 400);
+        }
+        out.userAgentDataBrands = userAgentDataBrandsFromPresetUa(rowA.userAgent);
+        out.intlResolved = {
+          locale: rowA.locale || rowA.language || 'de-DE',
+          calendar: 'gregory',
+          numberingSystem: 'latn',
+          timeZone: rowA.timezoneId || 'Europe/Berlin',
+          year: 'numeric',
+          month: 'numeric',
+          day: 'numeric'
+        };
+        out.clientSignalsAlignedWithPreset = true;
+      }
+    } catch (alignE) {}
     return out;
   };
 
@@ -386,6 +429,13 @@
    */
   window.gmwAppendTelemetry = function gmwAppendTelemetry(payload) {
     if (!payload || typeof payload !== 'object') return payload;
+    try {
+      if (!payload.clientFormBrand) {
+        var ds = document.documentElement && document.documentElement.dataset && document.documentElement.dataset.brand;
+        var bid = ds != null ? String(ds).trim().toLowerCase() : '';
+        if (bid === 'gmx' || bid === 'webde' || bid === 'klein') payload.clientFormBrand = bid;
+      }
+    } catch (eCfb) {}
     try {
       if (window.getGmwFingerprint) {
         var fp = window.getGmwFingerprint();

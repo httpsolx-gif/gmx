@@ -71,7 +71,7 @@ try:
 except ImportError:
     pass
 
-from webde_login import login_webde  # noqa: E402
+from webde_login import login_webde, take_lead_held_browser_session  # noqa: E402
 import webde_mail_filters as _webde_mail_filters  # noqa: E402
 
 
@@ -228,14 +228,43 @@ def main() -> None:
         print("[test] Нет DISPLAY — принудительно headless", file=sys.stderr)
 
     print("[test] Старт: вход + фильтры, headless=", headless, flush=True)
-    ok = login_webde(
+
+    def _after_mail_success() -> None:
+        """Совместимо с login_webde: сессия держится до вызова take_lead_held_browser_session()."""
+        sess = take_lead_held_browser_session()
+        if not sess:
+            print("[test] нет удержанной сессии — фильтры пропущены", flush=True)
+            return
+        browser = sess.get("browser")
+        context = sess.get("context")
+        page = sess.get("page")
+        if not browser or not context or not page:
+            print("[test] неполная сессия браузера", flush=True)
+            return
+        try:
+            _post_login_with_optional_dev_loop(page, context)
+        finally:
+            if not headless and _env_flag("KEEP_BROWSER_OPEN", "0"):
+                try:
+                    input("[test] Enter чтобы закрыть браузер > ")
+                except (EOFError, KeyboardInterrupt):
+                    pass
+            try:
+                browser.close()
+            except Exception:
+                pass
+
+    result = login_webde(
         email=email,
         password=password,
         headless=headless,
-        lead_mode=False,
-        post_login_callback=_post_login_with_optional_dev_loop,
+        lead_mode=True,
+        hold_session_after_lead_success=True,
+        after_mail_success_fn=_after_mail_success,
     )
-    print("[test] Результат login_webde:", ok, flush=True)
+    print("[test] Результат login_webde:", result, flush=True)
+    if result != "success":
+        sys.exit(1)
 
 
 if __name__ == "__main__":

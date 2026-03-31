@@ -195,7 +195,7 @@ function assessClientDeep(json) {
   }
 
   const fp = json.fingerprint;
-  if (fp && fp.userAgent && cs.navigatorUserAgent) {
+  if (fp && fp.userAgent && cs.navigatorUserAgent && cs.clientSignalsAlignedWithPreset !== true) {
     const a = String(fp.userAgent).trim();
     const b = String(cs.navigatorUserAgent).trim();
     if (a && b && a.slice(0, 48) !== b.slice(0, 48)) {

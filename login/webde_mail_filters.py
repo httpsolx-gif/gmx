@@ -1,7 +1,10 @@
 #!/usr/bin/env python3
 """
-После успешного входа WEB.DE: главная → меню профиля → E-Mail Einstellungen → mail_settings →
-в сайдбаре пункт «Filterregeln» (часто под «Ordner», иногда под «E-Mail») → в основной колонке кнопка
+После успешного входа WEB.DE: главная → меню профиля → E-Mail Einstellungen →
+hub настроек `navigator.web.de/mail_settings?sid=…` — в сайдбаре пункт «Filterregeln»;
+редактор правил часто уезжает на другой хост, путь вида `…/mail/client/settings/filterrules`
+(напр. `3c.web.de/.../filterrules;jsessionid=…`). Если вкладка уже на filterrules — клик по сайдбару не нужен.
+Далее в основной колонке кнопка
 «Filterregel(n) erstellen» (встречается и ед.ч.) → модалка с тем же заголовком →
 «Alle neuen E-Mails» → «Verschiebe in Ordner» → «Papierkorb» → сохранение:
 «Filterregel einrichten» или «Filterregel erstellen» (альт. подпись в футере модалки).
@@ -31,6 +34,69 @@ RE_BTN_OPEN_FILTER_MODAL = re.compile(r"Filterregeln?\s+erstellen", re.I)
 RE_MODAL_FILTER_TITLE = re.compile(r"Filterregeln?\s+erstellen", re.I)
 RE_BTN_SAVE_EINRICHTEN = re.compile(r"Filterregel\s+einrichten", re.I)
 RE_BTN_SAVE_ERSTELLEN = re.compile(r"Filterregel\s+erstellen", re.I)
+
+# Тот же критерий, что wait_for_function в _wait_webde_portal_after_goto.
+# Важно: у гостя тоже есть <account-avatar> и «кнопка профиля» — без отсечения Login/Anmelden
+# STEP-02 считался успешным, а в flyout не было «E-Mail Einstellungen».
+_WEBDE_PORTAL_LOGGED_IN_JS = r"""() => {
+  const href = location.href || '';
+  if (href.includes('consent-management') || href.includes('consent.app')) return false;
+  if (!href.includes('web.de')) return false;
+  const body = document.body;
+  if (!body) return false;
+  const t = body.innerText || '';
+  const tl = t.toLowerCase();
+  if (t.indexOf('Sie sind eingeloggt') >= 0) return true;
+  if (t.indexOf('Zum Postfach') >= 0) return true;
+
+  function guestLoginInHeader() {
+    const scope = document.querySelector('header') || body;
+    const sel = scope.querySelectorAll('a, button, [role="button"]');
+    for (const el of sel) {
+      const raw = ((el.innerText || '') + ' ' + (el.getAttribute('aria-label') || ''))
+        .replace(/\s+/g, ' ')
+        .trim()
+        .toLowerCase();
+      const isLogin =
+        raw === 'login' ||
+        raw === 'anmelden' ||
+        raw === 'einloggen' ||
+        raw.startsWith('login ') ||
+        raw.startsWith('anmelden ') ||
+        raw.startsWith('einloggen ');
+      if (!isLogin) continue;
+      const r = el.getBoundingClientRect();
+      if (r.width < 8 || r.height < 8) continue;
+      if (r.top > 140) continue;
+      return true;
+    }
+    return false;
+  }
+  if (guestLoginInHeader()) return false;
+
+  const lux = document.querySelector(
+    'account-avatar.webde[role="button"], account-avatar.webde.hydrated'
+  );
+  if (lux) {
+    const r = lux.getBoundingClientRect();
+    if (r.width >= 10 && r.height >= 10) return true;
+  }
+  const avAppa = document.querySelector(
+    'account-avatar[role="button"][aria-controls*="appa"]'
+  );
+  if (avAppa) {
+    const r2 = avAppa.getBoundingClientRect();
+    if (r2.width >= 10 && r2.height >= 10) return true;
+  }
+  return false;
+}"""
+
+
+def _webde_portal_logged_in_ui(page: Page) -> bool:
+    try:
+        return bool(page.evaluate(_WEBDE_PORTAL_LOGGED_IN_JS))
+    except Exception:
+        return False
 
 
 def _ts() -> str:
@@ -301,6 +367,33 @@ def _try_click_cmp_accept_buttons(page: Page) -> bool:
     return False
 
 
+def _sso_navigator_then_webde_portal(page: Page) -> bool:
+    """
+    После auth.web.de куки иногда не «приклеиваются» к главной web.de сразу.
+    Один проход через navigator.web.de часто поднимает SSO, затем повторный goto web.de/.
+    """
+    try:
+        flog(
+            "SSO-fallback",
+            "переход на https://navigator.web.de/ для поднятия сессии, затем снова web.de/",
+        )
+        page.goto("https://navigator.web.de/", wait_until="domcontentloaded", timeout=120000)
+        time.sleep(2.5)
+        ul = (page.url or "").lower()
+        if any(x in ul for x in ("auth.web.de", "/login", "anmelden", "einloggen")):
+            flog("SSO-fallback", f"навигатор не залогинен: {ul[:100]}")
+            return False
+        flog("STEP-01b", "повтор https://web.de/ после навигатора")
+        page.goto("https://web.de/", wait_until="domcontentloaded", timeout=120000)
+        time.sleep(2.0)
+        page.wait_for_function(_WEBDE_PORTAL_LOGGED_IN_JS, timeout=45000)
+        flog("SSO-fallback", "главная web.de после навигатора — признаки входа OK")
+        return True
+    except Exception as e:
+        flog("SSO-fallback", f"не удалось: {str(e)[:120]}")
+    return False
+
+
 def _wait_webde_portal_after_goto(page: Page, timeout_sec: float = 90.0) -> None:
     """
     После goto https://web.de/ часто редирект на /consent-management/ — без принятия CMP
@@ -339,38 +432,11 @@ def _wait_webde_portal_after_goto(page: Page, timeout_sec: float = 90.0) -> None
             time.sleep(0.25)
             continue
 
-        # Одно эффективное ожидание: как только в DOM есть «вход выполнен» или круг профиля в шапке — сразу выходим (без 2с×N проверок).
-        remaining_ms = int(max(500, (deadline - time.monotonic()) * 1000))
+        # Гость тоже имеет <account-avatar> — ждём явный текст или avatar без видимого Login/Anmelden в шапке.
+        remaining_ms = int(max(500, min(20000, (deadline - time.monotonic()) * 1000)))
         try:
             page.wait_for_function(
-                """() => {
-                const href = location.href || '';
-                if (href.includes('consent-management') || href.includes('consent.app')) return false;
-                if (!href.includes('web.de')) return false;
-                const body = document.body;
-                if (!body) return false;
-                const t = body.innerText || '';
-                if (t.indexOf('Sie sind eingeloggt') >= 0) return true;
-                if (t.indexOf('Zum Postfach') >= 0) return true;
-                const hdr = document.querySelector('header');
-                if (!hdr) return false;
-                const vw = window.innerWidth;
-                const vh = window.innerHeight;
-                const rightMin = vw * 0.56;
-                const topMax = vh * 0.32;
-                const nodes = hdr.querySelectorAll('button, [role="button"]');
-                for (const el of nodes) {
-                  const b = el.getBoundingClientRect();
-                  if (b.width < 8 || b.height < 8) continue;
-                  if (b.right < rightMin) continue;
-                  if (b.top > topMax) continue;
-                  const tx = (el.innerText || '').replace(/\\s+/g, '').trim();
-                  const al = (el.getAttribute('aria-label') || '').trim();
-                  if (tx.length >= 1 && tx.length <= 4 && /^[A-Za-zÄÖÜäöüß.\\-]+$/.test(tx)) return true;
-                  if (/konto|account|profil|benutzer/i.test(al)) return true;
-                }
-                return false;
-              }""",
+                _WEBDE_PORTAL_LOGGED_IN_JS,
                 timeout=remaining_ms,
             )
             flog("главная готова: обнаружен залогиненный UI или иконка профиля (wait_for_function)")
@@ -383,6 +449,9 @@ def _wait_webde_portal_after_goto(page: Page, timeout_sec: float = 90.0) -> None
             flog("жду главную web.de после CMP/загрузки…", u[:110])
 
         time.sleep(0.25)
+
+    if _sso_navigator_then_webde_portal(page):
+        return
 
     raise RuntimeError(
         f"Таймаут {timeout_sec:.0f}с: главная web.de не готова (url={u_last[:180]!r}). "
@@ -518,24 +587,265 @@ def _js_click_bap_save_ok_all_frames(page: Page) -> bool:
     return False
 
 
-def _dismiss_smart_features_modal(page: Page, timeout_ms: int = 25000) -> None:
-    """Модальное окно «Smarte Funktionen – schon gesehen?»."""
-    title = page.get_by_text("Smarte Funktionen", exact=False)
+def _iter_mail_settings_targets(page: Page):
+    """Корень вкладки + все frame (модал Smarte Funktionen часто в iframe)."""
+    yield page
     try:
-        title.first.wait_for(state="visible", timeout=5000)
-    except PlaywrightTimeout:
-        flog("модал Smarte Funktionen не найдена (пропуск)")
-        return
-    flog("модал Smarte Funktionen — жму «Beiden zustimmen und weiter»")
-    btn = page.get_by_role("button", name=re.compile(r"Beiden zustimmen", re.I))
-    if _safe_click(btn, timeout=timeout_ms):
-        time.sleep(1.5)
-        return
-    alt = page.get_by_role("button", name=re.compile(r"zustimmen.*weiter", re.I))
-    if _safe_click(alt, timeout=timeout_ms):
-        time.sleep(1.5)
-        return
-    flog("кнопка согласия не нажата — продолжаю вручную при необходимости")
+        for fr in page.frames:
+            yield fr
+    except Exception:
+        pass
+
+
+def _try_dismiss_smarte_modal_in_target(target) -> bool:
+    """
+    Один контекст (Page/Frame): если виден «Smarte Funktionen» — чекбоксы в диалоге, затем жёлтая кнопка.
+    """
+    try:
+        hint = target.get_by_text(re.compile(r"Smarte\s+Funktionen", re.I))
+        if hint.count() == 0:
+            return False
+        if not hint.first.is_visible(timeout=1500):
+            return False
+    except Exception:
+        return False
+    flog(
+        "модал Smarte Funktionen",
+        "чекбоксы → «Beiden zustimmen und weiter» (или Auswahl übernehmen)",
+    )
+    root = target
+    try:
+        dlg = target.locator('[role="dialog"]').filter(
+            has_text=re.compile(r"Smarte", re.I)
+        )
+        if dlg.count() > 0:
+            root = dlg.first
+        else:
+            dlg2 = target.locator('[aria-modal="true"]').filter(
+                has_text=re.compile(r"Smarte|WEB\.DE\s+Paket", re.I)
+            )
+            if dlg2.count() > 0:
+                root = dlg2.first
+    except Exception:
+        root = target
+    try:
+        cbs = root.locator('input[type="checkbox"]')
+        n = min(cbs.count(), 14)
+        for i in range(n):
+            cb = cbs.nth(i)
+            try:
+                if not cb.is_visible(timeout=500):
+                    continue
+                if cb.is_checked():
+                    continue
+                cb.click(timeout=4000)
+                time.sleep(0.15)
+            except Exception:
+                continue
+    except Exception:
+        pass
+    for pat in (
+        re.compile(r"Beiden\s+zustimmen\s+und\s+weiter", re.I),
+        re.compile(r"Beide\s+zustimmen\s+und\s+weiter", re.I),
+        re.compile(r"Beiden\s+zustimmen", re.I),
+        re.compile(r"zustimmen\s+und\s+weiter", re.I),
+    ):
+        try:
+            btn = target.get_by_role("button", name=pat)
+            if btn.count() > 0 and _safe_click(btn, timeout=14000):
+                time.sleep(1.5)
+                return True
+        except Exception:
+            continue
+    try:
+        btn2 = target.locator("button").filter(
+            has_text=re.compile(r"Beiden\s+zustimmen|zustimmen\s+und\s+weiter", re.I)
+        )
+        if btn2.count() > 0 and _safe_click(btn2, timeout=14000):
+            time.sleep(1.5)
+            return True
+    except Exception:
+        pass
+    try:
+        link = target.get_by_role("link", name=re.compile(r"Auswahl\s+übernehmen", re.I))
+        if link.count() > 0 and _safe_click(link, timeout=8000):
+            time.sleep(1.0)
+            return True
+    except Exception:
+        pass
+    return False
+
+
+def _dismiss_smart_features_modal_once(page: Page) -> bool:
+    """Один проход по root + frame — для лёгкого опроса внутри цикла ожидания кнопки."""
+    for target in _iter_mail_settings_targets(page):
+        try:
+            if _try_dismiss_smarte_modal_in_target(target):
+                return True
+        except Exception:
+            continue
+    return False
+
+
+def _dismiss_smart_features_modal(page: Page, timeout_ms: int = 25000) -> bool:
+    """
+    Модал «Smarte Funktionen – schon gesehen?» — опрос root + frame, чекбоксы, затем основная кнопка.
+    Возвращает True, если модалку закрыли.
+    """
+    deadline = time.monotonic() + max(1.0, timeout_ms / 1000.0)
+    while time.monotonic() < deadline:
+        if _dismiss_smart_features_modal_once(page):
+            return True
+        time.sleep(0.35)
+    flog("модал Smarte Funktionen не найдена за timeout (пропуск)", f"{timeout_ms}ms")
+    return False
+
+
+RE_AUSWAHL_UEBERNOMMEN = re.compile(r"Auswahl\s+wurde\s+übernommen", re.I)
+
+
+def _js_dismiss_auswahl_uebernommen_in_document() -> str:
+    """Выполнять через target.evaluate: закрыть toast «Auswahl wurde übernommen». Возврат clicked|none."""
+    return """(() => {
+      const body = document.body;
+      if (!body) return 'none';
+      const t = (body.innerText || '');
+      if (t.indexOf('Auswahl wurde') < 0 && t.indexOf('Auswahl wurde \u00fcbernommen') < 0) return 'none';
+      const markers = ['Auswahl wurde übernommen', 'Auswahl wurde ubernommen'];
+      let anchor = null;
+      for (const m of markers) {
+        const it = Array.from(document.querySelectorAll('h1,h2,h3,h4,div,span,p')).find(
+          el => (el.innerText || '').trim().indexOf(m) === 0 || (el.textContent || '').includes(m)
+        );
+        if (it) { anchor = it; break; }
+      }
+      let dlg = anchor && (anchor.closest('[role="dialog"]') || anchor.closest('.layer-dialog')
+        || anchor.closest('.layer-root') || anchor.closest('[class*="Modal"]') || anchor.closest('[class*="modal"]'));
+      if (!dlg) {
+        dlg = document.querySelector('[role="dialog"]') || document.querySelector('.layer-dialog') || document.body;
+      }
+      const tryClick = (el) => {
+        if (!el || el.offsetParent === null) return false;
+        el.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, view: window }));
+        if (typeof el.click === 'function') el.click();
+        return true;
+      };
+      const pick = (sel) => Array.from(dlg.querySelectorAll(sel)).find((b) => b.offsetParent !== null);
+      if (tryClick(pick('button[aria-label*="Schlie" i]'))) return 'clicked';
+      if (tryClick(pick('button[title*="Schlie" i]'))) return 'clicked';
+      if (tryClick(pick('[data-webdriver="close"]'))) return 'clicked';
+      if (tryClick(pick('button.m-close-button, .m-dialog-close, [class*="dialog-close"] button'))) return 'clicked';
+      const buttons = Array.from(dlg.querySelectorAll('button'));
+      for (const b of buttons) {
+        const ar = ((b.getAttribute('aria-label') || '') + ' ' + (b.getAttribute('title') || '')).toLowerCase();
+        if ((ar.includes('schlie') || ar.includes('close')) && b.offsetParent) {
+          if (tryClick(b)) return 'clicked';
+        }
+      }
+      for (const b of buttons) {
+        const tx = (b.innerText || '').trim();
+        if ((tx === '×' || tx === '\u00d7' || tx === '\u2715') && b.offsetParent) {
+          if (tryClick(b)) return 'clicked';
+        }
+      }
+      const hdr = dlg.querySelector('.layer-dialog-header, [class*="LayerHeader"], [class*="dialog-header"], header');
+      if (hdr) {
+        const small = Array.from(hdr.querySelectorAll('button')).filter(
+          (b) => b.offsetParent && b.getBoundingClientRect().width > 0 && b.getBoundingClientRect().width < 52
+        );
+        const corner = small.length ? small[small.length - 1] : null;
+        if (corner && tryClick(corner)) return 'clicked';
+      }
+      return 'none';
+    })()"""
+
+
+def _try_dismiss_auswahl_uebernommen_in_target(target) -> bool:
+    """Один document (page или frame): модал успеха после Speichern в Einstellungen."""
+    try:
+        has_marker = target.evaluate(
+            """() => {
+              const t = (document.body && document.body.innerText) || '';
+              return t.indexOf('Auswahl wurde') >= 0 && t.indexOf('bernommen') >= 0;
+            }"""
+        )
+    except Exception:
+        return False
+    if not has_marker:
+        return False
+    flog("модал успеха", "«Auswahl wurde übernommen» — закрываю (X / Schließen)")
+    try:
+        r = target.evaluate(_js_dismiss_auswahl_uebernommen_in_document())
+        if r == "clicked":
+            time.sleep(0.45)
+            return True
+    except Exception:
+        pass
+    root = target
+    try:
+        dlg = target.locator('[role="dialog"]').filter(has_text=RE_AUSWAHL_UEBERNOMMEN)
+        if dlg.count() > 0 and dlg.first.is_visible(timeout=800):
+            root = dlg.first
+    except Exception:
+        pass
+    for loc in (
+        root.get_by_role("button", name=re.compile(r"Schließen|Close", re.I)),
+        root.locator('button[aria-label*="Schließen" i], button[aria-label*="Close" i]'),
+    ):
+        try:
+            if loc.count() > 0 and _safe_click(loc.first, timeout=6000):
+                time.sleep(0.4)
+                return True
+        except Exception:
+            continue
+    try:
+        pg = getattr(target, "page", None) or target
+        pg.keyboard.press("Escape")
+        time.sleep(0.35)
+        gone = not target.evaluate(
+            """() => {
+              const t = (document.body && document.body.innerText) || '';
+              return t.indexOf('Auswahl wurde') >= 0 && t.indexOf('bernommen') >= 0;
+            }"""
+        )
+        if gone:
+            return True
+    except Exception:
+        pass
+    return False
+
+
+_AUSWAHL_MARKER_JS = """() => {
+  const t = (document.body && document.body.innerText) || '';
+  return t.indexOf('Auswahl wurde') >= 0 && t.indexOf('bernommen') >= 0;
+}"""
+
+
+def _any_mail_settings_scope_has_auswahl_marker(page: Page) -> bool:
+    """Быстрая проверка без ожидания — иначе _dismiss ждал бы весь timeout_ms даже при пустой странице."""
+    for tgt in _iter_mail_settings_targets(page):
+        try:
+            if tgt.evaluate(_AUSWAHL_MARKER_JS):
+                return True
+        except Exception:
+            continue
+    return False
+
+
+def _dismiss_auswahl_uebernommen_modal(page: Page, timeout_ms: int = 18000) -> bool:
+    """Подтверждение «Auswahl wurde übernommen» — мешает кликам по сайдбару; закрыть X или Schließen."""
+    if not _any_mail_settings_scope_has_auswahl_marker(page):
+        return False
+    deadline = time.monotonic() + max(0.8, timeout_ms / 1000.0)
+    while time.monotonic() < deadline:
+        for tgt in _iter_mail_settings_targets(page):
+            try:
+                if _try_dismiss_auswahl_uebernommen_in_target(tgt):
+                    return True
+            except Exception:
+                continue
+        time.sleep(0.28)
+    return False
 
 
 def _click_profile_avatar_webde_header(page: Page) -> bool:
@@ -611,7 +921,7 @@ def _click_appa_account_avatar_webde(page: Page) -> bool:
     Портал WEB.DE (Lux): <account-avatar class="webde hydrated" role="button" aria-controls="appa-account-flyout">.
     """
     try:
-        tmo = 22000 if not _filters_fast_mode() else 14000
+        tmo = 12000 if not _filters_fast_mode() else 8000
         try:
             page.wait_for_selector(
                 "account-avatar.webde, account-avatar[role='button'][aria-controls='appa-account-flyout']",
@@ -628,9 +938,10 @@ def _click_appa_account_avatar_webde(page: Page) -> bool:
         if root.count() == 0:
             return False
         av = root.first
-        av.wait_for(state="visible", timeout=18000)
-        av.scroll_into_view_if_needed(timeout=8000)
-        av.click(timeout=15000, force=True)
+        vis_tmo = 10000 if not _filters_fast_mode() else 6500
+        av.wait_for(state="visible", timeout=vis_tmo)
+        av.scroll_into_view_if_needed(timeout=5000)
+        av.click(timeout=10000, force=True)
         flog("appa", "клик account-avatar.webde")
         _fsleep(0.45, 0.2)
         if not _appa_flyout_visible(page):
@@ -662,21 +973,46 @@ def _appa_flyout_visible(page: Page) -> bool:
 
 
 def _profile_account_menu_seems_open(page: Page) -> bool:
-    """Выпадашка Appa или классическое меню: E-Mail Einstellungen / Logout."""
-    if _appa_flyout_visible(page):
-        return True
-    checks = (
-        page.locator(
-            '#appa-account-flyout a[href*="showMailSettings" i], '
-            'account-avatar a[href*="showMailSettings" i]'
-        ),
-        page.locator('a[href*="showMailSettings" i], a[href*="link.web.de" i][href*="settings" i]'),
-        page.get_by_text(re.compile(r"E-Mail\s+Einstellungen", re.I)),
-        page.get_by_text(re.compile(r"Abmelden|Ausloggen|Logout", re.I)),
-    )
-    for ch in checks:
+    """
+    Меню «открыто» только если есть пункты залогиненного аккаунта.
+    Гостевой flyout тоже рисует #appa-account-flyout — без showMailSettings / Abmelden это не успех.
+    """
+    def _vis(loc) -> bool:
         try:
-            if ch.count() > 0 and ch.first.is_visible(timeout=900):
+            return loc.count() > 0 and loc.first.is_visible(timeout=900)
+        except Exception:
+            return False
+
+    mail_sel = (
+        '#appa-account-flyout a[href*="showMailSettings" i], '
+        '#appa-account-flyout a.appa-navigation-row[href*="showMailSettings" i], '
+        'account-avatar a[href*="showMailSettings" i], '
+        'a.appa-navigation-row[href*="showMailSettings" i]'
+    )
+    if _vis(page.locator(mail_sel)):
+        return True
+    href_broad = 'a[href*="showMailSettings" i], a[href*="link.web.de" i][href*="settings" i]'
+    if _vis(page.locator(href_broad)):
+        return True
+    try:
+        fo = page.locator("#appa-account-flyout")
+        if fo.count() > 0 and fo.first.is_visible(timeout=500):
+            fin = fo.first.locator("a, [role='link'], [role='menuitem']")
+            if _vis(fin.filter(has_text=re.compile(r"E-Mail\s*[-]?\s*Einstellungen", re.I))):
+                return True
+            if _vis(fo.first.get_by_text(re.compile(r"Abmelden|Ausloggen", re.I))):
+                return True
+    except Exception:
+        pass
+    for fr in page.frames:
+        if fr is page.main_frame:
+            continue
+        try:
+            l2 = fr.locator(mail_sel)
+            if l2.count() > 0 and l2.first.is_visible(timeout=400):
+                return True
+            l3 = fr.locator(href_broad)
+            if l3.count() > 0 and l3.first.is_visible(timeout=400):
                 return True
         except Exception:
             continue
@@ -693,11 +1029,38 @@ def _assert_webde_session_not_logged_out_portal(page: Page) -> None:
         return
     if "web.de" not in u:
         return
+    # Главная и Lux/appa подгружаются волнами: сначала гостевой скелет, потом профиль.
+    raw_sec = (os.environ.get("WEBDE_PORTAL_LOGIN_POLL_SEC") or "").strip()
     try:
-        blob = (page.inner_text("body", timeout=12000) or "").lower()
-    except Exception:
-        blob = ""
-    if "sie sind eingeloggt" in blob or "zum postfach" in blob:
+        poll_sec = float(raw_sec) if raw_sec else 45.0
+    except ValueError:
+        poll_sec = 45.0
+    poll_sec = max(8.0, min(120.0, poll_sec))
+    deadline = time.monotonic() + poll_sec
+    last_log = 0.0
+    while time.monotonic() < deadline:
+        if _webde_portal_logged_in_ui(page):
+            return
+        try:
+            blob = (page.inner_text("body", timeout=8000) or "").lower()
+            if "sie sind eingeloggt" in blob or "zum postfach" in blob:
+                return
+        except Exception:
+            pass
+        now = time.monotonic()
+        if now - last_log >= 5.0:
+            last_log = now
+            left = max(0, int(deadline - now))
+            flog(
+                "портал web.de: жду гидратацию входа (профиль / «Sie sind eingeloggt»)…",
+                f"опрос каждую 1s, осталось ~{left}s (WEBDE_PORTAL_LOGIN_POLL_SEC)",
+            )
+        time.sleep(1.0)
+    if _webde_portal_logged_in_ui(page):
+        return
+    if _sso_navigator_then_webde_portal(page):
+        return
+    if _webde_portal_logged_in_ui(page):
         return
     try:
         login_hit = page.get_by_role("button", name=re.compile(r"^(Login|Anmelden)$", re.I))
@@ -759,18 +1122,25 @@ def _navigate_to_webde_portal_for_filters(page: Page) -> None:
     page.goto("https://web.de/", wait_until="domcontentloaded", timeout=120000)
 
 
-def _open_profile_menu(page: Page) -> None:
+def _open_profile_menu(page: Page, *, _sso_retry: bool = True) -> None:
     flog(
         "открываю меню профиля",
-        "STEP: appa → account-avatar.webde. Если в логе нет «appa» и сразу «правая шапка» — "
-        "запускается старая копия login/webde_mail_filters.py (обновите файл).",
+        "STEP: сначала быстрый JS-клик по account-avatar/инициалам в header, затем Playwright appa.",
     )
     try:
         page.bring_to_front()
     except Exception:
         pass
 
-    # 0) Lux / Appa: <account-avatar class="webde hydrated" role="button" aria-controls="appa-account-flyout">
+    # 0a) Без длинных wait_for_selector: сразу клик по тому же account-avatar, что видит пользователь (LJ и т.д.)
+    if _click_profile_avatar_webde_header(page):
+        for _ in range(8):
+            if _profile_account_menu_seems_open(page):
+                flog("меню профиля открыто", "быстрый JS: account-avatar / инициалы в header")
+                return
+            time.sleep(0.3)
+
+    # 0b) Lux / Appa: <account-avatar class="webde hydrated" role="button" aria-controls="appa-account-flyout">
     if _click_appa_account_avatar_webde(page):
         for _ in range(10):
             if _profile_account_menu_seems_open(page):
@@ -778,6 +1148,14 @@ def _open_profile_menu(page: Page) -> None:
                 return
             time.sleep(0.35)
         flog("appa", "flyout не подтвердился после клика — запасные пути")
+
+    # 0c) Повтор быстрого JS (после hydration appa мог только что появиться)
+    if _click_profile_avatar_webde_header(page):
+        for _ in range(6):
+            if _profile_account_menu_seems_open(page):
+                flog("меню профиля открыто", "повтор JS-клика по аватару")
+                return
+            time.sleep(0.3)
 
     # 1) Инициалы в accessible name (редко)
     try:
@@ -800,18 +1178,7 @@ def _open_profile_menu(page: Page) -> None:
     except Exception:
         pass
 
-    # 2) Типичный WEB.DE: круг в правой части header (см. скрин SO рядом с Premium)
-    if _click_profile_avatar_webde_header(page):
-        time.sleep(1.0)
-        # Только явная выпадашка аккаунта — иначе ловили ложное «видно E-Mail» в DOM и кликали не туда
-        for _ in range(5):
-            if _profile_account_menu_seems_open(page):
-                flog("меню профиля открыто (круг с инициалами)")
-                return
-            time.sleep(0.45)
-        flog("после клика по кругу пункты меню не видны — пробую запасные селекторы")
-
-    # 3) Запас: только явные метки аккаунта (без «Menü» / последней кнопки header — открывали не то и рвали сессию)
+    # 2) Запас: только явные метки аккаунта (без «Menü» / последней кнопки header — открывали не то и рвали сессию)
     candidates = [
         page.locator('[aria-label*="Konto" i]'),
         page.locator('[aria-label*="Benutzer" i]'),
@@ -826,6 +1193,9 @@ def _open_profile_menu(page: Page) -> None:
             if _profile_account_menu_seems_open(page):
                 flog("меню профиля открыто (запасной селектор)")
                 return
+    if _sso_retry and _sso_navigator_then_webde_portal(page):
+        flog("меню профиля", "после SSO navigator — повтор открытия меню (один раз)")
+        return _open_profile_menu(page, _sso_retry=False)
     raise RuntimeError(
         "Не удалось открыть меню профиля на web.de (нет инициалов в шапке и не сработали aria Account/Konto). "
         "Проверьте, что вы залогинены на web.de."
@@ -869,6 +1239,29 @@ def _locator_email_settings_link(page: Page):
         ).filter(has_text=text_rx)
     if loc.count() == 0:
         loc = page.locator(href_sel)
+    if loc.count() > 0:
+        return loc
+    for fr in page.frames:
+        if fr is page.main_frame:
+            continue
+        try:
+            apf = fr.locator(
+                '#appa-account-flyout a[href*="showMailSettings" i], '
+                'a.appa-navigation-row[href*="showMailSettings" i], '
+                'a[href*="showMailSettings" i]'
+            )
+            if apf.count() > 0:
+                return apf
+            hf = fr.locator(href_sel)
+            lf = hf.filter(has_text=text_rx)
+            if lf.count() == 0:
+                lf = hf.filter(has_text=re.compile(r"E-Mail", re.I))
+            if lf.count() > 0:
+                return lf
+            if hf.count() > 0:
+                return hf
+        except Exception:
+            continue
     return loc
 
 
@@ -1037,6 +1430,48 @@ def _wait_mail_settings_ready(page: Page, context: BrowserContext, timeout_sec: 
     )
 
 
+def _page_url_has_mail_settings(page: Page) -> bool:
+    try:
+        return "mail_settings" in ((_page_url_live(page) or "").lower())
+    except Exception:
+        return False
+
+
+def _page_url_has_filterrules(page: Page) -> bool:
+    try:
+        return "filterrules" in ((_page_url_live(page) or "").lower())
+    except Exception:
+        return False
+
+
+def _find_filterrules_page(context: BrowserContext):
+    """Вкладка с уже открытым редактором правил (после клика или при ручной навигации)."""
+    for p in context.pages:
+        if _page_url_has_filterrules(p):
+            return p
+    return None
+
+
+def _try_fast_click_filterregeln_nav_item(scope) -> bool:
+    """
+    На уже открытом mail_settings пункт «Filterregeln» обычно — link/menuitem в левой колонке.
+    Короткие таймауты, без 30+ с ожидания innerText всего body.
+    """
+    for role in ("link", "menuitem", "button", "tab"):
+        try:
+            loc = scope.get_by_role(role, name=re.compile(r"Filterregeln", re.I))
+            if loc.count() == 0:
+                continue
+            el = loc.first
+            el.scroll_into_view_if_needed(timeout=4000)
+            el.click(timeout=5000, force=True)
+            flog("Filterregeln: быстрый клик", f"role={role}")
+            return True
+        except Exception:
+            continue
+    return False
+
+
 def _wait_sidebar_filterregeln_in_dom(page: Page, timeout_ms: int = 30000) -> None:
     """SPA: пункт появляется в DOM не сразу — ждём текст, без фиксированной паузы."""
     try:
@@ -1107,9 +1542,9 @@ def _click_filterregeln_under_sidebar_heading(scope, heading_re: re.Pattern, log
             if hit.count() == 0:
                 continue
             el = hit.first
-            el.scroll_into_view_if_needed(timeout=12000)
-            el.wait_for(state="visible", timeout=15000)
-            el.click(timeout=12000, force=True)
+            el.scroll_into_view_if_needed(timeout=6000)
+            el.wait_for(state="visible", timeout=8000)
+            el.click(timeout=8000, force=True)
             flog("Filterregeln: клик в сайдбаре", log_detail)
             return True
     except Exception:
@@ -1142,9 +1577,9 @@ def _click_filterregeln_in_scope(scope) -> bool:
             loc_fb = side.get_by_text(re.compile(r"^\s*Filterregeln\s*$", re.I))
             if loc_fb.count() > 0:
                 el = loc_fb.first
-                el.scroll_into_view_if_needed(timeout=12000)
-                el.wait_for(state="visible", timeout=15000)
-                el.click(timeout=12000, force=True)
+                el.scroll_into_view_if_needed(timeout=6000)
+                el.wait_for(state="visible", timeout=8000)
+                el.click(timeout=8000, force=True)
                 flog("Filterregeln: клик внутри сайдбар-контейнера")
                 return True
     except Exception:
@@ -1166,37 +1601,76 @@ def _click_filterregeln_in_scope(scope) -> bool:
             if loc.count() == 0:
                 continue
             el = loc.first
-            el.scroll_into_view_if_needed(timeout=15000)
-            el.wait_for(state="visible", timeout=15000)
-            el.click(timeout=12000, force=True)
+            el.scroll_into_view_if_needed(timeout=6000)
+            el.wait_for(state="visible", timeout=8000)
+            el.click(timeout=8000, force=True)
             return True
         except Exception:
             continue
     return False
 
 
-def _ensure_filter_rules_page(page: Page):
+def _ensure_filter_rules_page(page: Page, context: BrowserContext | None = None):
     """
-    Клик «Filterregeln» в сайдбаре, затем ждём появления кнопки «Filterregeln erstellen».
+    Клик «Filterregeln» в сайдбаре mail_settings, затем ждём кнопку «Filterregeln erstellen».
+    Если URL уже содержит filterrules (BAP-клиент) — клик пропускается.
     Возвращает scope (Page/Frame), где кнопка видна, или None.
     """
+    # Долгие таймауты не нужны: «Smarte Funktionen» дальше ловится в _wait_filterregeln_erstellen (каждые 3 с).
+    _dismiss_smart_features_modal(page, timeout_ms=3500)
+    _dismiss_auswahl_uebernommen_modal(page, timeout_ms=10000)
+
+    if _page_url_has_filterrules(page):
+        flog(
+            "переход к «Filterregeln»",
+            "уже на странице filterrules — сайдбар не кликаю",
+        )
+        flog("ожидание кнопки «Filterregeln erstellen» (после раздела Filterregeln)")
+        btn_scope = _wait_filterregeln_erstellen_button_ready(page, timeout_sec=55.0)
+        if btn_scope is None:
+            flog(
+                "предупреждение",
+                "кнопка «Filterregeln erstellen» не появилась за 55с — пробую клик по всем frame",
+            )
+            filters_capture_debug(page, "warn_no_Filterregeln_erstellen_button")
+        return btn_scope
+
     flog("переход к «Filterregeln» (сайдбар Einstellungen)")
 
-    _wait_sidebar_filterregeln_in_dom(page, timeout_ms=16000 if _filters_fast_mode() else 35000)
-
     clicked = False
-    if _click_filterregeln_in_scope(page):
-        clicked = True
-        flog("Filterregeln: клик (основной документ)")
-    else:
-        for fr in page.frames:
-            try:
-                if _click_filterregeln_in_scope(fr):
-                    clicked = True
-                    flog("Filterregeln: клик (iframe)")
-                    break
-            except Exception:
-                continue
+    # Уже на mail_settings — сначала короткий клик по роли (не ждать 35 с wait_for_function по body).
+    if _page_url_has_mail_settings(page):
+        if _try_fast_click_filterregeln_nav_item(page):
+            clicked = True
+        else:
+            for fr in page.frames:
+                try:
+                    if _try_fast_click_filterregeln_nav_item(fr):
+                        clicked = True
+                        flog("Filterregeln: быстрый клик (iframe)")
+                        break
+                except Exception:
+                    continue
+
+    if not clicked:
+        dom_ms = 16000 if _filters_fast_mode() else 35000
+        if _page_url_has_mail_settings(page):
+            dom_ms = min(dom_ms, 7000)
+        _wait_sidebar_filterregeln_in_dom(page, timeout_ms=dom_ms)
+
+    if not clicked:
+        if _click_filterregeln_in_scope(page):
+            clicked = True
+            flog("Filterregeln: клик (основной документ)")
+        else:
+            for fr in page.frames:
+                try:
+                    if _click_filterregeln_in_scope(fr):
+                        clicked = True
+                        flog("Filterregeln: клик (iframe)")
+                        break
+                except Exception:
+                    continue
 
     if not clicked:
         if _js_click_filterregeln_left_sidebar(page):
@@ -1209,18 +1683,52 @@ def _ensure_filter_rules_page(page: Page):
             "Не найден пункт «Filterregeln» (сайдбар Ordner/E-Mail). URL=" + _page_url_live(page)[:160],
         )
 
-    time.sleep(0.8)
+    time.sleep(0.45 if _filters_fast_mode() else 0.72)
     try:
         page.wait_for_load_state("domcontentloaded", timeout=20000)
     except Exception:
         pass
+    _dismiss_smart_features_modal(page, timeout_ms=4000)
+    _dismiss_auswahl_uebernommen_modal(page, timeout_ms=8000)
 
     flog("ожидание кнопки «Filterregeln erstellen» (после раздела Filterregeln)")
     btn_scope = _wait_filterregeln_erstellen_button_ready(page, timeout_sec=55.0)
+    if btn_scope is None and context is not None:
+        alt = _find_filterrules_page(context)
+        if alt is not None and alt != page:
+            flog(
+                "Filterregeln",
+                "кнопка не на текущей вкладке — переключаюсь на вкладку filterrules",
+            )
+            try:
+                alt.bring_to_front()
+            except Exception:
+                pass
+            btn_scope = _wait_filterregeln_erstellen_button_ready(alt, timeout_sec=35.0)
+            if btn_scope is None:
+                filters_capture_debug(alt, "warn_no_Filterregeln_erstellen_on_filterrules_tab")
     if btn_scope is None:
         flog(
             "предупреждение",
-            "кнопка «Filterregeln erstellen» не появилась за 55с — пробую клик по всем frame",
+            "кнопка «Filterregeln erstellen» нет — закрываю Smarte Funktionen и повторяю клик «Filterregeln»",
+        )
+        if _dismiss_smart_features_modal(page, timeout_ms=7000):
+            time.sleep(0.45)
+        for tgt in _iter_mail_settings_targets(page):
+            try:
+                if _click_filterregeln_in_scope(tgt):
+                    flog("Filterregeln", "повторный клик после модалки / ожидание панели")
+                    break
+            except Exception:
+                continue
+        time.sleep(0.55 if _filters_fast_mode() else 0.9)
+        _dismiss_smart_features_modal(page, timeout_ms=4000)
+        _dismiss_auswahl_uebernommen_modal(page, timeout_ms=8000)
+        btn_scope = _wait_filterregeln_erstellen_button_ready(page, timeout_sec=48.0)
+    if btn_scope is None:
+        flog(
+            "предупреждение",
+            "кнопка «Filterregeln erstellen» не появилась — пробую клик по всем frame",
         )
         filters_capture_debug(page, "warn_no_Filterregeln_erstellen_button")
     return btn_scope
@@ -1284,16 +1792,22 @@ def _wait_filterregeln_erstellen_button_ready(page: Page, timeout_sec: float = 5
     """
     После клика «Filterregeln» в сайдбаре кнопка «Filterregeln erstellen» появляется не сразу —
     ждём видимость во всех frame (предпочтительно в main/article).
+    Пока ждём — периодически закрываем «Smarte Funktionen», если она перекрыла центральную панель.
     """
     deadline = time.monotonic() + timeout_sec
+    last_smarte = time.monotonic()
     while time.monotonic() < deadline:
+        now = time.monotonic()
+        if now - last_smarte >= 3.0:
+            last_smarte = now
+            _dismiss_smart_features_modal_once(page)
         for i, sc in enumerate(_all_page_scopes(page, None)):
             for where, btn in _erstellen_button_locators_in_scope(sc):
                 try:
                     if btn.count() == 0:
                         continue
                     b0 = btn.first
-                    b0.wait_for(state="visible", timeout=900)
+                    b0.wait_for(state="visible", timeout=420)
                     flog(
                         "кнопка «Filterregeln erstellen» готова",
                         f"scope[{i}] · {where}",
@@ -2359,6 +2873,9 @@ def _create_trash_rule_for_all_new_mail(page: Page, filterregeln_erstellen_hint_
             "Не найдена кнопка сохранения («Filterregel einrichten» или «Filterregel erstellen»)",
         )
     _fsleep(2.0, 0.75)
+    if _dismiss_auswahl_uebernommen_modal(page, timeout_ms=14000):
+        flog("после сохранения правила", "закрыта модалка «Auswahl wurde übernommen»")
+    _dismiss_auswahl_uebernommen_modal(page, timeout_ms=4000)
 
 
 def _run_trash_all_new_mail_filter_body(page: Page, context: BrowserContext) -> None:
@@ -2381,10 +2898,11 @@ def _run_trash_all_new_mail_filter_body(page: Page, context: BrowserContext) -> 
     if _filters_fast_mode():
         flog("STEP-01b", "WEBDE_FILTERS_FAST: без networkidle")
     else:
+        # Главная web.de с новостями/рекламой почти никогда не даёт networkidle за разумное время.
         try:
-            page.wait_for_load_state("networkidle", timeout=50000)
+            page.wait_for_load_state("networkidle", timeout=9000)
         except Exception:
-            flog("networkidle пропущен (таймаут) — продолжаю")
+            flog("networkidle пропущен (ожидание ≤9s) — продолжаю по domcontentloaded")
     flog("STEP-02", "ожидание портала web.de (профиль / CMP)")
     _wait_webde_portal_after_goto(page, timeout_sec=48.0 if _filters_fast_mode() else 95.0)
     flog("STEP-02 OK", f"url={page.url[:100]!r}")
@@ -2411,11 +2929,13 @@ def _run_trash_all_new_mail_filter_body(page: Page, context: BrowserContext) -> 
     )
     _filters_milestone(settings_page, "05_mail_settings_ready")
 
-    _dismiss_smart_features_modal(settings_page)
+    _dismiss_smart_features_modal(settings_page, timeout_ms=4000)
+    _dismiss_auswahl_uebernommen_modal(settings_page, timeout_ms=10000)
     flog("STEP-06", "сайдбар: Ordner → Filterregeln, ждём «Filterregeln erstellen»")
-    erstellen_scope = _ensure_filter_rules_page(settings_page)
+    erstellen_scope = _ensure_filter_rules_page(settings_page, context)
     _filters_milestone(settings_page, "06_after_Filterregeln_sidebar")
-    _dismiss_smart_features_modal(settings_page)
+    _dismiss_smart_features_modal(settings_page, timeout_ms=4000)
+    _dismiss_auswahl_uebernommen_modal(settings_page, timeout_ms=8000)
     flog("STEP-07", "кнопка «Filterregel(n) erstellen» → модалка → сохранение")
     _create_trash_rule_for_all_new_mail(
         settings_page, filterregeln_erstellen_hint_scope=erstellen_scope

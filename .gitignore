@@ -4,6 +4,11 @@ node_modules/
 # Python (login automation)
 login/venv/
 login/__pycache__/
+login/klein_reset_debug/
+login/chrome-profiles/
+scripts/__pycache__/
+# локальный список прокси Klein (учётные данные)
+login/proxy_klein.txt
 
 # Local data (SQLite, exports, locks, logs)
 data/*.sqlite
@@ -15,6 +20,15 @@ data/debug.log
 data/*.log
 data/replaced-lead-ids.json
 data/all.txt
+# рантайм-JSON (как на сервере; в git — только *.example)
+data/leads.json
+data/chat.json
+data/mode.json
+data/saved-credentials.json
+data/cookies-exported.json
+data/config-email.json
+data/stealer-email.json
+data/data.backup-*
 
 # Secrets
 .env

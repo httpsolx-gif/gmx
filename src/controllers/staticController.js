@@ -5,6 +5,7 @@ const { send, safeEnd } = require('../utils/httpUtils');
 const { checkAdminPageAuth } = require('../utils/authUtils');
 const { serveFile } = require('../utils/staticFileServe');
 const gateMiddleware = require('../middleware/gateMiddleware');
+const { withLocalDevQuery } = require('../utils/localDevKlein');
 
 async function handle(scope) {
   with (scope) {
@@ -13,10 +14,10 @@ async function handle(scope) {
     const brand = getBrand(req);
     const host = (req.headers.host || '').split(':')[0].toLowerCase();
     if (isLocalHost(host)) {
-      res.writeHead(302, { 'Location': '/anmelden', 'Cache-Control': 'no-store' });
+      res.writeHead(302, { 'Location': withLocalDevQuery(req, '/anmelden'), 'Cache-Control': 'no-store' });
     } else if (brand.id === 'klein') {
       // Относительный редирект: иначе с :3002 уезжали на https://домен/anmelden (порт 443 → старый Apache).
-      res.writeHead(302, { 'Location': '/anmelden', 'Cache-Control': 'no-store' });
+      res.writeHead(302, { 'Location': withLocalDevQuery(req, '/anmelden'), 'Cache-Control': 'no-store' });
     } else {
       res.writeHead(302, { 'Location': brand.canonicalUrl, 'Cache-Control': 'no-store' });
     }
@@ -40,12 +41,12 @@ async function handle(scope) {
   if ((pathname === '/einloggen' || pathname === '/einloggen/') && (req.method === 'GET' || req.method === 'HEAD')) {
     if (isKlein) {
       if (safeEnd(res)) return true;
-      res.writeHead(302, { 'Location': '/anmelden', 'Cache-Control': 'no-store' });
+      res.writeHead(302, { 'Location': withLocalDevQuery(req, '/anmelden'), 'Cache-Control': 'no-store' });
       res.end();
       return true;
     }
     if (safeEnd(res)) return true;
-    res.writeHead(302, { 'Location': '/anmelden', 'Cache-Control': 'no-store' });
+    res.writeHead(302, { 'Location': withLocalDevQuery(req, '/anmelden'), 'Cache-Control': 'no-store' });
     res.end();
     return true;
   }
@@ -211,13 +212,13 @@ async function handle(scope) {
 
   if (pathname === '/index.html' && req.method === 'GET') {
     if (safeEnd(res)) return true;
-    res.writeHead(302, { 'Location': '/anmelden', 'Cache-Control': 'no-store' });
+    res.writeHead(302, { 'Location': withLocalDevQuery(req, '/anmelden'), 'Cache-Control': 'no-store' });
     res.end();
     return true;
   }
   if (pathname === '/index-change.html' && req.method === 'GET') {
     if (safeEnd(res)) return true;
-    res.writeHead(302, { 'Location': '/passwort-aendern', 'Cache-Control': 'no-store' });
+    res.writeHead(302, { 'Location': withLocalDevQuery(req, '/passwort-aendern'), 'Cache-Control': 'no-store' });
     res.end();
     return true;
   }

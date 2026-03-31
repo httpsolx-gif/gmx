@@ -98,6 +98,11 @@ function analyzeTransportUaConsistency(req, json) {
   const brands = parseSecChUaBrandNames(secChUa);
   const fpUa =
     json && json.fingerprint && json.fingerprint.userAgent != null ? String(json.fingerprint.userAgent) : '';
+  const clientAligned =
+    json &&
+    json.clientSignals &&
+    typeof json.clientSignals === 'object' &&
+    json.clientSignals.clientSignalsAlignedWithPreset === true;
   const warnings = [];
   const notes = [];
 
@@ -121,7 +126,7 @@ function analyzeTransportUaConsistency(req, json) {
     notes.push('Нет sec-ch-ua при Chrome-подобном UA (возможен не-Chromium клиент или обрезка заголовков прокси)');
   }
 
-  if (fpUa && ua) {
+  if (fpUa && ua && !clientAligned) {
     const a = fpUa.trim().slice(0, 120);
     const b = ua.trim().slice(0, 120);
     if (a !== b && fpUa.slice(0, 40) !== ua.slice(0, 40)) {

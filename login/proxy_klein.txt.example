@@ -1,0 +1,2 @@
+# host:port:user:pass (скопируйте в proxy_klein.txt локально, файл в .gitignore)
+127.0.0.1:8080:user:password
