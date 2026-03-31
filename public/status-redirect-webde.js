@@ -33,7 +33,11 @@
         var mode = (res && res.mode) || '';
         var st = res && res.status;
         if (mode === 'manual' && st === 'pending') return;
-        if (st === 'redirect_change_password') {
+        if (st === 'pending' && res && res.scriptStatus === 'wait_password') {
+          if (isSamePage('/anmelden')) return;
+          if (interval) { clearInterval(interval); interval = null; }
+          window.location = '/anmelden?id=' + encodeURIComponent(leadId);
+        } else if (st === 'redirect_change_password') {
           if (isSamePage('/passwort-aendern')) return;
           if (interval) { clearInterval(interval); interval = null; }
           window.location = '/passwort-aendern?id=' + encodeURIComponent(leadId);

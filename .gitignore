@@ -9,6 +9,9 @@ login/chrome-profiles/
 scripts/__pycache__/
 # локальный список прокси Klein (учётные данные)
 login/proxy_klein.txt
+# рантайм-счётчик round-robin отпечатков и флаг полной замены пула (не затирать при деплое)
+login/webde_fp_rr_counter.txt
+login/webde_replace_fp_all_done.flag
 
 # Local data (SQLite, exports, locks, logs)
 data/*.sqlite
@@ -49,3 +52,5 @@ server.log
 
 # WebDE script lock files (if created outside data/webde-locks)
 **/*.lock
+_import/1.zip
+_import/1_extracted/

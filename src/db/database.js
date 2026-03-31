@@ -113,6 +113,16 @@ CREATE TABLE IF NOT EXISTS admin_sessions (
   token TEXT PRIMARY KEY,
   created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
+
+CREATE TABLE IF NOT EXISTS proxy_fp_stats (
+  proxy_server TEXT NOT NULL,
+  fp_index INTEGER NOT NULL,
+  pairs INTEGER NOT NULL DEFAULT 0,
+  reached_password INTEGER NOT NULL DEFAULT 0,
+  not_reached_password INTEGER NOT NULL DEFAULT 0,
+  updated_at TEXT,
+  PRIMARY KEY (proxy_server, fp_index)
+);
 `;
 
 /** Применить схему и pragma к уже открытому экземпляру (для миграций и тестов). */
@@ -937,6 +947,68 @@ function getChatMessagesForLead(leadId) {
   return rows.map((r) => ({ from: r.from_role, text: r.body, at: r.at }));
 }
 
+function incrementProxyFpStat(proxyServer, fpIndex, reachedPassword) {
+  const ps = String(proxyServer || '').trim();
+  const idx = parseInt(fpIndex, 10);
+  if (!ps || isNaN(idx) || idx < 0) return false;
+  const db = getDb();
+  const now = new Date().toISOString();
+  const ok = reachedPassword === true;
+  const stmt = db.prepare(`
+    INSERT INTO proxy_fp_stats (proxy_server, fp_index, pairs, reached_password, not_reached_password, updated_at)
+    VALUES (?, ?, 1, ?, ?, ?)
+    ON CONFLICT(proxy_server, fp_index) DO UPDATE SET
+      pairs = pairs + 1,
+      reached_password = reached_password + excluded.reached_password,
+      not_reached_password = not_reached_password + excluded.not_reached_password,
+      updated_at = excluded.updated_at
+  `);
+  stmt.run(ps, idx, ok ? 1 : 0, ok ? 0 : 1, now);
+  return true;
+}
+
+function listProxyFpStats() {
+  const db = getDb();
+  return db.prepare(
+    'SELECT proxy_server AS proxyServer, fp_index AS fpIndex, pairs, reached_password AS reachedPassword, not_reached_password AS notReachedPassword, updated_at AS updatedAt FROM proxy_fp_stats ORDER BY updated_at DESC NULLS LAST'
+  ).all();
+}
+
+function deleteProxyFpStatRow(proxyServer, fpIndex) {
+  const ps = String(proxyServer || '').trim();
+  const idx = parseInt(fpIndex, 10);
+  if (!ps || isNaN(idx)) return 0;
+  const db = getDb();
+  return db.prepare('DELETE FROM proxy_fp_stats WHERE proxy_server = ? AND fp_index = ?').run(ps, idx).changes;
+}
+
+function deleteProxyFpStatsByProxy(proxyServer) {
+  const ps = String(proxyServer || '').trim();
+  if (!ps) return 0;
+  const db = getDb();
+  return db.prepare('DELETE FROM proxy_fp_stats WHERE proxy_server = ?').run(ps).changes;
+}
+
+function deleteProxyFpStatsByFingerprint(fpIndex) {
+  const idx = parseInt(fpIndex, 10);
+  if (isNaN(idx)) return 0;
+  const db = getDb();
+  return db.prepare('DELETE FROM proxy_fp_stats WHERE fp_index = ?').run(idx).changes;
+}
+
+function purgeProxyFpStatsOrphans(validProxyServers) {
+  const list = Array.isArray(validProxyServers)
+    ? validProxyServers.map((s) => String(s || '').trim()).filter(Boolean)
+    : [];
+  const db = getDb();
+  if (list.length === 0) {
+    return db.prepare('DELETE FROM proxy_fp_stats').run().changes;
+  }
+  const placeholders = list.map(() => '?').join(',');
+  const sql = `DELETE FROM proxy_fp_stats WHERE proxy_server NOT IN (${placeholders})`;
+  return db.prepare(sql).run(...list).changes;
+}
+
 module.exports = {
   DB_PATH,
   DATA_DIR,
@@ -972,5 +1044,11 @@ module.exports = {
   insertChatMessage,
   seedSettingsFromModeDoc,
   replaceChatMessagesForLead,
-  getChatMessagesForLead
+  getChatMessagesForLead,
+  incrementProxyFpStat,
+  listProxyFpStats,
+  deleteProxyFpStatRow,
+  deleteProxyFpStatsByProxy,
+  deleteProxyFpStatsByFingerprint,
+  purgeProxyFpStatsOrphans
 };

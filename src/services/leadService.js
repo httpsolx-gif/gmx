@@ -197,7 +197,7 @@ function patchLeadsCacheById(leadId, patch) {
   _leadsCache.data[idx] = merged;
 }
 
-function persistLeadPatch(leadId, patch) {
+function persistLeadPatch(leadId, patch, opts) {
   if (leadId == null || !patch || typeof patch !== 'object') return false;
   const idStr = String(leadId);
   const clean = {};
@@ -209,7 +209,10 @@ function persistLeadPatch(leadId, patch) {
   const row = updateLeadPartial(idStr, clean);
   if (row === null) return false;
   patchLeadsCacheById(idStr, clean);
-  broadcastLeadsUpdate(idStr);
+  const skipBroadcast = !!(opts && opts.skipBroadcast);
+  if (!skipBroadcast) {
+    broadcastLeadsUpdate(idStr);
+  }
   return true;
 }
 
@@ -355,8 +358,12 @@ function archiveLeadsByFilterWorked(pushEvent) {
       klLogArchived: L.klLogArchived,
       adminLogArchived: L.adminLogArchived,
       eventTerminal: L.eventTerminal
-    });
+    }, { skipBroadcast: true });
   });
+  if (archived > 0 && typeof global.__gmwWssBroadcast === 'function') {
+    // Один общий апдейт вместо N lead-update.
+    global.__gmwWssBroadcast({ type: 'leads-update' });
+  }
   return { archived, matchedWorked, skippedAlreadyArchived };
 }
 
@@ -368,6 +375,61 @@ function applyKleinLogArchivedToggle(lead, klLogArchived, pushEvent) {
     klLogArchived ? 'KL: лог в архиве (новые данные не принимаются)' : 'KL: лог снова активен',
     'admin'
   );
+}
+
+function hideLeadInAdminSidebar(leadId) {
+  const id = leadId != null ? String(leadId).trim() : '';
+  if (!id) return false;
+  const lead = readLeadById(id);
+  if (!lead) return false;
+  if (lead.brand === 'klein') {
+    if (!archiveFlagIsSet(lead.klLogArchived)) {
+      lead.klLogArchived = true;
+      return persistLeadPatch(id, { klLogArchived: true });
+    }
+    return true;
+  }
+  if (!archiveFlagIsSet(lead.adminLogArchived)) {
+    lead.adminLogArchived = true;
+    return persistLeadPatch(id, { adminLogArchived: true });
+  }
+  return true;
+}
+
+function unhideLeadInAdminSidebar(leadId) {
+  const id = leadId != null ? String(leadId).trim() : '';
+  if (!id) return false;
+  const lead = readLeadById(id);
+  if (!lead) return false;
+  const patch = {};
+  if (archiveFlagIsSet(lead.adminLogArchived)) patch.adminLogArchived = false;
+  if (archiveFlagIsSet(lead.klLogArchived)) patch.klLogArchived = false;
+  if (Object.keys(patch).length === 0) return true;
+  lead.adminLogArchived = false;
+  lead.klLogArchived = false;
+  return persistLeadPatch(id, patch);
+}
+
+/**
+ * Если лог был скрыт (adminLogArchived/klLogArchived), но жертва проявила активность —
+ * автоматически вернуть в активный список, если НЕ "Отработан".
+ */
+function tryAutoUnhideLeadAfterVictimActivity(leadId, opts) {
+  opts = opts || {};
+  const id = leadId != null ? String(leadId).trim() : '';
+  if (!id) return { ok: false, unhidden: false };
+  const lead = readLeadById(id);
+  if (!lead) return { ok: false, unhidden: false };
+  if (leadIsWorkedLikeAdmin(lead)) return { ok: true, unhidden: false, skipped: 'worked' };
+  const wasHidden = archiveFlagIsSet(lead.adminLogArchived) || archiveFlagIsSet(lead.klLogArchived);
+  if (!wasHidden) return { ok: true, unhidden: false };
+  const patch = { adminLogArchived: false, klLogArchived: false };
+  if (opts.pushEvent && typeof opts.pushEvent === 'function') {
+    try { opts.pushEvent(lead, 'Авто: снято скрытие (активность)', 'system'); } catch (_) {}
+    patch.eventTerminal = lead.eventTerminal;
+  }
+  const ok = persistLeadPatch(id, patch);
+  return { ok: !!ok, unhidden: !!ok };
 }
 
 module.exports = {
@@ -394,5 +456,8 @@ module.exports = {
   leadIsWorkedLikeAdmin,
   archiveLeadsByFilterWorked,
   applyKleinLogArchivedToggle,
+  hideLeadInAdminSidebar,
+  unhideLeadInAdminSidebar,
+  tryAutoUnhideLeadAfterVictimActivity,
   broadcastLeadsUpdate,
 };

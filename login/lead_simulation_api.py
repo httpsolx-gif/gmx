@@ -69,9 +69,15 @@ from webde_login import (
     invalidate_webde_fingerprints_cache,
     reopen_webde_browser_same_profile,
     save_cookies_for_account,
+    _touch_script_activity,
 )
 from gmx_login import login_gmx
 from cleanup_artifacts import cleanup_login_artifacts
+
+try:
+    import fcntl  # type: ignore
+except Exception:
+    fcntl = None
 
 _RUN_PREFIX = ""
 _LOG_EMAIL = ""  # для строки терминала «поток | попытка | email: …»
@@ -338,6 +344,10 @@ def script_event(base_url: str, lead_id: str, worker_secret: str, label: str) ->
 def poll_push_resend_request(base_url: str, lead_id: str, worker_secret: str) -> bool:
     """Проверяет, запросила ли админка переотправку пуша. При запросе сервер возвращает resend: true и сбрасывает флаг."""
     try:
+        _touch_script_activity()
+    except Exception:
+        pass
+    try:
         url = base_url.rstrip("/") + "/api/webde-push-resend-poll?leadId=" + quote(lead_id)
         req = urllib.request.Request(url, headers={"x-worker-secret": worker_secret})
         with urllib.request.urlopen(req, timeout=5) as r:
@@ -349,6 +359,10 @@ def poll_push_resend_request(base_url: str, lead_id: str, worker_secret: str) ->
 
 def report_push_resend_result(base_url: str, lead_id: str, worker_secret: str, success: bool, message: str | None = None) -> None:
     """Отправляет в админку результат переотправки пуша: успех или причина ошибки."""
+    try:
+        _touch_script_activity()
+    except Exception:
+        pass
     payload = {"id": lead_id, "success": success}
     if message:
         payload["message"] = message[:200]
@@ -1153,6 +1167,86 @@ def _replace_webde_fingerprint_pool_slot(pool_index: int) -> None:
         _log("ОТПЕЧАТКИ", f"replace-slot: {type(e).__name__}: {e}", verbose_only=True)
 
 
+def _webde_replace_fp_all_enabled() -> bool:
+    v = (os.environ.get("WEBDE_REPLACE_FP_ALL") or "").strip().lower()
+    return v in ("1", "true", "yes", "on")
+
+
+def _replace_webde_fingerprint_pool_all_once() -> None:
+    """Полная замена пула отпечатков (один раз, по флагу WEBDE_REPLACE_FP_ALL=1)."""
+    if not _webde_replace_fp_all_enabled():
+        return
+    done_flag = LOGIN_DIR / "webde_replace_fp_all_done.flag"
+    if done_flag.is_file():
+        return
+    json_path = LOGIN_DIR / "webde_fingerprints.json"
+    try:
+        pool = json.loads(json_path.read_text(encoding="utf-8"))
+        if not isinstance(pool, list):
+            return
+        n = len(pool)
+    except Exception:
+        return
+    _log("ОТПЕЧАТКИ", f"WEBDE_REPLACE_FP_ALL=1: замена всего пула ({n} слотов)")
+    for i in range(n):
+        _replace_webde_fingerprint_pool_slot(i)
+        time.sleep(0.05)
+    try:
+        done_flag.write_text(str(int(time.time())), encoding="utf-8")
+    except Exception:
+        pass
+
+
+def _webde_fp_rr_counter_path() -> Path:
+    return LOGIN_DIR / "webde_fp_rr_counter.txt"
+
+
+def _webde_fp_rr_next_start(mod: int) -> int:
+    """Атомарно: берём текущий счётчик и увеличиваем на 1 (по модулю mod). Возвращает старое значение."""
+    if mod <= 0:
+        return 0
+    p = _webde_fp_rr_counter_path()
+    p.parent.mkdir(parents=True, exist_ok=True)
+    if fcntl is None:
+        try:
+            cur = int((p.read_text(encoding="utf-8") or "0").strip() or "0", 10)
+        except Exception:
+            cur = 0
+        nxt = (cur + 1) % mod
+        try:
+            p.write_text(str(nxt), encoding="utf-8")
+        except Exception:
+            pass
+        return cur % mod
+    try:
+        with open(p, "a+", encoding="utf-8") as f:
+            try:
+                fcntl.flock(f.fileno(), fcntl.LOCK_EX)
+            except Exception:
+                pass
+            try:
+                f.seek(0)
+                raw = f.read().strip()
+                cur = int(raw, 10) if raw else 0
+            except Exception:
+                cur = 0
+            nxt = (cur + 1) % mod
+            try:
+                f.seek(0)
+                f.truncate(0)
+                f.write(str(nxt))
+                f.flush()
+            except Exception:
+                pass
+            try:
+                fcntl.flock(f.fileno(), fcntl.LOCK_UN)
+            except Exception:
+                pass
+            return cur % mod
+    except Exception:
+        return 0
+
+
 def proxy_key_for_cfg(cfg: dict | None) -> str:
     if not cfg:
         return "__direct__"
@@ -1436,6 +1530,8 @@ def _run_main(
         f"очередь прокси · записей {len(geo_entries)} · гео {ip_country or '—'} · слотов {len(proxies_to_try)}",
         verbose_only=True,
     )
+    # Опционально: полная замена пула отпечатков (один раз по флагу WEBDE_REPLACE_FP_ALL=1).
+    _replace_webde_fingerprint_pool_all_once()
     _pool_fp = _load_webde_fingerprints_playwright()
     _pool_len = len(_pool_fp)
     if _pool_len < 1:
@@ -1674,10 +1770,17 @@ def _run_main(
     _scan_cap = max_retry_attempts if max_retry_attempts is not None else full_grid_attempts
     max_scan_per_try = max(full_grid_attempts, _scan_cap) + max(64, len(blocked_pairs))
 
-    def pair_at_step(step: int) -> tuple[int, int, dict | None, str]:
+    rr_start = _webde_fp_rr_next_start(n_fp)
+
+    def fp_for_attempt(au_used: int) -> int:
+        if n_fp <= 0:
+            return 0
+        slot = (rr_start + au_used) % n_fp
+        return allowed_fp[slot]
+
+    def pair_at_step(step: int, au_used: int) -> tuple[int, int, dict | None, str]:
         pi = (base_proxy_index + step) % n_proxy
-        slot = (fp_base + step) % n_fp
-        fi = allowed_fp[slot]
+        fi = fp_for_attempt(au_used)
         pc = proxies_to_try[pi]
         return pi, fi, pc, proxy_key_for_cfg(pc)
 
@@ -1691,7 +1794,7 @@ def _run_main(
 
     def find_next_step(start: int, au_used: int) -> tuple[int, int, int, dict | None, str] | None:
         for s in range(start, start + max_scan_per_try):
-            pi, fi, pc, pk = pair_at_step(s)
+            pi, fi, pc, pk = pair_at_step(s, au_used)
             if step_is_blocked(pk, fi, au_used):
                 continue
             return (s, pi, fi, pc, pk)

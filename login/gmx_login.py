@@ -3815,7 +3815,9 @@ def probe_gmx_proxy_fingerprint(
             except Exception:
                 pass
 
-            max_wait_sec = 600 if (require_password_field and not headless) else 46
+            # В автосценарии не ждём «минуту» появления поля пароля: либо оно появляется быстро,
+            # либо это капча/блок/промежуточная страница и дальнейшая логика разберётся отдельно.
+            max_wait_sec = 600 if (require_password_field and not headless) else 10
             for elapsed in range(0, max_wait_sec, 2):
                 if _is_login_temporarily_unavailable(page):
                     return "voruebergehend"

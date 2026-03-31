@@ -667,6 +667,36 @@ html.light .theme-toggle .icon-moon {
   flex: 1;
   min-width: 0;
 }
+.bulk-actions-left,
+.bulk-actions-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.bulk-actions-left {
+  flex: 1;
+  min-width: 140px;
+}
+.bulk-actions-right {
+  flex: 2;
+  min-width: 220px;
+  justify-content: flex-end;
+}
+.bulk-action-select {
+  flex: 1;
+  min-width: 180px;
+  padding: 8px 10px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+  background: var(--bg-card);
+  color: var(--text);
+}
+.bulk-selected-count {
+  font-size: 0.82rem;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
 .btn {
   flex: 1;
   padding: 10px 16px;
@@ -1053,34 +1083,6 @@ html.light .detail-card.detail-card--worked .section-title {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-}
-.session-form-surf {
-  flex-shrink: 0;
-  font-size: 10px;
-  font-weight: 600;
-  color: var(--text-muted, #666);
-  text-transform: uppercase;
-  letter-spacing: 0.02em;
-}
-.session-form-warn {
-  flex-shrink: 0;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  margin-left: 2px;
-  min-width: 16px;
-  height: 16px;
-  padding: 0 4px;
-  border-radius: 50%;
-  background: #c45c26;
-  color: #fff;
-  font-size: 10px;
-  font-weight: 700;
-  line-height: 1;
-}
-.detail-submit-warn {
-  color: #c45c26;
-  font-size: 13px;
 }
 .session-chat {
   display: inline-flex;
@@ -3216,6 +3218,13 @@ html.light .config-code-block {
   background: var(--bg-card);
   font-size: 0.82rem;
 }
+.config-webde-fp-indices-textarea {
+  width: 100%;
+  min-height: 120px;
+  font-family: ui-monospace, monospace;
+  font-size: 0.85rem;
+  margin: 0 0 10px 0;
+}
 .config-webde-fp-row {
   display: flex;
   gap: 10px;
@@ -3284,6 +3293,64 @@ html.light .config-code-block {
 }
 .config-webde-probe-line-label {
   color: var(--text);
+}
+
+.config-proxy-fp-stats-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  margin-top: 10px;
+}
+@media (max-width: 980px) {
+  .config-proxy-fp-stats-grid { grid-template-columns: 1fr; }
+}
+.config-proxy-fp-stats-card {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg-card);
+  padding: 10px;
+}
+.config-proxy-fp-stats-card-title {
+  font-weight: 700;
+  font-size: 0.9rem;
+  margin-bottom: 8px;
+}
+.config-proxy-fp-stats-table-wrap {
+  max-height: 320px;
+  overflow: auto;
+  border-radius: var(--radius-sm);
+}
+.config-proxy-fp-stats-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.82rem;
+}
+.config-proxy-fp-stats-table th,
+.config-proxy-fp-stats-table td {
+  border-bottom: 1px solid var(--border);
+  padding: 6px 8px;
+  vertical-align: top;
+}
+.config-proxy-fp-stats-table th {
+  position: sticky;
+  top: 0;
+  background: var(--bg-card);
+  z-index: 1;
+  text-align: left;
+  font-weight: 700;
+}
+.config-proxy-fp-stats-key {
+  font-family: ui-monospace, monospace;
+  word-break: break-all;
+}
+.config-proxy-fp-stats-num {
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+  white-space: nowrap;
+}
+.config-proxy-fp-stats-actions {
+  white-space: nowrap;
+  text-align: right;
 }
 .config-proxies-result-wrap {
   margin-top: 12px;

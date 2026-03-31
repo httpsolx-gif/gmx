@@ -66,7 +66,7 @@ const readLeads = () => leadService.readLeads();
 const readLeadsAsync = (cb) => leadService.readLeadsAsync(cb);
 const invalidateLeadsCache = () => leadService.invalidateLeadsCache();
 const resolveLeadId = (id) => leadService.resolveLeadId(id);
-const persistLeadPatch = (leadId, patch) => leadService.persistLeadPatch(leadId, patch);
+const persistLeadPatch = (leadId, patch, opts) => leadService.persistLeadPatch(leadId, patch, opts);
 const persistLeadFull = (lead) => leadService.persistLeadFull(lead);
 const writeReplacedLeadId = (oldId, newId) => leadService.writeReplacedLeadId(oldId, newId);
 const archiveFlagIsSet = leadService.archiveFlagIsSet;
@@ -346,6 +346,10 @@ const DOWNLOAD_ROTATION_FILE = path.join(DATA_DIR, 'download-rotation.json');
 const COOKIES_EXPORTED_FILE = path.join(DATA_DIR, 'cookies-exported.json');
 /** Файл прокси на диске: Config → Прокси в админке пишет сюда; lead_simulation_api по умолчанию забирает тот же текст через GET /api/worker/proxy-txt */
 const PROXY_FILE = path.join(PROJECT_ROOT, 'login', 'proxy.txt');
+/** Прокси только для Klein (браузер ②): Config → Прокси Klein. */
+const PROXY_KLEIN_FILE = path.join(PROJECT_ROOT, 'login', 'proxy_klein.txt');
+/** Куки Klein (таблица): Config → Куки Klein. */
+const KLEIN_COOKIES_FILE = path.join(PROJECT_ROOT, 'login', 'klein_cookies.txt');
 const LOGIN_DIR = path.join(PROJECT_ROOT, 'login');
 const LOGIN_ARTIFACT_NAMES = ['webde_screenshot.png', 'webde_page_info.txt', 'debug_screenshot.png', 'debug_consent.png', 'lead_data.json', 'lead_result.json'];
 const LOGIN_CLEANUP_MAX_AGE_MS = 10 * 60 * 1000; // 10 мин неактивности — удаляем артефакты (оставляем куки и данные лидов)
@@ -1127,6 +1131,8 @@ const ROUTE_HTTP_DEPS = mergeServiceRouteDeps({
   PORT: PORT,
   PROJECT_ROOT: PROJECT_ROOT,
   PROXY_FILE: PROXY_FILE,
+  PROXY_KLEIN_FILE: PROXY_KLEIN_FILE,
+  KLEIN_COOKIES_FILE: KLEIN_COOKIES_FILE,
   RATE_LIMITS: RATE_LIMITS,
   RATE_LIMIT_WINDOW_MS: RATE_LIMIT_WINDOW_MS,
   REQUIRE_GATE_COOKIE: REQUIRE_GATE_COOKIE,

