@@ -1,0 +1,10 @@
+{
+  "_comment": "Скопируйте в config-email.json на сервере (файл не в git). Минимальная заглушка.",
+  "smtp": "",
+  "smtpPort": 587,
+  "smtpUser": "",
+  "smtpPass": "",
+  "senderName": "",
+  "title": "",
+  "html": ""
+}

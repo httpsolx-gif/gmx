@@ -394,6 +394,12 @@ body.step-email .gmx-header {
   display: block;
 }
 
+svg.logo-brand {
+  width: 97px;
+  height: auto;
+  max-height: 32px;
+}
+
 .logo-brand-img {
   max-width: 160px;
   height: auto;

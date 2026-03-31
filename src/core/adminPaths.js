@@ -21,6 +21,8 @@ const ADMIN_ASSET_PATHS = new Set([
   '/admin.css',
   '/admin.js',
   '/klein-logo.png',
+  '/klein-admin-mark.png',
+  '/klein-local-logo.svg',
   '/windows-icon.png',
   '/android-icon.png',
   '/ios-icon.png',

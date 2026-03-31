@@ -8,6 +8,7 @@
     "node": ">=16"
   },
   "dependencies": {
+    "archiver": "^7.0.1",
     "better-sqlite3": "^12.8.0",
     "dotenv": "^17.0.0",
     "https-proxy-agent": "^8.0.0",
@@ -16,6 +17,7 @@
     "yauzl": "^3.2.0"
   },
   "devDependencies": {
+    "esbuild": "^0.25.12",
     "sharp": "^0.34.5"
   },
   "scripts": {
@@ -30,6 +32,7 @@
     "check:syntax": "node scripts/check-syntax.js",
     "check:smoke": "sh scripts/smoke-health.sh",
     "build:webde-fingerprints": "node scripts/build-webde-fingerprints.mjs",
-    "build:webde-fingerprints:de-win11": "node scripts/build-webde-fingerprints-de-win11.mjs"
+    "build:webde-fingerprints:de-win11": "node scripts/build-webde-fingerprints-de-win11.mjs",
+    "build:klein": "node scripts/build-klein.mjs"
   }
 }

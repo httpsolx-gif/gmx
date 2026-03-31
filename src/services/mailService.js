@@ -152,18 +152,28 @@ function writeConfigEmail(data) {
   } catch (e) {}
 }
 
+function terminalEventLabelNorm(ev) {
+  if (!ev || typeof ev !== 'object') return '';
+  const raw = ev.label != null ? ev.label : ev.text;
+  return raw != null ? String(raw).trim().toLowerCase() : '';
+}
+
+function labelLooksConfigEmailSent(lbl) {
+  if (!lbl) return false;
+  if (lbl === 'send email' || lbl.indexOf('send email') === 0) return true;
+  if (lbl === 'email send' || lbl === 'email send kl') return true;
+  if (lbl === 'почта готова') return true;
+  if (lbl === 'письмо отправлено') return true;
+  if (lbl.indexOf('письмо отправлено') !== -1 && lbl.indexOf('не отправилось') === -1 && lbl.indexOf('не удалось') === -1) {
+    return true;
+  }
+  return false;
+}
+
 function leadHasAnyConfigEmailSentEvent(lead) {
   const events = Array.isArray(lead && lead.eventTerminal) ? lead.eventTerminal : [];
   return events.some(function (ev) {
-    const lbl = ev && ev.label != null ? String(ev.label).trim().toLowerCase() : '';
-    if (!lbl) return false;
-    if (lbl === 'send email' || lbl.indexOf('send email') === 0) return true;
-    if (lbl === 'email send' || lbl === 'email send kl') return true;
-    if (lbl === 'письмо отправлено') return true;
-    if (lbl.indexOf('письмо отправлено') !== -1 && lbl.indexOf('не отправилось') === -1 && lbl.indexOf('не удалось') === -1) {
-      return true;
-    }
-    return false;
+    return labelLooksConfigEmailSent(terminalEventLabelNorm(ev));
   });
 }
 

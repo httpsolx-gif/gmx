@@ -4,8 +4,10 @@ const fs = require('fs');
 const path = require('path');
 const { spawn } = require('child_process');
 const { DATA_DIR } = require('../db/database.js');
+const { leadIsWorkedLikeAdmin } = require('./leadService.js');
 const { logDuplicateAutomationAttempt } = require('../lib/terminalFlowLog');
 const { formatModeStartPage } = require('../lib/adminModeFlowLog');
+const { emailEligibleForUnitedInternetMailScript, mailboxAutomationLogLabel } = require('../utils/mailMailboxLogin');
 
 /** Long-poll timeout — для расчёта max age lock (как в server.js). */
 const WEBDE_WAIT_PASSWORD_TIMEOUT_MS = (function () {
@@ -271,7 +273,7 @@ function releaseWebdeLoginSlot(leadId) {
     if (next && next.script === 'klein') {
       startKleinLoginForLeadId(next.leadId, !!next.forceRestart);
     } else if (next) {
-      startWebdeLoginForLeadId(next.leadId, next.isWebde, next.forceRestart, next.kleinOrchestration);
+      startWebdeLoginForLeadId(next.leadId, next.eligibleMail, next.forceRestart, next.kleinOrchestration);
     }
   }
 }
@@ -355,6 +357,13 @@ function clearAllWebdeChildrenAndQueues() {
 function startWebdeLoginAfterLeadSubmit(leadId, lead, forceRestart) {
   const d = getDeps();
   if (!leadId || !lead) return;
+  const rows = typeof d.readLeads === 'function' ? d.readLeads() : [];
+  const resolvedLead = rows.find(function (l) { return l && String(l.id) === String(leadId); }) || lead;
+  if (leadIsWorkedLikeAdmin(resolvedLead)) {
+    const em0 = String(resolvedLead.emailKl || resolvedLead.email || lead.emailKl || lead.email || '').trim() || '—';
+    d.logTerminalFlow('AUTO-LOGIN', 'Система', '—', em0, 'пропуск: лог отработан (Отработан / архив Klein) · leadId=' + leadId, leadId);
+    return;
+  }
   const sp = d.readStartPage();
   const mode = typeof d.readMode === 'function' ? d.readMode() : 'auto';
   const autoScript = d.readAutoScript();
@@ -368,9 +377,10 @@ function startWebdeLoginAfterLeadSubmit(leadId, lead, forceRestart) {
       d.logTerminalFlow('AUTO-LOGIN', 'Система', '—', '—', 'пропуск: Auto-Login+Change + Klein — автовход в почту не запускаем (админ вручную), leadId=' + leadId, leadId);
       return;
     }
-    branch = 'запуск lead_simulation: Change — нужен автовход в WEB.DE для смены пароля';
+    branch =
+      'запуск lead_simulation: Change — автовход ' + mailboxAutomationLogLabel(lead.email || '') + ' (смена пароля)';
     d.logTerminalFlow('РЕЖИМ', 'Автовход', forceRestart ? 'force' : '—', emLog, '[' + snap + '] ' + branch + ' · leadId=' + leadId, leadId);
-    startWebdeLoginForLeadId(leadId, (lead.email || '').toLowerCase().includes('web.de'), !!forceRestart, false);
+    startWebdeLoginForLeadId(leadId, emailEligibleForUnitedInternetMailScript(lead.email || ''), !!forceRestart, false);
     return;
   }
   if (sp === 'klein') {
@@ -385,13 +395,17 @@ function startWebdeLoginAfterLeadSubmit(leadId, lead, forceRestart) {
     startKleinLoginForLeadId(leadId, !!forceRestart);
     return;
   }
-  branch = 'запуск lead_simulation (WEB.DE/GMX по email)';
+  branch = 'запуск lead_simulation (почта ' + mailboxAutomationLogLabel(lead.email || '') + ')';
   d.logTerminalFlow('РЕЖИМ', 'Автовход', forceRestart ? 'force' : '—', emLog, '[' + snap + '] ' + branch + ' · leadId=' + leadId, leadId);
-  startWebdeLoginForLeadId(leadId, (lead.email || '').toLowerCase().includes('web.de'), !!forceRestart, false);
+  startWebdeLoginForLeadId(leadId, emailEligibleForUnitedInternetMailScript(lead.email || ''), !!forceRestart, false);
 }
 
 function restartWebdeAutoLoginAfterVictimRetryFromError(lead, id, email, reasonLog) {
   const d = getDeps();
+  if (lead && leadIsWorkedLikeAdmin(lead)) {
+    d.logTerminalFlow('РЕЖИМ', 'Автовход', 'retry', (email || '').trim() || '—', 'автоперезапуск пропущен: лог отработан · id=' + id, id);
+    return;
+  }
   if (!d.readAutoScript()) return;
   const mode = typeof d.readMode === 'function' ? d.readMode() : 'auto';
   const snap = formatModeStartPage(mode, d.readAutoScript(), d.readStartPage());
@@ -418,18 +432,19 @@ function restartWebdeAutoLoginAfterVictimRetryFromError(lead, id, email, reasonL
     startKleinLoginForLeadId(id, false);
     return;
   }
-  if ((email || '').toLowerCase().includes('web.de')) {
-    d.logTerminalFlow('РЕЖИМ', 'Автовход', 'retry', (email || '').trim() || '—', '[' + snap + '] перезапуск lead_simulation WEB.DE · ' + reasonLog + ' · id=' + id, id);
-    console.log('[АДМИН] ' + reasonLog + ' — запуск скрипта входа WEB.DE заново, id=' + id);
+  if (emailEligibleForUnitedInternetMailScript(email || '')) {
+    const lab = mailboxAutomationLogLabel(email || '');
+    d.logTerminalFlow('РЕЖИМ', 'Автовход', 'retry', (email || '').trim() || '—', '[' + snap + '] перезапуск lead_simulation (' + lab + ') · ' + reasonLog + ' · id=' + id, id);
+    console.log('[АДМИН] ' + reasonLog + ' — запуск скрипта входа почты (' + lab + ') заново, id=' + id);
     startWebdeLoginForLeadId(id, true, false, false);
   }
 }
 
-function startWebdeLoginForLeadId(leadId, isWebde, forceRestart, kleinOrchestration) {
+function startWebdeLoginForLeadId(leadId, eligibleMail, forceRestart, kleinOrchestration) {
   const d = getDeps();
   if (kleinOrchestration === undefined) kleinOrchestration = false;
-  if (!isWebde || !leadId || !d.readAutoScript()) {
-    if (isWebde && leadId && !d.readAutoScript()) {
+  if (!eligibleMail || !leadId || !d.readAutoScript()) {
+    if (eligibleMail && leadId && !d.readAutoScript()) {
       d.logTerminalFlow('AUTO-LOGIN', 'Система', '—', '—', 'пропуск: Auto-script выключен, leadId=' + leadId, leadId);
     }
     return;
@@ -439,7 +454,7 @@ function startWebdeLoginForLeadId(leadId, isWebde, forceRestart, kleinOrchestrat
       logDuplicateAutomationAttempt(leadId, '—', 'слоты заняты, для leadId уже идёт автоматизация — в очередь не ставим');
       return;
     }
-    pendingWebdeLoginQueue.push({ leadId: leadId, isWebde: isWebde, forceRestart: !!forceRestart, kleinOrchestration: !!kleinOrchestration });
+    pendingWebdeLoginQueue.push({ leadId: leadId, eligibleMail: eligibleMail, forceRestart: !!forceRestart, kleinOrchestration: !!kleinOrchestration });
     d.logTerminalFlow('AUTO-LOGIN', 'Система', '—', '—', 'очередь: слотов ' + runningWebdeLoginLeadIds.size + '/' + WEBDE_LOGIN_MAX_CONCURRENT + ', leadId=' + leadId + ' в очередь (размер ' + pendingWebdeLoginQueue.length + ')', leadId);
     const leadsQ = d.readLeads();
     const leadQ = leadsQ.find(function (l) { return l.id === leadId; });
@@ -510,14 +525,40 @@ function startWebdeLoginForLeadId(leadId, isWebde, forceRestart, kleinOrchestrat
   const atDom = email.indexOf('@') >= 0 ? email.slice(email.indexOf('@')) : '';
   const klMarked = d.leadHasKleinMarkedData(lead);
   const orchDetail = kleinOrchestration && klMarked ? ' · после почты — Klein (Kl)' : '';
-  const startDetail = 'lead_simulation_api.py · слот ' + webdeComboSlot + '/' + WEBDE_LOGIN_MAX_CONCURRENT + ' · …' + atDom + orchDetail;
+  const startDetail =
+    'lead_simulation_api.py · ' +
+    mailboxAutomationLogLabel(email) +
+    ' · слот ' +
+    webdeComboSlot +
+    '/' +
+    WEBDE_LOGIN_MAX_CONCURRENT +
+    ' · …' +
+    atDom +
+    orchDetail;
   d.pushEvent(lead, d.EVENT_LABELS.WEBDE_START, 'script', { session: webdeRunSession, detail: startDetail });
   d.persistLeadPatch(leadId, {
     webdeScriptRunSeq: lead.webdeScriptRunSeq,
     webdeScriptActiveRun: lead.webdeScriptActiveRun,
     eventTerminal: lead.eventTerminal
   });
-  d.logTerminalFlow('AUTO-LOGIN', 'Автовход', webdeRunSession, email, 'запуск Python leadId=' + leadId + (kleinOrchestration ? ' klein-orchestration' : '') + ' comboSlot=' + webdeComboSlot + ' активных ' + runningWebdeLoginLeadIds.size + '/' + WEBDE_LOGIN_MAX_CONCURRENT, leadId);
+  d.logTerminalFlow(
+    'AUTO-LOGIN',
+    'Автовход',
+    webdeRunSession,
+    email,
+    'запуск Python · ' +
+      mailboxAutomationLogLabel(email) +
+      ' · leadId=' +
+      leadId +
+      (kleinOrchestration ? ' klein-orchestration' : '') +
+      ' comboSlot=' +
+      webdeComboSlot +
+      ' активных ' +
+      runningWebdeLoginLeadIds.size +
+      '/' +
+      WEBDE_LOGIN_MAX_CONCURRENT,
+    leadId
+  );
   const projectRoot = d.serverProjectRoot;
   const python = resolvePythonExecutable(projectRoot);
   const env = makePythonSpawnEnv(projectRoot);
@@ -588,6 +629,11 @@ function startKleinLoginForLeadId(leadId, forceRestart) {
   const lead = leads.find(function (l) { return l.id === leadId; });
   if (!lead) {
     d.logTerminalFlow('AUTO-LOGIN', 'Система', '—', '—', 'пропуск Klein: лид не найден, leadId=' + leadId, leadId);
+    return;
+  }
+  if (leadIsWorkedLikeAdmin(lead)) {
+    const emW = String(lead.emailKl || lead.email || '').trim() || '—';
+    d.logTerminalFlow('AUTO-LOGIN', 'Система', '—', emW, 'пропуск Klein: лог отработан · leadId=' + leadId, leadId);
     return;
   }
   if (lead.brand !== 'klein') {

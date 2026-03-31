@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 180 40" role="img" aria-label="Logo">
+  <rect width="180" height="40" rx="8" fill="#326916"/>
+  <rect x="10" y="10" width="20" height="20" rx="4" fill="#b5e941"/>
+  <rect x="36" y="14" width="48" height="6" rx="3" fill="#e8f5d8"/>
+  <rect x="36" y="24" width="72" height="6" rx="3" fill="#c8e6a8"/>
+</svg>
