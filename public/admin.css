@@ -984,8 +984,9 @@ html.light .detail-card.detail-card--worked .section-title {
   flex-shrink: 0;
   display: block;
 }
+/* Зелёный знак на прозрачном PNG → чёрный силуэт, фон не заливается */
 .session-brand-icon--klein {
-  filter: grayscale(1) brightness(0);
+  filter: brightness(0);
 }
 .session-cookie-btn {
   display: inline-flex;

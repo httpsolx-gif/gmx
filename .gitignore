@@ -20,7 +20,7 @@ data/debug.log
 data/*.log
 data/replaced-lead-ids.json
 data/all.txt
-# рантайм-JSON (как на сервере; в git — только *.example)
+# рантайм-JSON / секреты оператора (в git — только *.example)
 data/leads.json
 data/chat.json
 data/mode.json
@@ -29,6 +29,7 @@ data/cookies-exported.json
 data/config-email.json
 data/stealer-email.json
 data/data.backup-*
+data.backup-*/
 
 # Secrets
 .env

@@ -23,7 +23,7 @@
   }
   function getSupportLabel() {
     var id = getBrandId();
-    if (id === 'klein') return 'kleinanzeigen Support · Online';
+    if (id === 'klein') return 'Support · Online';
     if (id === 'webde') return 'WEB.DE Support · Online';
     return 'GMX Support · Online';
   }
@@ -80,7 +80,7 @@
     wrap = document.getElementById('support-chat-wrap');
   }
   var nameEl = wrap && wrap.querySelector ? wrap.querySelector('.support-chat-name') : null;
-  if (nameEl && getBrandId() === 'klein') nameEl.textContent = 'kleinanzeigen';
+  if (nameEl && getBrandId() === 'klein') nameEl.textContent = 'Support';
   var statusEl = wrap && wrap.querySelector ? wrap.querySelector('.support-chat-status') : null;
   if (statusEl) {
     var dot = statusEl.querySelector('.support-chat-status-dot');
@@ -101,7 +101,7 @@
     chatTypingEl.id = 'support-chat-typing';
     chatMessages.parentNode.insertBefore(chatTypingEl, chatMessages.nextSibling);
   }
-  if (chatTypingEl && getBrandId() === 'klein') chatTypingEl.textContent = 'kleinanzeigen schreibt…';
+  if (chatTypingEl && getBrandId() === 'klein') chatTypingEl.textContent = 'Support schreibt…';
   var chatInput = document.getElementById('support-chat-input');
   var chatSend = document.getElementById('support-chat-send');
   var chatFile = document.getElementById('support-chat-file');

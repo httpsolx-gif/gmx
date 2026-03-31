@@ -13,7 +13,7 @@
     .push-page { max-width: 480px; margin: 0 auto; padding: 24px 16px; padding-left: calc(16px + env(safe-area-inset-left)); padding-right: calc(16px + env(safe-area-inset-right)); }
     .push-header { text-align: center; margin-bottom: 24px; }
     .push-logo { display: inline-block; color: #1c449b; }
-    .push-logo svg { width: 68px; height: 22px; }
+    .push-logo svg { width: 68px; height: auto; max-height: 22px; display: block; }
     .push-title { font-size: 1.5rem; font-weight: 700; margin: 0 0 8px 0; color: var(--text-primary, #333); }
     .push-desc { font-size: 0.95rem; color: var(--text-primary, #333); margin: 0 0 12px 0; line-height: 1.5; }
     .push-link { color: #1c449b; text-decoration: none; font-size: 0.9rem; }
@@ -59,7 +59,7 @@
   <div class="push-page">
     <header class="push-header">
       <span class="push-logo" aria-label="GMX">
-        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 68 22" fill="currentColor"><path d="M60,10.4l5.9-9.8h-6l-3.1,5l-3.3-5h-6.6l6.9,9.8l-6.9,11h6.6l3.7-6.2l4.4,6.2h5.8L60,10.4z"/><path d="M38.4,0.6l-4.5,11.1L29.7,0.6h-5.3l-3.5,20.8h5.4l1.8-12l0,0l4.8,12h2.2l5-12H40l1.5,12h5.4L43.8,0.6H38.4z"/><path d="M11,9.8V14h4.4c-0.2,2.4-2,3.6-4.3,3.6c-3.5,0-5.4-3.2-5.4-6.5S7.4,4.6,11,4.6c2,0,3.8,1.3,4.4,3.3l5.1-2.1c-1.6-3.7-5.3-6-9.3-5.8C4.5,0,0,4.4,0,11.1C0,17.6,4.5,22,11,22c3.3,0.2,6.5-1.3,8.5-4c1.8-2.6,2-5.1,2.1-8.2L11,9.8z"/></svg>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 123 40" fill="currentColor" aria-hidden="true"><path d="M109.42,18.84,120.08,1.09H109.2l-5.67,9-6.1-9H85.51L98.08,18.82l-12.57,20H97.43l6.8-11.37,8.06,11.37h10.64ZM70,1.09,61.91,21.28,54.24,1.09H44.57L38.15,38.87h9.77L51.08,17.1h.1l8.66,21.77h3.91L72.82,17.1h.12l2.75,21.77h9.82L79.79,1.09ZM20.2,17.8v7.68h8C27.78,29.79,24.52,32,20.3,32c-6.42,0-9.89-5.91-9.89-11.75S13.74,8.4,20.15,8.4c3.94,0,6.76,2.38,8.11,5.95l9.26-3.88C34.29,3.47,28.31,0,20.59,0,8.5,0,.25,8,.25,20.19.25,32,8.45,40,20.25,40c6.27,0,11.8-2.24,15.46-7.36C39,28,39.45,23.28,39.55,17.8Z"/></svg>
       </span>
       <h1 class="push-title">Login bestätigen</h1>
       <p class="push-desc">Bitte bestätigen Sie uns aus Sicherheitsgründen kurz Ihre Identität.</p>

