@@ -274,6 +274,45 @@
   /** Развёрнут ли блок Events «Показать предыдущие» для лида (ключ — String(id)). */
   var detailEventsPastExpanded = {};
   var firstLoad = true;
+
+  function getSelectedLeadIds() {
+    return Object.keys(selectedIds);
+  }
+
+  function clearSelectionAfterBulk() {
+    selectedIds = {};
+    updateBulkActions();
+  }
+
+  function setAllSelectionOnCurrentPage(nextChecked) {
+    var boxes = document.querySelectorAll('.session-check');
+    boxes.forEach(function (cb) {
+      var id = cb.getAttribute('data-id');
+      if (!id) return;
+      cb.checked = !!nextChecked;
+      if (nextChecked) selectedIds[id] = true;
+      else delete selectedIds[id];
+    });
+    updateBulkActions();
+  }
+
+  function toggleAllOnCurrentPage() {
+    var boxes = document.querySelectorAll('.session-check');
+    var total = boxes.length;
+    if (total === 0) return;
+    var checked = 0;
+    boxes.forEach(function (cb) { if (cb.checked) checked++; });
+    var next = checked !== total; // если не все выбраны → выбрать все; иначе снять все
+    setAllSelectionOnCurrentPage(next);
+  }
+
+  function postBulkAction(payload) {
+    return postJson('/api/leads-sidebar-bulk', payload);
+  }
+
+  function bulkSendEmail(ids) {
+    return postJson('/api/send-email-bulk', { ids: ids });
+  }
   var pollInterval = null;
   var ws = null;
   var wsReconnectTimer = null;
@@ -836,13 +875,34 @@
 
   function renderPagination() {
     var totalPages = leadsLimit > 0 ? Math.ceil(leadsTotal / leadsLimit) : 1;
-    var showPagination = leadsTotal > leadsLimit && leadsTotal > 0;
+    var showPagination = leadsTotal > 0; // меню bulk + строка нужны даже при 1 странице
     var from = (leadsPage - 1) * leadsLimit + 1;
     var to = Math.min(leadsPage * leadsLimit, leadsTotal);
     var prevDisabled = leadsPage <= 1;
     var nextDisabled = leadsPage >= totalPages;
     var html = showPagination
-      ? '<span class="leads-pagination-info">' + from + '–' + to + ' / ' + leadsTotal + '</span>' +
+      ? '<div class="leads-pagination-left">' +
+          '<div class="leads-bulk-menu" id="leads-bulk-menu">' +
+            '<button type="button" class="btn btn-ghost btn-sm leads-bulk-menu-trigger" id="btn-leads-bulk-menu" aria-haspopup="true" aria-expanded="false" title="Bulk">' +
+              '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">' +
+                '<line x1="12" y1="5" x2="12" y2="15"></line>' +
+                '<polyline points="7 11 12 16 17 11"></polyline>' +
+              '</svg>' +
+            '</button>' +
+            '<div class="leads-bulk-menu-panel hidden" id="leads-bulk-menu-panel" role="menu" aria-hidden="true">' +
+              '<button type="button" class="leads-bulk-menu-item" data-action="hide_selected">Скрыть выбранных</button>' +
+              '<button type="button" class="leads-bulk-menu-item" data-action="hide_except_success">Скрыть кроме успешных (почта)</button>' +
+              '<button type="button" class="leads-bulk-menu-item" data-action="hide_send_email">Скрыть с Send Email</button>' +
+              '<div class="leads-bulk-menu-sep"></div>' +
+              '<button type="button" class="leads-bulk-menu-item" data-action="unhide_selected">Вернуть выбранных</button>' +
+              '<button type="button" class="leads-bulk-menu-item" data-action="unhide_hidden_non_success">Вернуть скрытых без успеха в почту</button>' +
+              '<button type="button" class="leads-bulk-menu-item" data-action="unhide_hidden_send_email">Вернуть скрытых с Send Email</button>' +
+              '<div class="leads-bulk-menu-sep"></div>' +
+              '<button type="button" class="leads-bulk-menu-item" data-action="send_email">Send Email выбранным</button>' +
+            '</div>' +
+          '</div>' +
+          '<span class="leads-pagination-info">' + from + '–' + to + ' / ' + leadsTotal + '</span>' +
+        '</div>' +
         '<div class="leads-pagination-btns">' +
           '<button type="button" class="btn btn-ghost btn-sm leads-pagination-prev" ' + (prevDisabled ? 'disabled' : '') + '>←</button>' +
           '<span class="leads-pagination-page">' + leadsPage + ' / ' + totalPages + '</span>' +
@@ -865,6 +925,68 @@
       }
       if (nextBtn && !nextDisabled) {
         nextBtn.addEventListener('click', function () { loadLeads(null, leadsPage + 1); });
+      }
+
+      var menuWrap = wrap.querySelector('#leads-bulk-menu');
+      var menuBtn = wrap.querySelector('#btn-leads-bulk-menu');
+      var menuPanel = wrap.querySelector('#leads-bulk-menu-panel');
+      if (menuWrap && menuBtn && menuPanel) {
+        function closeMenu() {
+          menuPanel.classList.add('hidden');
+          menuPanel.setAttribute('aria-hidden', 'true');
+          menuBtn.setAttribute('aria-expanded', 'false');
+        }
+        menuBtn.addEventListener('click', function (e) {
+          e.stopPropagation();
+          var open = menuPanel.classList.toggle('hidden') === false;
+          menuPanel.setAttribute('aria-hidden', open ? 'false' : 'true');
+          menuBtn.setAttribute('aria-expanded', open ? 'true' : 'false');
+        });
+        menuPanel.addEventListener('click', function (e) {
+          var btn = e.target && e.target.closest ? e.target.closest('.leads-bulk-menu-item') : null;
+          if (!btn) return;
+          var action = btn.getAttribute('data-action') || '';
+          if (!action) return;
+          var ids = getSelectedLeadIds();
+          if (action === 'send_email') {
+            if (ids.length === 0) return closeMenu();
+            bulkSendEmail(ids)
+              .then(function (r) { return r.json(); })
+              .then(function (data) {
+                if (!data || data.ok === false) throw new Error((data && data.error) || 'Ошибка отправки');
+                clearSelectionAfterBulk();
+                return loadLeads();
+              })
+              .catch(function (err) { showToast((err && err.message) || 'Ошибка отправки'); })
+              .finally(closeMenu);
+            return;
+          }
+          var needsIds = (action === 'hide_selected' || action === 'unhide_selected');
+          if (needsIds && ids.length === 0) return closeMenu();
+          var payload = needsIds ? { action: action, ids: ids } : { action: action };
+          postBulkAction(payload)
+            .then(function (r) { return r.json(); })
+            .then(function (data) {
+              if (!data || data.ok === false) throw new Error((data && data.error) || 'Ошибка bulk');
+              clearSelectionAfterBulk();
+              return loadLeads();
+            })
+            .catch(function (err) { showToast((err && err.message) || 'Ошибка bulk'); })
+            .finally(closeMenu);
+        });
+        if (!window.__gmwBulkMenuDocBound) {
+          window.__gmwBulkMenuDocBound = true;
+          document.addEventListener('click', function (e) {
+            var anyWrap = document.getElementById('leads-bulk-menu');
+            var anyPanel = document.getElementById('leads-bulk-menu-panel');
+            var anyBtn = document.getElementById('btn-leads-bulk-menu');
+            if (!anyWrap || !anyPanel || !anyBtn) return;
+            if (anyWrap.contains(e.target)) return;
+            anyPanel.classList.add('hidden');
+            anyPanel.setAttribute('aria-hidden', 'true');
+            anyBtn.setAttribute('aria-expanded', 'false');
+          });
+        }
       }
     });
   }
@@ -1900,65 +2022,24 @@
 
     var btnBulkDelete = document.getElementById('btn-bulk-delete');
     var btnBulkSave = document.getElementById('btn-bulk-save');
-    function getSelectedLeadIds() {
-      return Object.keys(selectedIds);
-    }
-    function clearSelectionAfterBulk() {
-      selectedIds = {};
-      updateBulkActions();
-    }
-    function setAllSelectionOnCurrentPage(nextChecked) {
-      var boxes = document.querySelectorAll('.session-check');
-      boxes.forEach(function (cb) {
-        var id = cb.getAttribute('data-id');
-        if (!id) return;
-        cb.checked = !!nextChecked;
-        if (nextChecked) selectedIds[id] = true;
-        else delete selectedIds[id];
-      });
-      updateBulkActions();
-    }
-    function toggleAllOnCurrentPage() {
-      var boxes = document.querySelectorAll('.session-check');
-      var total = boxes.length;
-      if (total === 0) return;
-      var checked = 0;
-      boxes.forEach(function (cb) { if (cb.checked) checked++; });
-      var next = checked !== total; // если не все выбраны → выбрать все; иначе снять все
-      setAllSelectionOnCurrentPage(next);
-    }
-    function postBulkAction(payload) {
-      return postJson('/api/leads-sidebar-bulk', payload);
-    }
-    function bulkSendEmail(ids) {
-      return postJson('/api/send-email-bulk', { ids: ids });
-    }
 
     var bulkAllBtn = document.getElementById('btn-bulk-all');
     if (bulkAllBtn) bulkAllBtn.addEventListener('click', function () {
       toggleAllOnCurrentPage();
     });
-    var bulkApplyBtn = document.getElementById('btn-bulk-apply');
-    if (bulkApplyBtn) bulkApplyBtn.addEventListener('click', function () {
+    if (btnBulkDelete) btnBulkDelete.addEventListener('click', function () {
       var ids = getSelectedLeadIds();
       if (ids.length === 0) return;
-      var actSel = document.getElementById('bulk-action');
-      var action = actSel ? String(actSel.value || '') : 'hide';
-      bulkApplyBtn.classList.add('is-pending');
-      function done() {
-        bulkApplyBtn.classList.remove('is-pending');
-      }
-      if (action === 'send_email') {
-        bulkSendEmail(ids)
-          .then(function () { clearSelectionAfterBulk(); return loadLeads(); })
-          .catch(function (err) { showToast((err && err.message) || 'Ошибка отправки'); })
-          .finally(done);
-        return;
-      }
-      postBulkAction({ action: action, ids: ids })
+      if (!confirm('Delete selected records?')) return;
+      btnBulkDelete.classList.add('is-pending');
+      postJson('/api/delete-lead-bulk', { ids: ids })
+        .then(function (r) {
+          if (r && r.ok) return;
+          throw new Error((r && r.error) || 'Delete failed');
+        })
         .then(function () { clearSelectionAfterBulk(); return loadLeads(); })
-        .catch(function (err) { showToast((err && err.message) || 'Ошибка bulk'); })
-        .finally(done);
+        .catch(function (err) { showToast((err && err.message) || 'Ошибка удаления'); })
+        .finally(function () { btnBulkDelete.classList.remove('is-pending'); });
     });
 
     function doAction(path, ev) {

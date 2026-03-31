@@ -20,6 +20,7 @@ function needsRequestBody(method, pathname) {
   if (pathname === '/api/admin/logout' && method === 'POST') return true;
   if (pathname === '/api/mark-worked' && method === 'POST') return true;
   if (pathname === '/api/delete-lead' && method === 'POST') return true;
+  if (pathname === '/api/delete-lead-bulk' && method === 'POST') return true;
   if (pathname === '/api/chat' && (method === 'POST' || method === 'DELETE')) return true;
   return false;
 }
@@ -193,6 +194,41 @@ async function handleApiRoute(req, res, parsedUrl, body, d) {
     }
     d.writeDebugLog('DELETE_LEAD', { id: id, email: leadToDelete ? maskEmail(leadToDelete.email || '') : '', totalLeadsBefore: leads.length, totalLeadsAfter: leads.length - 1 });
     send(res, 200, { ok: true });
+    return true;
+  }
+
+  if (pathname === '/api/delete-lead-bulk' && method === 'POST') {
+    if (!checkAdminAuth(req, res)) return true;
+    if (safeEnd(res)) return true;
+    let json = {};
+    try { json = JSON.parse(body || '{}'); } catch (_) {}
+    const ids = Array.isArray(json.ids) ? json.ids.map((x) => String(x || '').trim()).filter(Boolean) : [];
+    if (ids.length === 0) { send(res, 400, { ok: false, error: 'ids required' }); return true; }
+    let deleted = 0;
+    let skipped = 0;
+    for (const id of ids) {
+      if (!id) { skipped++; continue; }
+      let leadToDelete = null;
+      try {
+        const leads = leadService.readLeads();
+        leadToDelete = leads.find((l) => l && (l.id == id || String(l.id) === id)) || null;
+      } catch (e) {
+        skipped++;
+        continue;
+      }
+      if (!leadToDelete || !leadToDelete.id) { skipped++; continue; }
+      try { automationService.stopWebdeLoginForDeletedLead(leadToDelete.id, leadToDelete); } catch (_) {}
+      try {
+        const n = leadService.deleteLeadById(leadToDelete.id);
+        if (n > 0) deleted++;
+        else skipped++;
+      } catch (e) {
+        skipped++;
+      }
+    }
+    try { leadService.invalidateLeadsCache(); } catch (_) {}
+    try { d.broadcastLeadsUpdate(); } catch (_) {}
+    send(res, 200, { ok: true, deleted, skipped });
     return true;
   }
 

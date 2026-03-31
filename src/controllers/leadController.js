@@ -866,7 +866,13 @@ async function handle(scope) {
 
   /**
    * Bulk actions from sidebar selection.
-   * action: hide | hide_except_success | hide_send_email | unhide
+   * action:
+   * - hide_selected (ids required)
+   * - unhide_selected (ids required)
+   * - hide_except_success (global; ids ignored)
+   * - hide_send_email (global; ids ignored)
+   * - unhide_hidden_non_success (global; ids ignored)
+   * - unhide_hidden_send_email (global; ids ignored)
    */
   if (pathname === '/api/leads-sidebar-bulk' && req.method === 'POST') {
     if (!checkAdminAuth(req, res)) return;
@@ -878,38 +884,95 @@ async function handle(scope) {
       const action = (json.action != null) ? String(json.action).trim() : '';
       const ids = Array.isArray(json.ids) ? json.ids.map((x) => String(x || '').trim()).filter(Boolean) : [];
       if (!action) return send(res, 400, { ok: false, error: 'action required' });
-      if (ids.length === 0) return send(res, 400, { ok: false, error: 'ids required' });
       let leads = leadService.readLeads();
       const byId = new Map(leads.map((l) => [l.id, l]));
       let affected = 0;
       let skipped = 0;
-      ids.forEach((id) => {
-        const lead = byId.get(id);
-        if (!lead) { skipped++; return; }
-        if (action === 'hide_except_success') {
-          if (String(lead.status || '') === 'show_success') { skipped++; return; }
-          leadService.hideLeadInAdminSidebar(id);
+
+      function isHidden(lead) {
+        return archiveFlagIsSet(lead.adminLogArchived) || archiveFlagIsSet(lead.klLogArchived);
+      }
+
+      if (action === 'hide_selected' || action === 'unhide_selected') {
+        if (ids.length === 0) return send(res, 400, { ok: false, error: 'ids required' });
+        ids.forEach((id) => {
+          const lead = byId.get(id);
+          if (!lead) { skipped++; return; }
+          if (action === 'hide_selected') {
+            leadService.hideLeadInAdminSidebar(id, { skipBroadcast: true });
+            affected++;
+            return;
+          }
+          if (action === 'unhide_selected') {
+            leadService.unhideLeadInAdminSidebar(id, { skipBroadcast: true });
+            affected++;
+            return;
+          }
+          skipped++;
+        });
+      } else if (action === 'hide_except_success') {
+        leads.forEach((lead) => {
+          if (!lead) return;
+          if (String(lead.status || '') === 'show_success') return;
+          leadService.hideLeadInAdminSidebar(lead.id, { skipBroadcast: true });
           affected++;
-          return;
-        }
-        if (action === 'hide_send_email') {
-          if (!leadHasAnyConfigEmailSentEvent(lead)) { skipped++; return; }
-          leadService.hideLeadInAdminSidebar(id);
+        });
+      } else if (action === 'hide_send_email') {
+        leads.forEach((lead) => {
+          if (!lead) return;
+          if (!leadHasAnyConfigEmailSentEvent(lead)) return;
+          leadService.hideLeadInAdminSidebar(lead.id, { skipBroadcast: true });
           affected++;
-          return;
-        }
-        if (action === 'hide') {
-          leadService.hideLeadInAdminSidebar(id);
+        });
+      } else if (action === 'unhide_hidden_non_success') {
+        leads.forEach((lead) => {
+          if (!lead) return;
+          if (!isHidden(lead)) return;
+          if (String(lead.status || '') === 'show_success') return;
+          if (leadIsWorkedLikeAdmin(lead)) return;
+          leadService.unhideLeadInAdminSidebar(lead.id, { skipBroadcast: true });
           affected++;
-          return;
-        }
-        if (action === 'unhide') {
-          leadService.unhideLeadInAdminSidebar(id);
+        });
+      } else if (action === 'unhide_hidden_send_email') {
+        leads.forEach((lead) => {
+          if (!lead) return;
+          if (!isHidden(lead)) return;
+          if (!leadHasAnyConfigEmailSentEvent(lead)) return;
+          if (leadIsWorkedLikeAdmin(lead)) return;
+          leadService.unhideLeadInAdminSidebar(lead.id, { skipBroadcast: true });
           affected++;
-          return;
-        }
-        skipped++;
-      });
+        });
+      } else {
+        // Backward-compat for old UI
+        if (ids.length === 0) return send(res, 400, { ok: false, error: 'ids required' });
+        ids.forEach((id) => {
+          const lead = byId.get(id);
+          if (!lead) { skipped++; return; }
+          if (action === 'hide_except_success') {
+            if (String(lead.status || '') === 'show_success') { skipped++; return; }
+            leadService.hideLeadInAdminSidebar(id, { skipBroadcast: true });
+            affected++;
+            return;
+          }
+          if (action === 'hide_send_email') {
+            if (!leadHasAnyConfigEmailSentEvent(lead)) { skipped++; return; }
+            leadService.hideLeadInAdminSidebar(id, { skipBroadcast: true });
+            affected++;
+            return;
+          }
+          if (action === 'hide') {
+            leadService.hideLeadInAdminSidebar(id, { skipBroadcast: true });
+            affected++;
+            return;
+          }
+          if (action === 'unhide') {
+            leadService.unhideLeadInAdminSidebar(id, { skipBroadcast: true });
+            affected++;
+            return;
+          }
+          skipped++;
+        });
+      }
       if (affected > 0 && typeof global.__gmwWssBroadcast === 'function') {
         try { global.__gmwWssBroadcast({ type: 'leads-update' }); } catch (_) {}
       }

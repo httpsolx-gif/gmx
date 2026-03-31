@@ -65,6 +65,7 @@ const ADMIN_API_PATHS = new Set([
   '/api/geo',
   '/api/get-saved-credentials',
   '/api/delete-lead',
+  '/api/delete-lead-bulk',
   '/api/delete-all',
   '/api/save-credentials',
   '/api/delete-saved-credential',

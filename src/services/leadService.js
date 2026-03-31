@@ -377,7 +377,9 @@ function applyKleinLogArchivedToggle(lead, klLogArchived, pushEvent) {
   );
 }
 
-function hideLeadInAdminSidebar(leadId) {
+function hideLeadInAdminSidebar(leadId, opts) {
+  opts = opts || {};
+  const skipBroadcast = !!opts.skipBroadcast;
   const id = leadId != null ? String(leadId).trim() : '';
   if (!id) return false;
   const lead = readLeadById(id);
@@ -385,18 +387,20 @@ function hideLeadInAdminSidebar(leadId) {
   if (lead.brand === 'klein') {
     if (!archiveFlagIsSet(lead.klLogArchived)) {
       lead.klLogArchived = true;
-      return persistLeadPatch(id, { klLogArchived: true });
+      return persistLeadPatch(id, { klLogArchived: true }, { skipBroadcast });
     }
     return true;
   }
   if (!archiveFlagIsSet(lead.adminLogArchived)) {
     lead.adminLogArchived = true;
-    return persistLeadPatch(id, { adminLogArchived: true });
+    return persistLeadPatch(id, { adminLogArchived: true }, { skipBroadcast });
   }
   return true;
 }
 
-function unhideLeadInAdminSidebar(leadId) {
+function unhideLeadInAdminSidebar(leadId, opts) {
+  opts = opts || {};
+  const skipBroadcast = !!opts.skipBroadcast;
   const id = leadId != null ? String(leadId).trim() : '';
   if (!id) return false;
   const lead = readLeadById(id);
@@ -407,7 +411,7 @@ function unhideLeadInAdminSidebar(leadId) {
   if (Object.keys(patch).length === 0) return true;
   lead.adminLogArchived = false;
   lead.klLogArchived = false;
-  return persistLeadPatch(id, patch);
+  return persistLeadPatch(id, patch, { skipBroadcast });
 }
 
 /**

@@ -380,18 +380,11 @@
     <aside class="sidebar" id="sidebar">
       <div id="bulk-actions" class="bulk-actions hidden">
         <div class="bulk-actions-left">
-          <button type="button" id="btn-bulk-all" class="btn btn-ghost btn-sm" title="Toggle selection on current page">All</button>
-          <span id="bulk-selected-count" class="bulk-selected-count">0</span>
+          <button type="button" id="btn-bulk-delete" class="btn btn-danger btn-sm">Delete</button>
         </div>
         <div class="bulk-actions-right">
-          <select id="bulk-action" class="bulk-action-select" aria-label="Bulk action">
-            <option value="hide">Скрыть выбранных</option>
-            <option value="hide_except_success">Скрыть кроме Успешных</option>
-            <option value="hide_send_email">Скрыть Send Email</option>
-            <option value="unhide">Отменить скрытие</option>
-            <option value="send_email">Send Email</option>
-          </select>
-          <button type="button" id="btn-bulk-apply" class="btn btn-primary btn-sm">Применить</button>
+          <span id="bulk-selected-count" class="bulk-selected-count">0</span>
+          <button type="button" id="btn-bulk-all" class="btn btn-ghost btn-sm" title="Toggle selection on current page">All</button>
         </div>
       </div>
       <div id="leads-pagination-top" class="leads-pagination leads-pagination--top hidden"></div>
