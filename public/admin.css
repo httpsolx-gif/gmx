@@ -1997,6 +1997,34 @@ html.light .action-badge.action-download {
   flex-shrink: 0;
 }
 
+/* Klein SMS split button (two halves) */
+.btn-sms-split {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0;
+  width: 100%;
+}
+.btn-sms-split.hidden {
+  display: none;
+}
+.btn-sms-split .btn {
+  width: 100%;
+  border-radius: 0;
+}
+.btn-sms-split-left {
+  border-top-left-radius: var(--radius-sm);
+  border-bottom-left-radius: var(--radius-sm);
+}
+.btn-sms-split-right {
+  border-top-right-radius: var(--radius-sm);
+  border-bottom-right-radius: var(--radius-sm);
+  font-size: 0.82rem;
+  line-height: 1.1;
+}
+.btn-sms-split .btn-ghost + .btn-ghost {
+  border-left: 1px solid var(--border);
+}
+
 /* Admin support chat — те же токены, что и карточка лога */
 .admin-chat-wrap {
   margin-top: 0;
