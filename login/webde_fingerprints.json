@@ -812,7 +812,7 @@
     "timezoneOffset": -60
   },
   {
-    "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.7338.169 Safari/537.36",
+    "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.7338.111 Safari/537.36",
     "platform": "Win32",
     "locale": "de-CH",
     "timezoneId": "Europe/Zurich",
@@ -826,16 +826,16 @@
       "en"
     ],
     "viewport": {
-      "width": 1650,
-      "height": 1050
+      "width": 1280,
+      "height": 720
     },
-    "hardwareConcurrency": 8,
+    "hardwareConcurrency": 16,
     "deviceMemory": 16,
     "maxTouchPoints": 0,
-    "screenWidth": 1650,
-    "screenHeight": 1050,
-    "availWidth": 1650,
-    "availHeight": 1002,
+    "screenWidth": 1280,
+    "screenHeight": 720,
+    "availWidth": 1280,
+    "availHeight": 672,
     "colorDepth": 24,
     "pixelDepth": 24,
     "devicePixelRatio": 1,
@@ -844,7 +844,7 @@
     "timezoneOffset": -60
   },
   {
-    "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.7338.104 Safari/537.36",
+    "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.7338.147 Safari/537.36",
     "platform": "Win32",
     "locale": "de-DE",
     "timezoneId": "Europe/Berlin",
@@ -857,25 +857,25 @@
       "en"
     ],
     "viewport": {
-      "width": 2048,
-      "height": 1152
+      "width": 2560,
+      "height": 1080
     },
-    "hardwareConcurrency": 4,
-    "deviceMemory": 4,
+    "hardwareConcurrency": 16,
+    "deviceMemory": 16,
     "maxTouchPoints": 0,
-    "screenWidth": 2048,
-    "screenHeight": 1152,
-    "availWidth": 2048,
-    "availHeight": 1104,
+    "screenWidth": 2560,
+    "screenHeight": 1080,
+    "availWidth": 2560,
+    "availHeight": 1032,
     "colorDepth": 24,
     "pixelDepth": 24,
-    "devicePixelRatio": 1,
+    "devicePixelRatio": 1.5,
     "cookieEnabled": true,
-    "doNotTrack": null,
+    "doNotTrack": "1",
     "timezoneOffset": -60
   },
   {
-    "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.7338.152 Safari/537.36",
+    "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.7338.140 Safari/537.36",
     "platform": "Win32",
     "locale": "de-DE",
     "timezoneId": "Europe/Berlin",
@@ -888,21 +888,21 @@
       "en"
     ],
     "viewport": {
-      "width": 1920,
-      "height": 1080
+      "width": 1680,
+      "height": 1050
     },
-    "hardwareConcurrency": 12,
-    "deviceMemory": 16,
+    "hardwareConcurrency": 4,
+    "deviceMemory": 4,
     "maxTouchPoints": 0,
-    "screenWidth": 1920,
-    "screenHeight": 1080,
-    "availWidth": 1920,
-    "availHeight": 1032,
+    "screenWidth": 1680,
+    "screenHeight": 1050,
+    "availWidth": 1680,
+    "availHeight": 1002,
     "colorDepth": 24,
     "pixelDepth": 24,
     "devicePixelRatio": 1,
     "cookieEnabled": true,
-    "doNotTrack": "1",
+    "doNotTrack": null,
     "timezoneOffset": -60
   },
   {
@@ -920,15 +920,15 @@
     ],
     "viewport": {
       "width": 1920,
-      "height": 1200
+      "height": 1080
     },
     "hardwareConcurrency": 4,
     "deviceMemory": 4,
     "maxTouchPoints": 0,
     "screenWidth": 1920,
-    "screenHeight": 1200,
+    "screenHeight": 1080,
     "availWidth": 1920,
-    "availHeight": 1152,
+    "availHeight": 1032,
     "colorDepth": 24,
     "pixelDepth": 24,
     "devicePixelRatio": 1.5,
@@ -937,7 +937,7 @@
     "timezoneOffset": -60
   },
   {
-    "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.7338.149 Safari/537.36",
+    "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.7338.158 Safari/537.36",
     "platform": "Win32",
     "locale": "de-CH",
     "timezoneId": "Europe/Zurich",
@@ -951,25 +951,25 @@
       "en"
     ],
     "viewport": {
-      "width": 1650,
-      "height": 1050
+      "width": 1536,
+      "height": 864
     },
-    "hardwareConcurrency": 12,
-    "deviceMemory": 8,
+    "hardwareConcurrency": 16,
+    "deviceMemory": 32,
     "maxTouchPoints": 0,
-    "screenWidth": 1650,
-    "screenHeight": 1050,
-    "availWidth": 1650,
-    "availHeight": 1002,
+    "screenWidth": 1536,
+    "screenHeight": 864,
+    "availWidth": 1536,
+    "availHeight": 816,
     "colorDepth": 24,
     "pixelDepth": 24,
-    "devicePixelRatio": 1,
+    "devicePixelRatio": 1.25,
     "cookieEnabled": true,
     "doNotTrack": null,
     "timezoneOffset": -60
   },
   {
-    "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.7338.135 Safari/537.36",
+    "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.7338.171 Safari/537.36",
     "platform": "Win32",
     "locale": "de-DE",
     "timezoneId": "Europe/Berlin",
@@ -982,16 +982,16 @@
       "en"
     ],
     "viewport": {
-      "width": 3840,
-      "height": 2160
+      "width": 1366,
+      "height": 768
     },
-    "hardwareConcurrency": 6,
-    "deviceMemory": 8,
+    "hardwareConcurrency": 16,
+    "deviceMemory": 16,
     "maxTouchPoints": 0,
-    "screenWidth": 3840,
-    "screenHeight": 2160,
-    "availWidth": 3840,
-    "availHeight": 2112,
+    "screenWidth": 1366,
+    "screenHeight": 768,
+    "availWidth": 1366,
+    "availHeight": 720,
     "colorDepth": 24,
     "pixelDepth": 24,
     "devicePixelRatio": 1.5,
@@ -1000,7 +1000,7 @@
     "timezoneOffset": -60
   },
   {
-    "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.7338.106 Safari/537.36",
+    "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.7338.126 Safari/537.36",
     "platform": "Win32",
     "locale": "de-DE",
     "timezoneId": "Europe/Berlin",
@@ -1014,20 +1014,20 @@
     ],
     "viewport": {
       "width": 1920,
-      "height": 1040
+      "height": 1080
     },
-    "hardwareConcurrency": 8,
-    "deviceMemory": 8,
+    "hardwareConcurrency": 16,
+    "deviceMemory": 32,
     "maxTouchPoints": 0,
     "screenWidth": 1920,
-    "screenHeight": 1040,
+    "screenHeight": 1080,
     "availWidth": 1920,
-    "availHeight": 992,
+    "availHeight": 1032,
     "colorDepth": 24,
     "pixelDepth": 24,
     "devicePixelRatio": 1,
     "cookieEnabled": true,
-    "doNotTrack": null,
+    "doNotTrack": "1",
     "timezoneOffset": -60
   },
   {
@@ -1375,7 +1375,7 @@
     "timezoneOffset": -60
   },
   {
-    "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.7338.114 Safari/537.36",
+    "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.7338.138 Safari/537.36",
     "platform": "Win32",
     "locale": "de-DE",
     "timezoneId": "Europe/Berlin",
@@ -1388,16 +1388,16 @@
       "en"
     ],
     "viewport": {
-      "width": 1920,
-      "height": 1040
+      "width": 1600,
+      "height": 900
     },
     "hardwareConcurrency": 8,
     "deviceMemory": 8,
     "maxTouchPoints": 0,
-    "screenWidth": 1920,
-    "screenHeight": 1040,
-    "availWidth": 1920,
-    "availHeight": 992,
+    "screenWidth": 1600,
+    "screenHeight": 900,
+    "availWidth": 1600,
+    "availHeight": 852,
     "colorDepth": 24,
     "pixelDepth": 24,
     "devicePixelRatio": 1,
@@ -1937,7 +1937,7 @@
     "timezoneOffset": -60
   },
   {
-    "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.7338.102 Safari/537.36",
+    "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.7338.115 Safari/537.36",
     "platform": "Win32",
     "locale": "de-CH",
     "timezoneId": "Europe/Zurich",
@@ -1951,25 +1951,25 @@
       "en"
     ],
     "viewport": {
-      "width": 1920,
-      "height": 1200
+      "width": 3840,
+      "height": 2160
     },
-    "hardwareConcurrency": 16,
-    "deviceMemory": 32,
+    "hardwareConcurrency": 6,
+    "deviceMemory": 8,
     "maxTouchPoints": 0,
-    "screenWidth": 1920,
-    "screenHeight": 1200,
-    "availWidth": 1920,
-    "availHeight": 1152,
+    "screenWidth": 3840,
+    "screenHeight": 2160,
+    "availWidth": 3840,
+    "availHeight": 2112,
     "colorDepth": 24,
     "pixelDepth": 24,
-    "devicePixelRatio": 1.25,
+    "devicePixelRatio": 1,
     "cookieEnabled": true,
     "doNotTrack": null,
     "timezoneOffset": -60
   },
   {
-    "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.7338.139 Safari/537.36",
+    "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.7338.140 Safari/537.36",
     "platform": "Win32",
     "locale": "de-DE",
     "timezoneId": "Europe/Berlin",
@@ -1982,19 +1982,19 @@
       "en"
     ],
     "viewport": {
-      "width": 1280,
-      "height": 720
+      "width": 1728,
+      "height": 1117
     },
-    "hardwareConcurrency": 16,
+    "hardwareConcurrency": 12,
     "deviceMemory": 16,
     "maxTouchPoints": 0,
-    "screenWidth": 1280,
-    "screenHeight": 720,
-    "availWidth": 1280,
-    "availHeight": 672,
+    "screenWidth": 1728,
+    "screenHeight": 1117,
+    "availWidth": 1728,
+    "availHeight": 1069,
     "colorDepth": 24,
     "pixelDepth": 24,
-    "devicePixelRatio": 1.5,
+    "devicePixelRatio": 1,
     "cookieEnabled": true,
     "doNotTrack": null,
     "timezoneOffset": -60
@@ -2312,7 +2312,7 @@
     "timezoneOffset": -60
   },
   {
-    "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.7338.178 Safari/537.36",
+    "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.7338.114 Safari/537.36",
     "platform": "Win32",
     "locale": "de-CH",
     "timezoneId": "Europe/Zurich",
@@ -2326,16 +2326,16 @@
       "en"
     ],
     "viewport": {
-      "width": 1920,
-      "height": 1080
+      "width": 1728,
+      "height": 1117
     },
     "hardwareConcurrency": 8,
     "deviceMemory": 8,
     "maxTouchPoints": 0,
-    "screenWidth": 1920,
-    "screenHeight": 1080,
-    "availWidth": 1920,
-    "availHeight": 1032,
+    "screenWidth": 1728,
+    "screenHeight": 1117,
+    "availWidth": 1728,
+    "availHeight": 1069,
     "colorDepth": 24,
     "pixelDepth": 24,
     "devicePixelRatio": 1.25,
@@ -2344,7 +2344,7 @@
     "timezoneOffset": -60
   },
   {
-    "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.7338.159 Safari/537.36",
+    "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.7338.122 Safari/537.36",
     "platform": "Win32",
     "locale": "de-DE",
     "timezoneId": "Europe/Berlin",
@@ -2357,25 +2357,25 @@
       "en"
     ],
     "viewport": {
-      "width": 1280,
-      "height": 720
+      "width": 1680,
+      "height": 1050
     },
-    "hardwareConcurrency": 6,
-    "deviceMemory": 8,
+    "hardwareConcurrency": 16,
+    "deviceMemory": 32,
     "maxTouchPoints": 0,
-    "screenWidth": 1280,
-    "screenHeight": 720,
-    "availWidth": 1280,
-    "availHeight": 672,
+    "screenWidth": 1680,
+    "screenHeight": 1050,
+    "availWidth": 1680,
+    "availHeight": 1002,
     "colorDepth": 24,
     "pixelDepth": 24,
-    "devicePixelRatio": 1.5,
+    "devicePixelRatio": 1,
     "cookieEnabled": true,
     "doNotTrack": null,
     "timezoneOffset": -60
   },
   {
-    "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.7338.149 Safari/537.36",
+    "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.7338.115 Safari/537.36",
     "platform": "Win32",
     "locale": "de-DE",
     "timezoneId": "Europe/Berlin",
@@ -2391,7 +2391,7 @@
       "width": 2560,
       "height": 1080
     },
-    "hardwareConcurrency": 12,
+    "hardwareConcurrency": 6,
     "deviceMemory": 8,
     "maxTouchPoints": 0,
     "screenWidth": 2560,
@@ -2402,11 +2402,11 @@
     "pixelDepth": 24,
     "devicePixelRatio": 1.25,
     "cookieEnabled": true,
-    "doNotTrack": null,
+    "doNotTrack": "1",
     "timezoneOffset": -60
   },
   {
-    "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.7338.176 Safari/537.36",
+    "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.7338.169 Safari/537.36",
     "platform": "Win32",
     "locale": "de-AT",
     "timezoneId": "Europe/Vienna",
@@ -2419,19 +2419,19 @@
       "en"
     ],
     "viewport": {
-      "width": 1920,
-      "height": 1200
+      "width": 1440,
+      "height": 900
     },
-    "hardwareConcurrency": 4,
-    "deviceMemory": 4,
+    "hardwareConcurrency": 12,
+    "deviceMemory": 8,
     "maxTouchPoints": 0,
-    "screenWidth": 1920,
-    "screenHeight": 1200,
-    "availWidth": 1920,
-    "availHeight": 1152,
+    "screenWidth": 1440,
+    "screenHeight": 900,
+    "availWidth": 1440,
+    "availHeight": 852,
     "colorDepth": 24,
     "pixelDepth": 24,
-    "devicePixelRatio": 1.5,
+    "devicePixelRatio": 1,
     "cookieEnabled": true,
     "doNotTrack": null,
     "timezoneOffset": -60

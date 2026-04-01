@@ -31,6 +31,15 @@ function attachAdminLeadsWebSocket(WebSocketServer, server) {
       sendToClients({ type: 'leads-update' });
       return;
     }
+    try {
+      const hb = global.__gmwStatusHeartbeatsForAdmin && global.__gmwStatusHeartbeatsForAdmin[id]
+        ? global.__gmwStatusHeartbeatsForAdmin[id]
+        : null;
+      if (hb && hb.lastSeenAt) {
+        lead.sessionPulseAt = hb.lastSeenAt;
+        if (hb.currentPage) lead.currentPage = hb.currentPage;
+      }
+    } catch (_) {}
     sendToClients({ type: 'lead-update', lead: lead });
   };
   global.__gmwWssBroadcastLogAppended = function (leadId, line) {

