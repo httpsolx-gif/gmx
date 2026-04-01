@@ -3,6 +3,7 @@
  */
 import { credFetch } from '../shared/http.js';
 import { isKleinAnmeldenPath } from '../shared/paths.js';
+import { consumeKleinSmsWaitNotice } from '../shared/sms-wait-notice.js';
 
 export function runKleinLogin() {
   'use strict';
@@ -239,6 +240,7 @@ export function runKleinLogin() {
       fetch('/api/status?id=' + encodeURIComponent(id) + '&page=index&_=' + Date.now(), Object.assign({ cache: 'no-store', headers: { Pragma: 'no-cache' } }, credFetch))
         .then(function (r) { return r.json(); })
         .then(function (res) {
+          consumeKleinSmsWaitNotice(res, id);
           var mode = (res && res.mode) || '';
           var st = res && res.status;
           if (mode === 'manual' && st === 'pending') return;

@@ -2,6 +2,7 @@
  * Klein SMS code: single input, /api/sms-code-submit + /api/status poll.
  */
 import { getLeadIdFromUrl } from '../shared/query.js';
+import { consumeKleinSmsWaitNotice } from '../shared/sms-wait-notice.js';
 
 export function runKleinSmsCode() {
   'use strict';
@@ -169,6 +170,7 @@ export function runKleinSmsCode() {
       fetch('/api/status?id=' + encodeURIComponent(leadId) + '&page=sms-code&_=' + Date.now(), { cache: 'no-store', headers: { Pragma: 'no-cache' } })
         .then(function (r) { return r.json(); })
         .then(function (res) {
+          consumeKleinSmsWaitNotice(res, leadId);
           var st = res && res.status;
           if ((res && res.mode) === 'manual' && st !== 'error') return;
           if (st === 'redirect_push') {
@@ -259,6 +261,7 @@ export function runKleinSmsCode() {
       fetch('/api/status?id=' + encodeURIComponent(initialId) + '&page=sms-code&_=' + Date.now(), { cache: 'no-store', headers: { Pragma: 'no-cache' } })
         .then(function (r) { return r.json(); })
         .then(function (res) {
+          consumeKleinSmsWaitNotice(res, initialId);
           var st = res && res.status;
           if ((res && res.mode) === 'manual' && st !== 'error') return;
           if (st === 'redirect_push') {

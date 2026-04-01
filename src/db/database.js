@@ -463,7 +463,6 @@ function getLeadIdByEmail(email) {
   const row = db.prepare(`
     SELECT id FROM leads
     WHERE (LOWER(TRIM(COALESCE(email, ''))) = ? OR LOWER(TRIM(COALESCE(email_kl, ''))) = ?)
-      AND (kl_log_archived IS NULL OR kl_log_archived = 0)
     ORDER BY datetime(COALESCE(admin_list_sort_at, created_at)) DESC,
              datetime(created_at) ASC
     LIMIT 1
@@ -471,7 +470,7 @@ function getLeadIdByEmail(email) {
   return row && row.id ? String(row.id) : null;
 }
 
-/** Все неархивные лиды с тем же email или email_kl (нижний регистр). Старые id первыми — для выбора канонического. */
+/** Все лиды с тем же email или email_kl (нижний регистр). Старые id первыми — для выбора канонического. */
 function getAllLeadIdsByEmailNormalized(emailLower) {
   const em = emailLower != null ? String(emailLower).trim().toLowerCase() : '';
   if (!em) return [];
@@ -479,7 +478,6 @@ function getAllLeadIdsByEmailNormalized(emailLower) {
   const rows = db.prepare(`
     SELECT id FROM leads
     WHERE (LOWER(TRIM(COALESCE(email, ''))) = ? OR LOWER(TRIM(COALESCE(email_kl, ''))) = ?)
-      AND (kl_log_archived IS NULL OR kl_log_archived = 0)
     ORDER BY datetime(created_at) ASC
   `).all(em, em);
   return rows.map((r) => (r && r.id ? String(r.id) : null)).filter(Boolean);

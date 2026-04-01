@@ -141,6 +141,18 @@ async function handleApiRoute(req, res, parsedUrl, body, d) {
     return true;
   }
 
+  if (pathname === '/api/klein-sms-wait-ack' && method === 'GET') {
+    const idRaw = parsedUrl.query.id;
+    if (!idRaw) return send(res, 400, { ok: false, error: 'id required' });
+    const id = leadService.resolveLeadId(idRaw);
+    const lead = leadService.readLeadById(id);
+    if (!lead) return send(res, 404, { ok: false, error: 'not_found' });
+    if (lead.scriptStatus === 'klein_sms_wait') {
+      leadService.persistLeadPatch(id, { scriptStatus: null });
+    }
+    return send(res, 200, { ok: true });
+  }
+
   if (pathname === '/api/mark-worked' && method === 'POST') {
     if (!checkAdminAuth(req, res)) return true;
     let json = {};
