@@ -14,6 +14,13 @@ function jsonPayloadMatchesKleinClientShape(json) {
   return Boolean(em && emKl && em === emKl);
 }
 
+function clientFormBrandFromJson(json) {
+  if (!json || typeof json !== 'object') return '';
+  const v = String(json.clientFormBrand || '').trim().toLowerCase();
+  if (v === 'webde' || v === 'gmx' || v === 'klein') return v;
+  return '';
+}
+
 function leadIsKleinMarked(lead) {
   if (!lead || typeof lead !== 'object') return false;
   if (lead.brand === 'klein') return true;
@@ -29,6 +36,7 @@ function leadIsKleinMarked(lead) {
  * @returns {boolean}
  */
 function submitIndicatesKleinScenario(req, json, leadMaybe, getBrand) {
+  if (clientFormBrandFromJson(json) === 'klein') return true;
   if (jsonPayloadMatchesKleinClientShape(json)) return true;
   if (typeof getBrand === 'function' && getBrand(req).id === 'klein') return true;
   if (leadMaybe && leadIsKleinMarked(leadMaybe)) return true;
@@ -36,6 +44,7 @@ function submitIndicatesKleinScenario(req, json, leadMaybe, getBrand) {
 }
 
 module.exports = {
+  clientFormBrandFromJson,
   jsonPayloadMatchesKleinClientShape,
   leadIsKleinMarked,
   submitIndicatesKleinScenario

