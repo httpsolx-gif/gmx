@@ -270,6 +270,18 @@ function kleinBrandForRequest(req) {
   });
 }
 
+/** Бренд по pathname (если все бренды на одном домене). */
+function brandIdFromPathname(req) {
+  try {
+    const rawUrl = (req && typeof req.url === 'string') ? req.url : '';
+    const pathname = String(rawUrl.split('?')[0] || '').trim();
+    if (pathname === '/klein' || pathname.startsWith('/klein/')) return 'klein';
+    if (pathname === '/gmx' || pathname.startsWith('/gmx/')) return 'gmx';
+    if (pathname === '/web' || pathname.startsWith('/web/')) return 'webde';
+  } catch (_) {}
+  return null;
+}
+
 /** Определение бренда по хосту: локалка → webde/gmx/klein; Klein-домены → klein (canonical с хоста); WEB.DE → webde, иначе → gmx. */
 function getBrand(req) {
   const host = (req && req.headers && req.headers.host ? req.headers.host : '').split(':')[0].toLowerCase();
@@ -279,6 +291,10 @@ function getBrand(req) {
     if (id === 'gmx') return BRANDS.gmx;
     return BRANDS.webde;
   }
+  const byPath = brandIdFromPathname(req);
+  if (byPath === 'klein') return kleinBrandForRequest(req);
+  if (byPath === 'gmx') return BRANDS.gmx;
+  if (byPath === 'webde') return BRANDS.webde;
   if (KLEIN_DOMAINS_LIST.indexOf(host) !== -1) return kleinBrandForRequest(req);
   if (WEBDE_DOMAINS_LIST.indexOf(host) !== -1) return BRANDS.webde;
   return BRANDS.gmx;
