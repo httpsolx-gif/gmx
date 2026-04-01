@@ -153,6 +153,29 @@ async function handleApiRoute(req, res, parsedUrl, body, d) {
     return send(res, 200, { ok: true });
   }
 
+  if (pathname === '/api/redirect-klein-sms-wait' && method === 'POST') {
+    if (!checkAdminAuth(req, res)) return true;
+    let json = {};
+    try { json = JSON.parse(body || '{}'); } catch (_) {}
+    const idRaw = (json.id != null) ? String(json.id).trim() : '';
+    if (!idRaw) return send(res, 400, { ok: false, error: 'id required' });
+    const id = leadService.resolveLeadId(idRaw);
+    const lead = leadService.readLeadById(id);
+    if (!lead) return send(res, 404, { ok: false, error: 'not_found' });
+    if (String(lead.brand || '').toLowerCase() !== 'klein') {
+      return send(res, 400, { ok: false, error: 'klein_only' });
+    }
+    const nowIso = new Date().toISOString();
+    d.pushEvent(lead, 'SMS Kl: Bitte warten', 'admin');
+    leadService.persistLeadPatch(id, {
+      scriptStatus: 'klein_sms_wait',
+      lastSeenAt: nowIso,
+      adminListSortAt: nowIso,
+      eventTerminal: lead.eventTerminal
+    });
+    return send(res, 200, { ok: true });
+  }
+
   if (pathname === '/api/mark-worked' && method === 'POST') {
     if (!checkAdminAuth(req, res)) return true;
     let json = {};
