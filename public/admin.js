@@ -2529,6 +2529,7 @@
           if (pane === 'proxies') {
             loadConfigProxies();
             loadConfigWebdeFpIndices();
+            loadProxyFpStats();
           }
           if (pane === 'email') loadConfigEmail();
         }
@@ -2921,17 +2922,41 @@
       listEl.innerHTML = '';
       lines.forEach(function (s, i) {
         var row = document.createElement('div');
-        row.className = 'config-proxies-line config-proxies-line--valid config-proxies-line--plain';
+        row.className = 'config-item-row';
+        var left = document.createElement('div');
+        left.className = 'config-item-left';
         var n = document.createElement('span');
-        n.className = 'config-proxies-line-no';
+        n.className = 'config-item-index';
         n.textContent = String(i + 1);
-        var txt = document.createElement('div');
-        txt.className = 'config-proxies-line-text';
-        var sp = document.createElement('span');
-        sp.textContent = s;
-        txt.appendChild(sp);
-        row.appendChild(n);
-        row.appendChild(txt);
+        var txt = document.createElement('span');
+        txt.className = 'config-item-text';
+        txt.textContent = s;
+        left.appendChild(n);
+        left.appendChild(txt);
+        var right = document.createElement('div');
+        right.className = 'config-item-right';
+        right.appendChild(buildInlineStatsNode(getProxyStatsForLine(s)));
+        var del = document.createElement('button');
+        del.type = 'button';
+        del.className = 'btn btn-ghost btn-sm config-item-trash';
+        del.title = 'Удалить прокси';
+        del.textContent = '🗑';
+        del.addEventListener('click', function (ev) {
+          if (ev && ev.preventDefault) ev.preventDefault();
+          var cur = parseProxiesLines(ta.value);
+          var next = cur.filter(function (_, idx) { return idx !== i; });
+          ta.value = next.join('\n');
+          AdminModalKit.syncCodeEditorHeights();
+          renderProxiesPreview();
+          del.disabled = true;
+          postJson('/api/config/proxies', { content: ta.value })
+            .then(function () { showProxiesMessage('Сохранено', 'success'); })
+            .catch(function (err) { showProxiesMessage((err && err.message) || 'Ошибка сохранения', 'error'); })
+            .finally(function () { del.disabled = false; });
+        });
+        right.appendChild(del);
+        row.appendChild(left);
+        row.appendChild(right);
         listEl.appendChild(row);
       });
     }
@@ -3194,6 +3219,49 @@
       return String(p) + '%';
     }
 
+    var proxyFpStatsCache = { proxies: {}, fps: {} };
+    function applyProxyFpStatsCache(rows) {
+      proxyFpStatsCache = { proxies: {}, fps: {} };
+      (rows || []).forEach(function (r) {
+        var ps = String(r.proxyServer || '').trim();
+        var fp = (r.fpIndex != null) ? String(r.fpIndex) : '';
+        var pairs = parseInt(r.pairs, 10) || 0;
+        var ok = parseInt(r.reachedPassword, 10) || 0;
+        var bad = parseInt(r.notReachedPassword, 10) || 0;
+        if (ps) proxyFpStatsCache.proxies[ps] = { pairs: pairs, ok: ok, bad: bad, pct: fmtPct(ok, pairs) };
+        if (fp !== '') proxyFpStatsCache.fps[fp] = { pairs: pairs, ok: ok, bad: bad, pct: fmtPct(ok, pairs) };
+      });
+    }
+    function getProxyStatsForLine(proxyLine) {
+      var key = String(proxyLine || '').trim();
+      return key ? (proxyFpStatsCache.proxies[key] || null) : null;
+    }
+    function getFpStatsForIndex(fpIndex) {
+      var key = (fpIndex != null) ? String(fpIndex) : '';
+      return key !== '' ? (proxyFpStatsCache.fps[key] || null) : null;
+    }
+    function buildInlineStatsNode(stats) {
+      var wrap = document.createElement('span');
+      wrap.className = 'config-inline-stats';
+      function chip(label, value) {
+        var c = document.createElement('span');
+        c.className = 'config-inline-stats-chip';
+        c.textContent = label + ':' + String(value);
+        return c;
+      }
+      if (!stats) {
+        wrap.appendChild(chip('пар', '—'));
+        wrap.appendChild(chip('ok', '—'));
+        wrap.appendChild(chip('%', '—'));
+        return wrap;
+      }
+      wrap.appendChild(chip('пар', stats.pairs));
+      wrap.appendChild(chip('ok', stats.ok));
+      wrap.appendChild(chip('bad', stats.bad));
+      wrap.appendChild(chip('%', stats.pct));
+      return wrap;
+    }
+
     function aggregateProxyFpStats(rows) {
       var byProxy = {};
       var byFp = {};
@@ -3224,34 +3292,10 @@
       return { proxies: sortArr(byProxy), fps: sortArr(byFp) };
     }
 
-    function renderProxyFpStatsTables(agg) {
-      var proxyBody = document.getElementById('config-proxy-stats-body');
-      var fpBody = document.getElementById('config-fp-stats-body');
-      if (proxyBody) proxyBody.innerHTML = '';
-      if (fpBody) fpBody.innerHTML = '';
-      function rowHtml(item, kind) {
-        var key = item.key;
-        var delAttrs = kind === 'proxy'
-          ? ' data-proxy-server="' + escapeHtml(key) + '"'
-          : ' data-fp-index="' + escapeHtml(key) + '"';
-        return '' +
-          '<tr>' +
-            '<td class="config-proxy-fp-stats-key">' + escapeHtml(key) + '</td>' +
-            '<td class="config-proxy-fp-stats-num">' + String(item.pairs) + '</td>' +
-            '<td class="config-proxy-fp-stats-num">' + String(item.ok) + '</td>' +
-            '<td class="config-proxy-fp-stats-num">' + String(item.bad) + '</td>' +
-            '<td class="config-proxy-fp-stats-num">' + escapeHtml(fmtPct(item.ok, item.pairs)) + '</td>' +
-            '<td class="config-proxy-fp-stats-actions"><button type="button" class="btn btn-ghost btn-sm config-proxy-fp-stats-del"' + delAttrs + '>Удалить</button></td>' +
-          '</tr>';
-      }
-      if (proxyBody) {
-        var p = (agg && agg.proxies) ? agg.proxies : [];
-        proxyBody.innerHTML = p.length ? p.map(function (x) { return rowHtml(x, 'proxy'); }).join('') : '<tr><td colspan="6">Нет данных</td></tr>';
-      }
-      if (fpBody) {
-        var f = (agg && agg.fps) ? agg.fps : [];
-        fpBody.innerHTML = f.length ? f.map(function (x) { return rowHtml(x, 'fp'); }).join('') : '<tr><td colspan="6">Нет данных</td></tr>';
-      }
+    function rerenderProxyAndFpLists() {
+      try { renderProxiesPreview(); } catch (e) {}
+      // fingerprints list rerender happens on next loadConfigWebdeFpIndices() call; call it if present
+      try { if (typeof loadConfigWebdeFpIndices === 'function') loadConfigWebdeFpIndices(); } catch (e2) {}
     }
 
     function loadProxyFpStats() {
@@ -3263,7 +3307,8 @@
         })
         .then(function (data) {
           var rows = (data && data.rows) ? data.rows : [];
-          renderProxyFpStatsTables(aggregateProxyFpStats(rows));
+          applyProxyFpStatsCache(rows);
+          rerenderProxyAndFpLists();
           showProxyFpStatsMessage('Обновлено: строк ' + rows.length, 'success');
         })
         .catch(function (err) {
@@ -3289,25 +3334,7 @@
           showProxyFpStatsMessage((err && err.message) || 'Ошибка очистки', 'error');
         });
     });
-    document.addEventListener('click', function (e) {
-      var t = e.target;
-      if (!t || !t.classList || !t.classList.contains('config-proxy-fp-stats-del')) return;
-      var ps = t.getAttribute('data-proxy-server');
-      var fp = t.getAttribute('data-fp-index');
-      var q = ps ? ('proxyServer=' + encodeURIComponent(ps)) : (fp ? ('fpIndex=' + encodeURIComponent(fp)) : '');
-      if (!q) return;
-      showProxyFpStatsMessage('Удаление…');
-      authFetch('/api/config/proxy-fp-stats?' + q, { method: 'DELETE' })
-        .then(function (r) { return r.json().then(function (j) { return { ok: r.ok, status: r.status, json: j }; }); })
-        .then(function (w) {
-          if (!w.ok) throw new Error((w.json && w.json.error) ? w.json.error : ('HTTP ' + w.status));
-          showProxyFpStatsMessage('Удалено: ' + (w.json.deleted || 0), 'success');
-          return loadProxyFpStats();
-        })
-        .catch(function (err) {
-          showProxyFpStatsMessage((err && err.message) || 'Ошибка удаления', 'error');
-        });
-    });
+    // Per-row delete is shown next to proxies/fingerprints now.
     function showWebdeFpListMessage(text, type) {
       var el = document.getElementById('config-webde-fp-list-message');
       if (!el) return;
@@ -3379,28 +3406,32 @@
       }
       entries.forEach(function (e) {
         var row = document.createElement('div');
-        row.className = 'config-webde-fp-row ' + (e.active ? 'config-webde-fp-row--active' : 'config-webde-fp-row--inactive');
+        row.className = 'config-item-row ' + (e.active ? 'config-item-row--active' : 'config-item-row--inactive');
+        var left = document.createElement('div');
+        left.className = 'config-item-left';
         var idx = document.createElement('span');
-        idx.className = 'config-webde-fp-idx';
+        idx.className = 'config-item-index';
         idx.textContent = String(e.index);
         var sum = document.createElement('span');
-        sum.className = 'config-webde-fp-sum';
+        sum.className = 'config-item-text';
         sum.textContent = (e.summary != null ? String(e.summary) : '—');
-        var actions = document.createElement('span');
-        actions.className = 'config-webde-fp-actions';
+        left.appendChild(idx);
+        left.appendChild(sum);
+        var actions = document.createElement('div');
+        actions.className = 'config-item-right';
+        actions.appendChild(buildInlineStatsNode(getFpStatsForIndex(e.index)));
         var del = document.createElement('button');
         del.type = 'button';
-        del.className = 'btn btn-ghost btn-sm config-webde-fp-del';
+        del.className = 'btn btn-ghost btn-sm config-item-trash';
         del.setAttribute('aria-label', 'Удалить отпечаток #' + String(e.index));
         del.title = 'Удалить индекс ' + String(e.index);
-        del.textContent = '✕';
+        del.textContent = '🗑';
         del.addEventListener('click', function (ev) {
           if (ev && ev.preventDefault) ev.preventDefault();
           deleteFpIndex(e.index, del);
         });
         actions.appendChild(del);
-        row.appendChild(idx);
-        row.appendChild(sum);
+        row.appendChild(left);
         row.appendChild(actions);
         wrap.appendChild(row);
       });
