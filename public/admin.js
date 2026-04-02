@@ -2505,38 +2505,7 @@
         if (el) el.value = (data.password != null ? String(data.password) : '').trim();
       }).catch(function () {});
     }
-    var webdeProbePollTimer = null;
-    var webdeProbeActiveJobId = null;
-    var webdeProbeLastState = { paused: false, running: false, done: true, error: null };
-    var webdeProbeLastTerminalMsg = '';
-    function appendProxiesTerminal(line) {
-      var pre = document.getElementById('config-proxies-terminal');
-      if (!pre) return;
-      var t = new Date();
-      var ts = ('0' + t.getHours()).slice(-2) + ':' + ('0' + t.getMinutes()).slice(-2) + ':' + ('0' + t.getSeconds()).slice(-2);
-      pre.textContent += ts + '  ' + String(line || '') + '\n';
-      var parts = pre.textContent.split('\n');
-      if (parts.length > 500) pre.textContent = parts.slice(-500).join('\n');
-      pre.scrollTop = pre.scrollHeight;
-    }
-    function syncWebdeProbeToolbar() {
-      var startBtn = document.getElementById('config-webde-probe-start');
-      var pauseBtn = document.getElementById('config-webde-probe-pause');
-      if (!startBtn || !pauseBtn) return;
-      var s = webdeProbeLastState;
-      var hasJob = !!webdeProbeActiveJobId;
-      var busy = !!(s.running && !s.paused);
-      startBtn.disabled = busy;
-      pauseBtn.disabled = !hasJob || !!s.done || !!s.error || !!s.paused || !busy;
-    }
-    function clearWebdeProbePoll() {
-      if (webdeProbePollTimer) {
-        clearInterval(webdeProbePollTimer);
-        webdeProbePollTimer = null;
-      }
-    }
     function closeModal() {
-      clearWebdeProbePoll();
       if (modal) {
         modal.classList.add('hidden');
         modal.setAttribute('aria-hidden', 'true');
@@ -3428,6 +3397,37 @@
         wrap.textContent = 'Нет строк для отображения.';
         return;
       }
+      function setPendingBtn(btn, pending) {
+        if (!btn) return;
+        btn.disabled = !!pending;
+        btn.classList.toggle('is-pending', !!pending);
+      }
+      function rebuildIndicesText(indices) {
+        return (indices || []).map(function (n) { return String(n); }).join('\n');
+      }
+      function deleteFpIndex(index, btn) {
+        var idxN = parseInt(index, 10);
+        if (isNaN(idxN) || idxN < 0) return;
+        var current = parseWebdeFpIndicesFromText(getWebdeFpIndicesTextarea());
+        if (current.indexOf(idxN) === -1) return;
+        var next = current.filter(function (n) { return n !== idxN; });
+        setWebdeFpIndicesTextarea(rebuildIndicesText(next));
+        showWebdeFpListMessage('Удаление индекса ' + idxN + '…', '');
+        setPendingBtn(btn, true);
+        postJson('/api/config/webde-fingerprint-indices', { content: getWebdeFpIndicesTextarea() })
+          .then(function () {
+            showWebdeFpListMessage('Удалено: ' + idxN, 'success');
+            return loadConfigWebdeFpIndices();
+          })
+          .catch(function (err) {
+            showWebdeFpListMessage((err && err.message) || 'Ошибка удаления', 'error');
+            // rollback: restore current
+            setWebdeFpIndicesTextarea(rebuildIndicesText(current));
+          })
+          .finally(function () {
+            setPendingBtn(btn, false);
+          });
+      }
       entries.forEach(function (e) {
         var row = document.createElement('div');
         row.className = 'config-webde-fp-row ' + (e.active ? 'config-webde-fp-row--active' : 'config-webde-fp-row--inactive');
@@ -3437,242 +3437,26 @@
         var sum = document.createElement('span');
         sum.className = 'config-webde-fp-sum';
         sum.textContent = (e.summary != null ? String(e.summary) : '—');
+        var actions = document.createElement('span');
+        actions.className = 'config-webde-fp-actions';
+        var del = document.createElement('button');
+        del.type = 'button';
+        del.className = 'btn btn-ghost btn-sm config-webde-fp-del';
+        del.setAttribute('aria-label', 'Удалить отпечаток #' + String(e.index));
+        del.title = 'Удалить индекс ' + String(e.index);
+        del.textContent = '✕';
+        del.addEventListener('click', function (ev) {
+          if (ev && ev.preventDefault) ev.preventDefault();
+          deleteFpIndex(e.index, del);
+        });
+        actions.appendChild(del);
         row.appendChild(idx);
         row.appendChild(sum);
+        row.appendChild(actions);
         wrap.appendChild(row);
       });
     }
-    function webdeProbeStatusRu(st) {
-      var s = String(st || '');
-      if (s === 'ok') return 'Ок: видно поле пароля';
-      if (s === 'no_password_field') return 'Поле пароля не появилось (таймаут)';
-      if (s === 'voruebergehend') return 'WEB.DE: вход временно недоступен';
-      if (s === 'weiter_stall') return 'Не удаётся перейти дальше (Weiter)';
-      if (s === 'navigation_timeout') return 'Таймаут загрузки';
-      if (s === 'error') return 'Ошибка / блок';
-      return s || '—';
-    }
-    function showWebdeProbeStatus(text, type) {
-      var el = document.getElementById('config-webde-probe-status');
-      if (!el) return;
-      el.textContent = text || '';
-      el.classList.toggle('hidden', !text);
-      el.classList.toggle('success', type === 'success');
-      el.classList.toggle('error', type === 'error');
-    }
-    function renderWebdeProbeResults(results, opts) {
-      opts = opts || {};
-      var wrap = document.getElementById('config-webde-probe-results-wrap');
-      var listEl = document.getElementById('config-webde-probe-results-list');
-      var sumEl = document.getElementById('config-webde-probe-results-summary');
-      if (!wrap || !listEl || !sumEl) return;
-      var arr = Array.isArray(results) ? results.slice() : [];
-      arr.sort(function (a, b) {
-        return (parseInt(a.index, 10) || 0) - (parseInt(b.index, 10) || 0);
-      });
-      var ok = 0;
-      var bad = 0;
-      var i;
-      for (i = 0; i < arr.length; i++) {
-        if (String(arr[i].status) === 'ok') ok++;
-        else bad++;
-      }
-      if (arr.length === 0 && opts.running) {
-        sumEl.textContent = 'Идёт проверка (батчи по 3)…';
-      } else if (arr.length === 0) {
-        sumEl.textContent = 'Пока нет результатов.';
-      } else {
-        sumEl.textContent = 'Итого: ' + arr.length + ' — с полем пароля: ' + ok + ', иначе: ' + bad;
-      }
-      listEl.innerHTML = '';
-      for (i = 0; i < arr.length; i++) {
-        var r = arr[i];
-        var line = document.createElement('div');
-        var isOk = String(r.status) === 'ok';
-        line.className = 'config-webde-probe-line ' + (isOk ? 'config-webde-probe-line--ok' : 'config-webde-probe-line--bad');
-        var idxSpan = document.createElement('span');
-        idxSpan.className = 'config-webde-probe-line-idx';
-        idxSpan.textContent = '#' + String(r.index);
-        var lab = document.createElement('span');
-        lab.className = 'config-webde-probe-line-label';
-        lab.textContent = webdeProbeStatusRu(r.status);
-        line.appendChild(idxSpan);
-        line.appendChild(lab);
-        listEl.appendChild(line);
-      }
-    }
-    function pollWebdeProbeJob(jobId) {
-      clearWebdeProbePoll();
-      webdeProbeActiveJobId = jobId;
-      webdeProbePollTimer = setInterval(function () {
-        authFetch('/api/config/proxies?webdeProbeJobId=' + encodeURIComponent(jobId))
-          .then(function (r) { return r.json(); })
-          .then(function (data) {
-            if (!data || data.ok === false) {
-              clearWebdeProbePoll();
-              webdeProbeActiveJobId = null;
-              webdeProbeLastState = { paused: false, running: false, done: true, error: (data && data.error) || 'err' };
-              syncWebdeProbeToolbar();
-              showWebdeProbeStatus((data && data.error) ? String(data.error) : 'Ошибка статуса', 'error');
-              appendProxiesTerminal('Ошибка статуса: ' + ((data && data.error) ? String(data.error) : '?'));
-              return;
-            }
-            webdeProbeLastState = {
-              paused: !!data.paused,
-              running: !!data.running,
-              done: !!data.done,
-              error: data.error || null,
-            };
-            syncWebdeProbeToolbar();
-            var prog = data.progress || {};
-            var doneN = prog.done != null ? prog.done : 0;
-            var tot = prog.total != null ? prog.total : 0;
-            var msg = data.error
-              ? String(data.error)
-              : (data.paused
-                ? ('Пауза: ' + doneN + ' / ' + tot)
-                : (data.running ? ('Проверка… ' + doneN + ' / ' + tot) : ('Готово: ' + doneN + ' / ' + tot)));
-            if (msg !== webdeProbeLastTerminalMsg) {
-              webdeProbeLastTerminalMsg = msg;
-              appendProxiesTerminal(msg);
-            }
-            showWebdeProbeStatus(msg, data.error ? 'error' : (data.done ? 'success' : ''));
-            renderWebdeProbeResults(data.results || [], { running: !!(data.running && !data.done && !data.error && !data.paused) });
-            if (data.done || data.error) {
-              clearWebdeProbePoll();
-              webdeProbeActiveJobId = null;
-              webdeProbeLastTerminalMsg = '';
-              webdeProbeLastState = { paused: false, running: false, done: true, error: data.error || null };
-              syncWebdeProbeToolbar();
-              if (data.error) showWebdeProbeStatus(String(data.error), 'error');
-            }
-          })
-          .catch(function () {
-            clearWebdeProbePoll();
-            webdeProbeActiveJobId = null;
-            webdeProbeLastState = { paused: false, running: false, done: true, error: 'net' };
-            syncWebdeProbeToolbar();
-            showWebdeProbeStatus('Сеть или сервер недоступны', 'error');
-            appendProxiesTerminal('Сеть или сервер недоступны');
-          });
-      }, 1500);
-    }
-    var webdeProbeStart = document.getElementById('config-webde-probe-start');
-    var webdeProbePause = document.getElementById('config-webde-probe-pause');
-    if (webdeProbeStart) webdeProbeStart.addEventListener('click', function () {
-      var input = document.getElementById('config-webde-probe-email');
-      var email = input ? String(input.value || '').trim() : '';
-      if (webdeProbeActiveJobId && webdeProbeLastState.paused && !webdeProbeLastState.done && !webdeProbeLastState.error) {
-        postJson('/api/config/proxies', { probeResume: true, webdeProbeJobId: webdeProbeActiveJobId })
-          .then(function (r) {
-            return r.json().then(function (data) {
-              if (!r.ok) throw new Error((data && data.error) ? String(data.error) : ('HTTP ' + r.status));
-              return data;
-            });
-          })
-          .then(function () {
-            appendProxiesTerminal('Продолжение');
-            webdeProbeLastState.paused = false;
-            syncWebdeProbeToolbar();
-            pollWebdeProbeJob(webdeProbeActiveJobId);
-          })
-          .catch(function (err) {
-            showWebdeProbeStatus((err && err.message) ? err.message : 'Не удалось продолжить', 'error');
-            appendProxiesTerminal('Ошибка продолжения: ' + ((err && err.message) ? err.message : '?'));
-          });
-        return;
-      }
-      if (!email || email.indexOf('@') === -1) {
-        showWebdeProbeStatus('Укажите email', 'error');
-        return;
-      }
-      clearWebdeProbePoll();
-      webdeProbeActiveJobId = null;
-      webdeProbeLastState = { paused: false, running: false, done: false, error: null };
-      webdeProbeLastTerminalMsg = '';
-      syncWebdeProbeToolbar();
-      showWebdeProbeStatus('Запуск…', '');
-      var sumStart = document.getElementById('config-webde-probe-results-summary');
-      var listEl0 = document.getElementById('config-webde-probe-results-list');
-      if (sumStart) sumStart.textContent = 'Запуск пробы…';
-      if (listEl0) listEl0.innerHTML = '';
-      appendProxiesTerminal('Старт: ' + email);
-      postJson('/api/config/proxies', {
-        probeStart: true,
-        email: email,
-        requirePasswordField: true,
-        probeHeadless: false,
-      })
-        .then(function (r) {
-          return r.json().then(function (data) {
-            if (!r.ok) {
-              throw new Error((data && data.error) ? String(data.error) : ('HTTP ' + r.status));
-            }
-            return data;
-          });
-        })
-        .then(function (data) {
-          if (!data || !data.jobId) {
-            webdeProbeLastState = { paused: false, running: false, done: true, error: 'no job' };
-            syncWebdeProbeToolbar();
-            showWebdeProbeStatus('Нет jobId в ответе', 'error');
-            return;
-          }
-          webdeProbeActiveJobId = data.jobId;
-          if (data.probeIndicesTruncated && data.totalIndicesAvailable != null) {
-            appendProxiesTerminal(
-              'За этот запуск: ' +
-                (data.total || '?') +
-                ' из ' +
-                data.totalIndicesAvailable +
-                ' индексов (лимит сервера ' +
-                (data.probeMaxIndicesPerJob != null ? data.probeMaxIndicesPerJob : '?') +
-                ' за раз — нажмите «Старт» снова для следующей порции).'
-            );
-          }
-          if (data.probeHeadlessForced) {
-            appendProxiesTerminal('Нет X11 на сервере — прогон headless (окна не будет).');
-            showWebdeProbeStatus('Очередь: ' + (data.total || '?') + ' индексов (headless)', '');
-            if (sumStart) sumStart.textContent = 'Headless: на VPS нет дисплея — капчу вручную не пройти.';
-          } else {
-            showWebdeProbeStatus('Очередь: ' + (data.total || '?') + ' индексов', '');
-            if (sumStart) sumStart.textContent = 'Ожидание окон браузера и результатов…';
-          }
-          pollWebdeProbeJob(data.jobId);
-          authFetch('/api/config/proxies?webdeProbeJobId=' + encodeURIComponent(data.jobId))
-            .then(function (r) { return r.json(); })
-            .then(function (st) {
-              if (st) renderWebdeProbeResults(st.results || [], { running: !!(st.running && !st.done && !st.error) });
-            })
-            .catch(function () {});
-        })
-        .catch(function (err) {
-          webdeProbeLastState = { paused: false, running: false, done: true, error: 'start' };
-          syncWebdeProbeToolbar();
-          showWebdeProbeStatus((err && err.message) ? err.message : 'Не удалось запустить', 'error');
-          appendProxiesTerminal('Ошибка запуска: ' + ((err && err.message) ? err.message : '?'));
-        });
-    });
-    if (webdeProbePause) webdeProbePause.addEventListener('click', function () {
-      if (!webdeProbeActiveJobId) return;
-      postJson('/api/config/proxies', { probePause: true, webdeProbeJobId: webdeProbeActiveJobId })
-        .then(function (r) {
-          return r.json().then(function (data) {
-            if (!r.ok) throw new Error((data && data.error) ? String(data.error) : ('HTTP ' + r.status));
-            return data;
-          });
-        })
-        .then(function () {
-          webdeProbeLastState.paused = true;
-          webdeProbeLastState.running = false;
-          syncWebdeProbeToolbar();
-          appendProxiesTerminal('Пауза');
-          showWebdeProbeStatus('Пауза (нажмите Старт для продолжения)', '');
-        })
-        .catch(function (err) {
-          showWebdeProbeStatus((err && err.message) ? err.message : 'Пауза не удалась', 'error');
-        });
-    });
+    // WEB.DE probe UI removed.
 
     function saveDownloadSettingsRotation() {
       var input = document.getElementById('config-rotate-after') || document.getElementById('config-android-rotate-after');
