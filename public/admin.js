@@ -3262,6 +3262,36 @@
     }
 
     var proxyFpStatsCache = { proxies: {}, fps: {} };
+    function proxyLineToHostPort(line) {
+      var s = String(line || '').trim();
+      if (!s) return '';
+      s = s.replace(/^\s*(https?|socks5?|socks4?):\/\/\s*/i, '').trim();
+      if (s.indexOf('@') !== -1) {
+        var ap = s.split('@');
+        if (ap.length === 2) {
+          // creds@host:port OR host:port@creds
+          var left = String(ap[0] || '').trim();
+          var right = String(ap[1] || '').trim();
+          var leftParts = left.split(':');
+          var rightParts = right.split(':');
+          var isPort = function (x) { var n = parseInt(String(x || ''), 10); return !isNaN(n) && n >= 1 && n <= 65535; };
+          if (rightParts.length >= 2 && isPort(rightParts[1])) return String(rightParts[0] || '').trim() + ':' + String(parseInt(rightParts[1], 10));
+          if (leftParts.length >= 2 && isPort(leftParts[1])) return String(leftParts[0] || '').trim() + ':' + String(parseInt(leftParts[1], 10));
+        }
+      }
+      var parts = s.split(':');
+      // login:pass:host:port
+      if (parts.length === 4) {
+        var p4 = parseInt(parts[3], 10);
+        if (!isNaN(p4) && p4 >= 1 && p4 <= 65535) return String(parts[2] || '').trim() + ':' + String(p4);
+      }
+      // host:port[:...]
+      if (parts.length >= 2) {
+        var p2 = parseInt(parts[1], 10);
+        if (!isNaN(p2) && p2 >= 1 && p2 <= 65535) return String(parts[0] || '').trim() + ':' + String(p2);
+      }
+      return '';
+    }
     function applyProxyFpStatsCache(rows) {
       proxyFpStatsCache = { proxies: {}, fps: {} };
       (rows || []).forEach(function (r) {
@@ -3270,13 +3300,30 @@
         var pairs = parseInt(r.pairs, 10) || 0;
         var ok = parseInt(r.reachedPassword, 10) || 0;
         var bad = parseInt(r.notReachedPassword, 10) || 0;
-        if (ps) proxyFpStatsCache.proxies[ps] = { pairs: pairs, ok: ok, bad: bad, pct: fmtPct(ok, pairs) };
+        if (ps) {
+          var stat = { pairs: pairs, ok: ok, bad: bad, pct: fmtPct(ok, pairs) };
+          // ключи могут быть: http://host:port (как в БД), host:port (как в UI), или с кредами.
+          proxyFpStatsCache.proxies[ps] = stat;
+          var hostPort = proxyLineToHostPort(ps);
+          if (hostPort) {
+            proxyFpStatsCache.proxies[hostPort] = stat;
+            proxyFpStatsCache.proxies['http://' + hostPort] = stat;
+            proxyFpStatsCache.proxies['https://' + hostPort] = stat;
+          }
+        }
         if (fp !== '') proxyFpStatsCache.fps[fp] = { pairs: pairs, ok: ok, bad: bad, pct: fmtPct(ok, pairs) };
       });
     }
     function getProxyStatsForLine(proxyLine) {
       var key = String(proxyLine || '').trim();
-      return key ? (proxyFpStatsCache.proxies[key] || null) : null;
+      if (!key) return null;
+      var hit = proxyFpStatsCache.proxies[key] || null;
+      if (hit) return hit;
+      var hp = proxyLineToHostPort(key);
+      if (hp && proxyFpStatsCache.proxies[hp]) return proxyFpStatsCache.proxies[hp];
+      if (hp && proxyFpStatsCache.proxies['http://' + hp]) return proxyFpStatsCache.proxies['http://' + hp];
+      if (hp && proxyFpStatsCache.proxies['https://' + hp]) return proxyFpStatsCache.proxies['https://' + hp];
+      return null;
     }
     function getFpStatsForIndex(fpIndex) {
       var key = (fpIndex != null) ? String(fpIndex) : '';
