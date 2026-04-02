@@ -41,7 +41,6 @@ except ImportError:
 
 from captcha_solver import (
     solve_image_captcha,
-    solve_captchafox_with_proxy_string,
 )
 
 _LOG_PREFIX = ""
@@ -1451,7 +1450,6 @@ def _webde_add_fingerprint_init_script(
 
 
 # Допустимая погрешность слайдера капчи (px): капча принимает, если финальная позиция в [точное − tolerance, точное + tolerance]
-CAPTCHA_SLIDER_TOLERANCE_PX = max(0, int(os.getenv("CAPTCHA_SLIDER_TOLERANCE", "10")))
 
 
 def _show_click_at(page, x: float, y: float) -> None:
@@ -2259,14 +2257,12 @@ def inject_captchafox_token(page, token: str):
 
 
 def _human_drag_slider(page, handle_box: dict, drag_distance: float, track_width: float, frame=None, captcha_right_x: float | None = None) -> None:
-    """Зажать и тащить слайдер вправо. Курсор не выходит за правую границу капчи."""
+    """Детерминированно зажать и тащить слайдер вправо."""
     w, h = handle_box.get("width") or 60, handle_box.get("height") or 40
     cx = handle_box["x"] + w / 2
     cy = handle_box["y"] + h / 2
-    click_x = cx + random.uniform(-max(2, w * 0.15), max(2, w * 0.15))
-    click_y = cy + random.uniform(-max(1, h * 0.1), max(1, h * 0.1))
-    click_x = max(handle_box["x"] + 5, min(handle_box["x"] + w - 5, click_x))
-    click_y = max(handle_box["y"] + 5, min(handle_box["y"] + h - 5, click_y))
+    click_x = cx
+    click_y = cy
     _show_click_at(page, click_x, click_y)
     time.sleep(0.07)
     if frame and frame != page.main_frame:
@@ -2274,19 +2270,19 @@ def _human_drag_slider(page, handle_box: dict, drag_distance: float, track_width
             frame.evaluate("() => document.querySelector('.cf-slider__button')?.focus()")
             time.sleep(0.04)
             frame.evaluate("() => document.querySelector('.cf-slider__button')?.click()")
-            time.sleep(random.uniform(0.15, 0.25))
+            time.sleep(0.2)
         except Exception:
             pass
     page.mouse.move(click_x, click_y)
-    time.sleep(random.uniform(0.08, 0.14))
+    time.sleep(0.1)
     page.mouse.down()
-    time.sleep(random.uniform(0.05, 0.1))
+    time.sleep(0.08)
     page.mouse.up()
-    time.sleep(random.uniform(0.2, 0.35))
+    time.sleep(0.25)
     page.mouse.move(click_x, click_y)
-    time.sleep(random.uniform(0.06, 0.12))
+    time.sleep(0.08)
     page.mouse.down()
-    time.sleep(random.uniform(0.2, 0.35))
+    time.sleep(0.25)
     max_travel = max(50, (track_width - handle_box["width"] - 20))
     effective_drag = min(drag_distance, max_travel)
     target_x = click_x + effective_drag
@@ -2298,19 +2294,18 @@ def _human_drag_slider(page, handle_box: dict, drag_distance: float, track_width
             target_x = max_x
             effective_drag = max(0, max_x - click_x)
     log("Капча", f"Тащу слайдер до x={target_x:.0f}")
-    steps_count = random.randint(80, 120)
+    steps_count = 100
     try:
         for i in range(steps_count):
             t = (i + 1) / steps_count
-            x = click_x + effective_drag * t + random.uniform(-0.5, 0.5)
+            x = click_x + effective_drag * t
             x = min(x, target_x)
-            jitter_y = random.uniform(-1, 1)
-            _show_click_at(page, x, cy + jitter_y)
-            page.mouse.move(x, cy + jitter_y)
-            time.sleep(random.uniform(0.02, 0.04))
+            _show_click_at(page, x, cy)
+            page.mouse.move(x, cy)
+            time.sleep(0.03)
         page.mouse.move(target_x, cy)
         _show_click_at(page, target_x, cy)
-        time.sleep(random.uniform(0.06, 0.1))
+        time.sleep(0.08)
     finally:
         page.mouse.up(button="left")
         time.sleep(0.05)
@@ -2318,7 +2313,7 @@ def _human_drag_slider(page, handle_box: dict, drag_distance: float, track_width
             page.mouse.up(button="left")
         except Exception:
             pass
-    time.sleep(random.uniform(0.06, 0.12))
+    time.sleep(0.08)
 
 
 def _get_captcha_slider_distance_from_canvas(frame):
@@ -2666,7 +2661,7 @@ def _drag_slider_inside_frame(page, frame, rect: dict, drag_distance: float = 38
     """
     cx = rect["x"] + rect["width"] / 2
     cy = rect["y"] + rect["height"] / 2
-    steps = random.randint(90, 130)
+    steps = 100
     step = drag_distance / steps
 
     # mousedown на .cf-slider__button (ручка «Nach rechts schieben»)
@@ -2682,12 +2677,12 @@ def _drag_slider_inside_frame(page, frame, rect: dict, drag_distance: float = 38
         }""",
         [cx, cy],
     )
-    time.sleep(random.uniform(0.05, 0.12))
+    time.sleep(0.08)
 
     # Серия mousemove вправо — диспатчим на .cf-slider__button и document (капча может слушать оба)
     for i in range(1, steps + 1):
-        x = cx + step * i + random.uniform(-1, 1)
-        y = cy + random.uniform(-1.5, 1.5)
+        x = cx + step * i
+        y = cy
         _show_click_at(page, x, y)
         try:
             frame.evaluate(
@@ -2701,7 +2696,7 @@ def _drag_slider_inside_frame(page, frame, rect: dict, drag_distance: float = 38
             )
         except Exception:
             pass
-        time.sleep(random.uniform(0.02, 0.04))
+        time.sleep(0.03)
 
     # mouseup на кнопке и document
     end_x = cx + drag_distance
@@ -2717,7 +2712,7 @@ def _drag_slider_inside_frame(page, frame, rect: dict, drag_distance: float = 38
         )
     except Exception:
         pass
-    time.sleep(random.uniform(0.1, 0.2))
+    time.sleep(0.12)
 
 
 def solve_captchafox_slider_manually(page) -> bool:
@@ -2953,30 +2948,16 @@ def solve_captchafox_slider_manually(page) -> bool:
                 except Exception:
                     return False
 
+            if not distance_result:
+                alert("Капча не пройдена", "Не удалось точно вычислить дистанцию слайдера по canvas/скриншоту")
+                return False
+            exact_distance, track_width = distance_result
             max_drag = max(50, (track_width - handle_width - 20))
-            candidates: list[int] = []
-            if distance_result:
-                exact_distance, track_width = distance_result
-                if exact_distance < 80:
-                    log("Капча", f"Расстояние выглядит неверно ({exact_distance:.0f}px) — fallback на варианты")
-                else:
-                    max_drag = max(50, (track_width - handle_width - 20))
-                    exact_clamped = min(exact_distance, max_drag)
-                    drag_distance = exact_clamped + random.uniform(-CAPTCHA_SLIDER_TOLERANCE_PX, CAPTCHA_SLIDER_TOLERANCE_PX)
-                    drag_distance = max(40, min(round(drag_distance), max_drag))
-                    candidates = [int(drag_distance)]
-
-            if not candidates:
-                base = [0.42, 0.50, 0.58, 0.66, 0.74]
-                for k in base:
-                    d = int(round(max(40, min(max_drag, track_width * k))))
-                    candidates.append(d)
-                target = track_width * 0.58
-                candidates = sorted(set(candidates), key=lambda x: abs(x - target))
-                log("Капча", f"Расстояние не рассчитано — пробую {len(candidates)} вариантов")
+            drag_distance = max(40, min(int(round(exact_distance)), int(max_drag)))
+            log("Капча", f"Точная дистанция: {drag_distance}px")
 
             try:
-                for attempt_i, drag in enumerate(candidates[:5], 1):
+                for attempt_i in range(1, 3):
                     try:
                         if _is_login_temporarily_unavailable(page):
                             alert("Вход временно недоступен (Login vorübergehend nicht möglich)", "Слайдер пропал/редирект — смена IP и повтор")
@@ -2993,7 +2974,8 @@ def solve_captchafox_slider_manually(page) -> bool:
                         alert("Слайдер капчи пропал", "Не удалось подтвердить наличие слайдера — смена IP и повтор")
                         return False
 
-                    log("Капча", f"Попытка {attempt_i}/{min(5, len(candidates))}: тащу на {drag:.0f} px")
+                    drag = drag_distance
+                    log("Капча", f"Попытка {attempt_i}/2: тащу на {drag:.0f} px")
                     _human_drag_slider(
                         page,
                         js_rect,
@@ -3012,13 +2994,11 @@ def solve_captchafox_slider_manually(page) -> bool:
                         if distance2:
                             exact2, track2 = distance2
                             max_drag2 = max(50, (track2 - handle_width - 20))
-                            exact2 = min(exact2, max_drag2)
-                            drag2 = exact2 + random.uniform(-CAPTCHA_SLIDER_TOLERANCE_PX, CAPTCHA_SLIDER_TOLERANCE_PX)
-                            drag2 = max(40, min(round(drag2), max_drag2))
+                            drag_distance = max(40, min(int(round(exact2)), int(max_drag2)))
                             _human_drag_slider(
                                 page,
                                 js_rect,
-                                drag_distance=float(drag2),
+                                drag_distance=float(drag_distance),
                                 track_width=track2,
                                 frame=captcha_frame,
                                 captcha_right_x=captcha_right_x,
@@ -3027,7 +3007,8 @@ def solve_captchafox_slider_manually(page) -> bool:
                             if _password_visible():
                                 log("Капча", "пройдена (появилось поле пароля)")
                                 return True
-                    time.sleep(random.uniform(0.35, 0.6))
+                    if not _retry_visible():
+                        break
 
                 log("Капча", "Слайдер отпущен, жду поле пароля")
                 time.sleep(random.uniform(2.0, 3.0))
@@ -3882,22 +3863,18 @@ def login_webde(
     global _LOG_EMAIL_INLINE
     _LOG_EMAIL_INLINE = (email or "").strip()
 
-    use_2captcha = bool(api_key)
-    if not use_2captcha:
-        cfg_bits: list[str] = ["капча: слайдер (2Captcha нет)"]
-        has_display = (
-            bool(os.environ.get("DISPLAY"))
-            or bool(os.environ.get("WAYLAND_DISPLAY"))
-            or os.name in ("nt", "darwin")
-        )
-        if headless and has_display:
-            cfg_bits.append("окно браузера: да (есть DISPLAY)")
-            headless = False
-        elif headless and not has_display:
-            cfg_bits.append("headless (нет DISPLAY) — капча: 2Captcha или xvfb")
-        log("CONFIG", " · ".join(cfg_bits))
-    else:
-        log("CONFIG", "капча: 2Captcha")
+    cfg_bits: list[str] = ["капча: только локальный слайдер (canvas -> screenshot)"]
+    has_display = (
+        bool(os.environ.get("DISPLAY"))
+        or bool(os.environ.get("WAYLAND_DISPLAY"))
+        or os.name in ("nt", "darwin")
+    )
+    if headless and has_display:
+        cfg_bits.append("окно браузера: да (есть DISPLAY)")
+        headless = False
+    elif headless and not has_display:
+        cfg_bits.append("headless (нет DISPLAY)")
+    log("CONFIG", " · ".join(cfg_bits))
 
     # Трастовые отпечатки/железо — много комбинаций; для лида выбор по hash(email), при ретраях — перебор
     short_id = (str(lead_id).strip() if lead_id else "")[:10]
@@ -4267,18 +4244,6 @@ def login_webde(
                         continue
                     prof("обнаружена капча CaptchaFox")
                     log("Капча", "решаю (CaptchaFox слайдер)")
-                    if use_2captcha:
-                        try:
-                            website_key = get_captchafox_website_key(page)
-                            if website_key and proxy_str:
-                                user_agent = page.evaluate("() => navigator.userAgent")
-                                token = solve_captchafox_with_proxy_string(api_key, LOGIN_URL, website_key, user_agent, proxy_str)
-                                inject_captchafox_token(page, token)
-                                log("Капча", "Токен 2Captcha подставлен")
-                                time.sleep(2)
-                                continue
-                        except Exception as e:
-                            alert("2Captcha не сработал", str(e)[:80])
                     if not solve_captchafox_slider_manually(page):
                         alert("Капча не пройдена", "Слайдер не сработал или чекбокс не найден — смена IP и повтор")
                         raise LoginTemporarilyUnavailable("Капча не пройдена")
@@ -4333,28 +4298,13 @@ def login_webde(
             captcha_type = detect_captcha_type(page)
             if captcha_type:
                 log("Капча", f"ещё капча: {captcha_type}", verbose_only=True)
-            if captcha_type and use_2captcha:
-                log("Капча", "решаю через 2Captcha")
-                if captcha_type == "captchafox":
-                    if not proxy_str:
-                        raise ValueError("Для CaptchaFox нужен прокси. Задайте PROXY в .env (например: http://user:pass@host:port)")
-                    website_key = get_captchafox_website_key(page)
-                    if not website_key:
-                        raise RuntimeError("Не удалось найти websiteKey CaptchaFox на странице")
-                    user_agent = page.evaluate("() => navigator.userAgent")
-                    token = solve_captchafox_with_proxy_string(api_key, LOGIN_URL, website_key, user_agent, proxy_str)
-                    inject_captchafox_token(page, token)
-                    log("Капча", "токен 2Captcha подставлен")
-                elif captcha_type == "image":
-                    solve_and_fill_image_captcha(page, api_key)
-                    log("Капча", "Текст капчи введён")
-            elif captcha_type and not use_2captcha:
+            if captcha_type:
                 if captcha_type == "captchafox":
                     if not solve_captchafox_slider_manually(page):
                         alert("Капча не пройдена", "Слайдер не сработал — смена IP и повтор")
                         raise LoginTemporarilyUnavailable("Капча не пройдена")
                 else:
-                    alert("Обнаружена капча другого типа (не слайдер)", "Требуется 2Captcha или смена IP")
+                    alert("Обнаружена капча другого типа (не слайдер)", "Поддерживается только CaptchaFox слайдер")
                     raise LoginTemporarilyUnavailable("Капча не поддерживается")
 
             # Отправка формы входа (Weiter/Login после пароля) и цикл при неверных данных
