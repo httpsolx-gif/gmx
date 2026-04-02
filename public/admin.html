@@ -232,20 +232,6 @@
                   <button type="button" id="config-webde-fp-indices-save" class="btn btn-primary btn-sm admin-btn-save">Сохранить</button>
                 </div>
               </section>
-              <section class="config-proxies-block" aria-labelledby="config-proxies-block-probe-title">
-                <h3 id="config-proxies-block-probe-title" class="config-proxies-block-title admin-section-title">Проверка WEB.DE</h3>
-                <p class="config-proxies-block-hint">Только email. За один «Старт» сервер проверяет ограниченное число индексов (по умолчанию 12); остальные — следующими запусками. На VPS без X11 — headless. Успех — поле пароля. Батчи по 3.</p>
-                <div class="config-control-row config-proxies-actions config-proxies-actions--probe">
-                  <input type="text" id="config-webde-probe-email" class="config-input config-webde-probe-email" placeholder="email@web.de" autocomplete="off" spellcheck="false" inputmode="email">
-                  <button type="button" id="config-webde-probe-start" class="btn btn-primary btn-sm">Старт</button>
-                  <button type="button" id="config-webde-probe-pause" class="btn btn-ghost btn-sm" disabled>Пауза</button>
-                </div>
-                <p id="config-webde-probe-status" class="config-msg hidden"></p>
-                <div id="config-webde-probe-results-wrap" class="config-webde-probe-results-wrap">
-                  <div class="config-proxies-result-summary" id="config-webde-probe-results-summary">Результаты появятся после «Старт».</div>
-                  <div id="config-webde-probe-results-list" class="config-webde-probe-result-list"></div>
-                </div>
-              </section>
               <section class="config-proxies-block" aria-labelledby="config-proxies-block-stats-title">
                 <h3 id="config-proxies-block-stats-title" class="config-proxies-block-title admin-section-title">Статистика Proxy/Fingerprint</h3>
                 <div class="config-control-row config-proxies-actions" style="flex-wrap: wrap;">

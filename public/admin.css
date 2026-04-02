@@ -3246,10 +3246,6 @@ html.light .action-badge.action-download {
   line-height: 1.45;
   color: var(--text-muted);
 }
-.config-proxies-actions--probe {
-  flex-wrap: wrap;
-  align-items: center;
-}
 .config-proxies-terminal-wrap {
   margin-top: 0.25rem;
 }
@@ -3311,18 +3307,11 @@ html.light .config-code-block {
   min-width: 200px;
   max-width: 320px;
 }
-.config-webde-probe-email {
-  flex: 1;
-  min-width: 200px;
-  max-width: 360px;
-  font-family: ui-monospace, monospace;
-  font-size: 0.85rem;
-}
 .config-webde-fp-list {
   max-height: 220px;
   overflow: auto;
   margin: 0 0 12px 0;
-  padding: 8px 10px;
+  padding: 6px;
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
   background: var(--bg-card);
@@ -3338,9 +3327,9 @@ html.light .config-code-block {
 .config-webde-fp-row {
   display: flex;
   gap: 10px;
-  align-items: baseline;
-  padding: 5px 6px;
-  border-radius: 4px;
+  align-items: center;
+  padding: 8px 10px;
+  border-radius: 8px;
   margin-bottom: 2px;
 }
 .config-webde-fp-row:last-child {
@@ -3369,40 +3358,23 @@ html.light .config-code-block {
   color: var(--text);
   word-break: break-word;
 }
-.config-webde-probe-results-wrap {
-  margin-top: 10px;
-}
-.config-webde-probe-result-list {
-  display: flex;
-  flex-direction: column;
+.config-webde-fp-actions {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
   gap: 6px;
-  max-height: 320px;
-  overflow: auto;
 }
-.config-webde-probe-line {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: baseline;
-  gap: 8px 12px;
-  padding: 8px 10px;
-  border-radius: 6px;
-  font-size: 0.82rem;
-  font-family: ui-monospace, monospace;
+.config-webde-fp-del {
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  line-height: 1;
+  border-radius: 8px;
+  border: 1px solid var(--border);
 }
-.config-webde-probe-line--ok {
-  background: rgba(34, 197, 94, 0.12);
-  border-left: 3px solid var(--success, #16a34a);
-}
-.config-webde-probe-line--bad {
-  background: rgba(239, 68, 68, 0.1);
-  border-left: 3px solid var(--danger, #dc2626);
-}
-.config-webde-probe-line-idx {
-  font-weight: 600;
-  color: var(--text-muted);
-}
-.config-webde-probe-line-label {
-  color: var(--text);
+.config-webde-fp-del:hover {
+  border-color: rgba(239, 68, 68, 0.55);
+  background: rgba(239, 68, 68, 0.08);
 }
 
 .config-proxy-fp-stats-grid {
