@@ -3457,13 +3457,24 @@ html.light .config-code-block {
   border-radius: 8px;
   border: none !important;
   box-shadow: none !important;
+  background: transparent !important;
+  outline: none !important;
 }
 .config-item-trash.btn-ghost {
   border: none !important;
+  background: transparent !important;
 }
 .config-item-trash:hover {
   border: none !important;
-  background: rgba(239, 68, 68, 0.08);
+  background: rgba(239, 68, 68, 0.08) !important;
+}
+.config-item-trash:focus,
+.config-item-trash:focus-visible,
+.config-item-trash:active {
+  outline: none !important;
+  box-shadow: none !important;
+  border: none !important;
+  background: transparent !important;
 }
 .config-proxies-line--valid {
   background: rgba(34, 197, 94, 0.12);
