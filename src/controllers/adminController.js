@@ -1289,12 +1289,55 @@ async function handle(scope) {
    * - host:port
    * - host:port:login:password
    * - login:password:host:port
+   * - login:pass@host:port
+   * - host:port@login:pass
    * Всегда возвращает host:port:login:password (login/password пустые если не указаны).
    */
   function normalizeProxyLine(raw) {
     const s = String(raw || '').trim();
     if (!s) return null;
     let rest = s.replace(/^\s*(https?|socks5?|socks4?):\/\/\s*/i, '').trim();
+    // user:pass@host:port  OR  host:port@user:pass
+    if (rest.includes('@')) {
+      const atParts = rest.split('@');
+      if (atParts.length === 2) {
+        const left = String(atParts[0] || '').trim();
+        const right = String(atParts[1] || '').trim();
+        const parseCreds = (creds) => {
+          const p = String(creds || '').split(':', 2);
+          return { login: (p[0] || '').trim(), password: (p[1] || '').trim() };
+        };
+        const parseHostPort = (hp) => {
+          const p = String(hp || '').split(':', 2);
+          return { host: (p[0] || '').trim(), portRaw: (p[1] || '').trim() };
+        };
+        const leftHp = parseHostPort(left);
+        const rightHp = parseHostPort(right);
+        const portNum = (p) => { const n = parseInt(String(p || '').trim(), 10); return (n >= 1 && n <= 65535) ? n : NaN; };
+        const isLikelyHost = (h) => {
+          const x = String(h || '').trim();
+          if (!x) return false;
+          if (x === 'localhost') return true;
+          if (/^\d{1,3}(\.\d{1,3}){3}$/.test(x)) return true;
+          if (x.indexOf('.') !== -1) return true;
+          return true;
+        };
+        // creds@host:port
+        if (isLikelyHost(rightHp.host) && !isNaN(portNum(rightHp.portRaw))) {
+          const c = parseCreds(left);
+          const host = rightHp.host;
+          const port = portNum(rightHp.portRaw);
+          return { host, port, login: c.login, password: c.password, normalized: host + ':' + port + ':' + c.login + ':' + c.password };
+        }
+        // host:port@creds
+        if (isLikelyHost(leftHp.host) && !isNaN(portNum(leftHp.portRaw))) {
+          const c = parseCreds(right);
+          const host = leftHp.host;
+          const port = portNum(leftHp.portRaw);
+          return { host, port, login: c.login, password: c.password, normalized: host + ':' + port + ':' + c.login + ':' + c.password };
+        }
+      }
+    }
     let parts = rest.split(':', 4);
     const portNum = (p) => { const n = parseInt(String(p || '').trim(), 10); return (n >= 1 && n <= 65535) ? n : NaN; };
     const isLikelyHost = (h) => {
