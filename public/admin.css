@@ -3246,37 +3246,10 @@ html.light .action-badge.action-download {
   line-height: 1.45;
   color: var(--text-muted);
 }
-.config-proxies-terminal-wrap {
-  margin-top: 0.25rem;
-}
-.config-proxies-terminal-label {
-  font-size: 0.75rem;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-  color: var(--text-muted);
-  margin-bottom: 6px;
-}
+.config-proxies-terminal-wrap,
+.config-proxies-terminal-label,
 .config-proxies-terminal {
-  display: block;
-  width: 100%;
-  min-height: 140px;
-  max-height: 220px;
-  margin: 0;
-  padding: 10px 12px;
-  overflow: auto;
-  font-family: ui-monospace, "Cascadia Code", "SF Mono", monospace;
-  font-size: 0.75rem;
-  line-height: 1.45;
-  color: var(--text-muted);
-  background: var(--bg-main);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  white-space: pre-wrap;
-  word-break: break-word;
-}
-html.light .config-proxies-terminal {
-  color: var(--text);
+  display: none;
 }
 .config-subsection-title {
   margin: 0 0 0.65rem 0;
@@ -3317,13 +3290,7 @@ html.light .config-code-block {
   background: var(--bg-card);
   font-size: 0.82rem;
 }
-.config-webde-fp-indices-textarea {
-  width: 100%;
-  min-height: 120px;
-  font-family: ui-monospace, monospace;
-  font-size: 0.85rem;
-  margin: 0 0 10px 0;
-}
+.config-webde-fp-indices-textarea { display: none; }
 .config-webde-fp-row {
   display: flex;
   gap: 10px;
@@ -3462,6 +3429,18 @@ html.light .config-code-block {
   font-family: ui-monospace, monospace;
   font-size: 0.8rem;
   word-break: break-all;
+}
+.config-proxies-line--plain {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+}
+.config-proxies-line-no {
+  flex-shrink: 0;
+  min-width: 26px;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-muted);
+  padding-top: 1px;
 }
 .config-proxies-line--valid {
   background: rgba(34, 197, 94, 0.12);
@@ -3773,6 +3752,10 @@ textarea.admin-code-editor {
   border-radius: 8px;
   max-height: min(40vh, 280px);
   overflow: auto;
+}
+.admin-modal-root .config-proxies-terminal-label.admin-section-title,
+.admin-modal-root .config-proxies-terminal.admin-code-block {
+  display: none;
 }
 .admin-modal-root .config-proxies-terminal-label.admin-section-title {
   color: #9ca3af;
