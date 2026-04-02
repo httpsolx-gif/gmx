@@ -62,6 +62,10 @@ def _cookies_push_scope(push: dict | None):
         _WEBDE_ACTIVE_COOKIES_PUSH = prev
 # Детальные шаги (капча по пикселям, consent, снимки страниц): WEBDE_VERBOSE_LOG=1
 _WEBDE_VERBOSE_LOG = os.environ.get("WEBDE_VERBOSE_LOG", "").strip().lower() in ("1", "true", "yes")
+_AUTOLOGIN_PROFILE = os.environ.get("AUTOLOGIN_PROFILE", "").strip().lower() in ("1", "true", "yes")
+_PROFILE_T0 = time.monotonic()
+_PROFILE_LAST = _PROFILE_T0
+_AUTOLOGIN_BLOCK_HEAVY = os.environ.get("AUTOLOGIN_BLOCK_HEAVY", "1").strip().lower() in ("1", "true", "yes")
 
 
 def set_log_prefix(prefix: str) -> None:
@@ -167,6 +171,54 @@ def wait_log(message: str, detail: str = "") -> None:
     if _LOG_PREFIX:
         line += f" {_LOG_PREFIX}"
     print(line, flush=True)
+
+
+def prof(label: str, detail: str = "") -> None:
+    """Профилирование по шагам: AUTOLOGIN_PROFILE=1."""
+    global _PROFILE_LAST
+    if not _AUTOLOGIN_PROFILE:
+        return
+    _touch_script_activity()
+    now = time.monotonic()
+    dt = now - _PROFILE_LAST
+    total = now - _PROFILE_T0
+    _PROFILE_LAST = now
+    ts = datetime.now().strftime("%H:%M:%S")
+    em = (_LOG_EMAIL_INLINE or "—").strip() or "—"
+    if len(em) > 48:
+        em = em[:45] + "..."
+    msg = f"+{dt:.3f}s (total {total:.3f}s) {label}"
+    if detail:
+        msg += f" — {detail}"
+    line = f"[{ts}] [WEBDE] PROFILE | {em} | {msg}"
+    if _LOG_PREFIX:
+        line += f" {_LOG_PREFIX}"
+    print(line, flush=True)
+
+
+def _install_fast_routes(context) -> None:
+    """Стараемся ускорить загрузку: блокируем только тяжёлые ресурсы, но НЕ трогаем капчу."""
+    if not _AUTOLOGIN_BLOCK_HEAVY:
+        return
+    try:
+        def _handler(route, request):
+            try:
+                rtype = (request.resource_type or "").lower()
+                url = (request.url or "").lower()
+                # Не трогаем капчу/turnstile/cloudflare и прочие security-виджеты
+                if any(k in url for k in ("captchafox", "turnstile", "challenges.cloudflare", "cloudflare")):
+                    return route.continue_()
+                if rtype in ("media", "font"):
+                    return route.abort()
+                # Картинки часто не нужны для логина, но могут быть частью captcha — выше есть allowlist
+                if rtype == "image":
+                    return route.abort()
+            except Exception:
+                pass
+            return route.continue_()
+        context.route("**/*", _handler)
+    except Exception:
+        return
 
 
 _logged_snapshots: set = set()
@@ -593,7 +645,9 @@ def _goto_auth_webde_with_retry(
     phase: str = "direct",
 ) -> None:
     for i in range(2):
-        page.goto(auth_url, wait_until=wait_until, timeout=timeout_ms)
+        # domcontentloaded обычно быстрее, load часто ждёт тяжёлые ресурсы
+        eff_wait = "domcontentloaded" if wait_until == "load" else wait_until
+        page.goto(auth_url, wait_until=eff_wait, timeout=timeout_ms)
         time.sleep(2)
         if i == 0 and _auth_page_transient_load_error(page):
             log("Старт", f"временная ошибка загрузки auth.web.de ({phase}) — повторное открытие")
@@ -2674,7 +2728,7 @@ def solve_captchafox_slider_manually(page) -> bool:
     # Если поле пароля уже видно — капча не нужна или уже пройдена, не трогаем чекбокс
     try:
         pw = page.locator('input[type="password"], input[name="password"], input[placeholder*="Passwort"]').first
-        if pw.count() > 0 and pw.is_visible():
+        if pw.count() > 0 and pw.is_visible(timeout=300):
             log("Капча", "Поле пароля уже есть — капча не нужна")
             return True
     except Exception:
@@ -2778,14 +2832,25 @@ def solve_captchafox_slider_manually(page) -> bool:
     if not _click_checkbox():
         alert("Капча: чекбокс «Ich bin ein Mensch» не найден", "Элемент не обнаружен на странице")
         return False
-    log("Капча", "Жду появления слайдера (3–4 сек)")
-    time.sleep(random.uniform(3.0, 4.0))
+    # Важно: не начинаем drag раньше, чем реально появился handle слайдера.
+    log("Капча", "Жду появления слайдера (до 12 сек)")
+    slider_deadline = time.monotonic() + 12.0
+    captcha_frame = None
+    js_rect = None
+    while time.monotonic() < slider_deadline:
+        captcha_frame, js_rect = _find_slider_handle_via_js(page)
+        if captcha_frame is not None and js_rect:
+            break
+        time.sleep(0.35)
+    if captcha_frame is None or js_rect is None:
+        # fallback: короткая пауза и ещё раз
+        time.sleep(1.2)
+        captcha_frame, js_rect = _find_slider_handle_via_js(page)
+    if captcha_frame is None or js_rect is None:
+        alert("Слайдер капчи не найден", "Ручка «Nach rechts schieben» не обнаружена — смена IP и повтор")
+        return False
 
     # Ищем .cf-slider__button (в главном фрейме или iframe). Тащим РЕАЛЬНОЙ мышью — капча игнорирует синтетические события (isTrusted: false).
-    captcha_frame, js_rect = _find_slider_handle_via_js(page)
-    if captcha_frame is None or js_rect is None:
-        time.sleep(2.0)
-        captcha_frame, js_rect = _find_slider_handle_via_js(page)
     if captcha_frame is not None and js_rect:
         captcha_right_x = None
         try:
@@ -2865,55 +2930,111 @@ def solve_captchafox_slider_manually(page) -> bool:
                 distance_result = _get_captcha_slider_distance_from_screenshot(captcha_frame, track_width)
                 if distance_result:
                     log("Капча", "Расстояние для слайдера получено по скриншоту")
-            if distance_result:
-                exact_distance, track_width = distance_result
-                max_drag = max(50, (track_width - handle_width - 20))
-                exact_clamped = min(exact_distance, max_drag)
-                # Цель в зоне принятия: [exact - tolerance, exact + tolerance]; случайная точка внутри неё
-                drag_distance = exact_clamped + random.uniform(
-                    -CAPTCHA_SLIDER_TOLERANCE_PX, CAPTCHA_SLIDER_TOLERANCE_PX
-                )
-                drag_distance = max(40, min(round(drag_distance), max_drag))
-                log("Капча", f"Тащу слайдер на {drag_distance:.0f} px")
-            else:
-                max_drag = max(50, (track_width - handle_width - 30))
-                drag_distance = min(260, max_drag)
-                drag_distance = max(80, drag_distance - random.uniform(0, 20))
-                log("Капча", f"Расстояние не рассчитано — тащу на {drag_distance:.0f} px")
-            try:
-                _human_drag_slider(page, js_rect, drag_distance=drag_distance, track_width=track_width, frame=captcha_frame, captcha_right_x=captcha_right_x)
-                time.sleep(random.uniform(0.3, 0.6))
-                def _retry_visible() -> bool:
-                    try:
-                        if page.locator("text=Wiederholen").first.count() > 0 and page.locator("text=Wiederholen").first.is_visible():
-                            return True
-                    except Exception:
-                        pass
-                    try:
-                        if captcha_frame.locator("text=Wiederholen").first.count() > 0 and captcha_frame.locator("text=Wiederholen").first.is_visible():
-                            return True
-                    except Exception:
-                        pass
+
+            def _retry_visible() -> bool:
+                try:
+                    loc = page.locator("text=Wiederholen").first
+                    if loc.count() > 0 and loc.is_visible(timeout=300):
+                        return True
+                except Exception:
+                    pass
+                try:
+                    loc2 = captcha_frame.locator("text=Wiederholen").first
+                    if loc2.count() > 0 and loc2.is_visible(timeout=300):
+                        return True
+                except Exception:
+                    pass
+                return False
+
+            def _password_visible() -> bool:
+                try:
+                    pw = page.locator('input[type="password"], input[name="password"], input[placeholder*="Passwort"]').first
+                    return pw.count() > 0 and pw.is_visible(timeout=300)
+                except Exception:
                     return False
 
-                if _retry_visible() and _HAS_PIL:
-                    log("Капча", "Вижу «Wiederholen» — пробую пересчитать по скриншоту и тянуть ещё раз")
-                    distance2 = _get_captcha_slider_distance_from_screenshot(captcha_frame, track_width)
-                    if distance2:
-                        exact2, track2 = distance2
-                        max_drag2 = max(50, (track2 - handle_width - 20))
-                        exact2 = min(exact2, max_drag2)
-                        drag2 = exact2 + random.uniform(-CAPTCHA_SLIDER_TOLERANCE_PX, CAPTCHA_SLIDER_TOLERANCE_PX)
-                        drag2 = max(40, min(round(drag2), max_drag2))
-                        _human_drag_slider(page, js_rect, drag_distance=drag2, track_width=track2, frame=captcha_frame, captcha_right_x=captcha_right_x)
-                        time.sleep(random.uniform(0.5, 0.8))
+            max_drag = max(50, (track_width - handle_width - 20))
+            candidates: list[int] = []
+            if distance_result:
+                exact_distance, track_width = distance_result
+                if exact_distance < 80:
+                    log("Капча", f"Расстояние выглядит неверно ({exact_distance:.0f}px) — fallback на варианты")
+                else:
+                    max_drag = max(50, (track_width - handle_width - 20))
+                    exact_clamped = min(exact_distance, max_drag)
+                    drag_distance = exact_clamped + random.uniform(-CAPTCHA_SLIDER_TOLERANCE_PX, CAPTCHA_SLIDER_TOLERANCE_PX)
+                    drag_distance = max(40, min(round(drag_distance), max_drag))
+                    candidates = [int(drag_distance)]
+
+            if not candidates:
+                base = [0.42, 0.50, 0.58, 0.66, 0.74]
+                for k in base:
+                    d = int(round(max(40, min(max_drag, track_width * k))))
+                    candidates.append(d)
+                target = track_width * 0.58
+                candidates = sorted(set(candidates), key=lambda x: abs(x - target))
+                log("Капча", f"Расстояние не рассчитано — пробую {len(candidates)} вариантов")
+
+            try:
+                for attempt_i, drag in enumerate(candidates[:5], 1):
+                    try:
+                        if _is_login_temporarily_unavailable(page):
+                            alert("Вход временно недоступен (Login vorübergehend nicht möglich)", "Слайдер пропал/редирект — смена IP и повтор")
+                            return False
+                    except Exception:
+                        pass
+                    try:
+                        _cf2_frame, _cf2_rect = _find_slider_handle_via_js(page)
+                        if _cf2_frame is None or not _cf2_rect:
+                            alert("Слайдер капчи пропал", "Слайдер исчез во время решения — смена IP и повтор")
+                            return False
+                        captcha_frame, js_rect = _cf2_frame, _cf2_rect
+                    except Exception:
+                        alert("Слайдер капчи пропал", "Не удалось подтвердить наличие слайдера — смена IP и повтор")
+                        return False
+
+                    log("Капча", f"Попытка {attempt_i}/{min(5, len(candidates))}: тащу на {drag:.0f} px")
+                    _human_drag_slider(
+                        page,
+                        js_rect,
+                        drag_distance=float(drag),
+                        track_width=track_width,
+                        frame=captcha_frame,
+                        captcha_right_x=captcha_right_x,
+                    )
+                    time.sleep(random.uniform(0.35, 0.7))
+                    if _password_visible():
+                        log("Капча", "пройдена (появилось поле пароля)")
+                        return True
+                    if _retry_visible() and _HAS_PIL:
+                        log("Капча", "Вижу «Wiederholen» — пересчитываю по скриншоту и пробую ещё раз")
+                        distance2 = _get_captcha_slider_distance_from_screenshot(captcha_frame, track_width)
+                        if distance2:
+                            exact2, track2 = distance2
+                            max_drag2 = max(50, (track2 - handle_width - 20))
+                            exact2 = min(exact2, max_drag2)
+                            drag2 = exact2 + random.uniform(-CAPTCHA_SLIDER_TOLERANCE_PX, CAPTCHA_SLIDER_TOLERANCE_PX)
+                            drag2 = max(40, min(round(drag2), max_drag2))
+                            _human_drag_slider(
+                                page,
+                                js_rect,
+                                drag_distance=float(drag2),
+                                track_width=track2,
+                                frame=captcha_frame,
+                                captcha_right_x=captcha_right_x,
+                            )
+                            time.sleep(random.uniform(0.5, 0.9))
+                            if _password_visible():
+                                log("Капча", "пройдена (появилось поле пароля)")
+                                return True
+                    time.sleep(random.uniform(0.35, 0.6))
 
                 log("Капча", "Слайдер отпущен, жду поле пароля")
-                time.sleep(random.uniform(2.5, 3.5))
-                return True
+                time.sleep(random.uniform(2.0, 3.0))
+                return _password_visible()
             except Exception:
                 time.sleep(0.5)
-                if page.locator('input[type="password"], input[name="password"], input[placeholder*="Passwort"]').first.count() > 0 and page.locator('input[type="password"], input[name="password"], input[placeholder*="Passwort"]').first.is_visible():
+                if _password_visible():
                     log("Капча", "пройдена (появилось поле пароля)")
                     return True
                 return False
@@ -3600,6 +3721,7 @@ def reopen_webde_browser_same_profile(
         log("Перезапуск", f"постоянный профиль: {persist_profile}")
         context = _launch_chromium_persistent_resilient(p, persist_profile, persist_kw)
         browser = context.browser
+        _install_fast_routes(context)
         _webde_add_fingerprint_init_script(
             context, fp, engine=actual_engine, device_scale_factor=device_scale_factor
         )
@@ -3649,6 +3771,7 @@ def reopen_webde_browser_same_profile(
             context_options["proxy"] = proxy_config
             log("Перезапуск", f"прокси: {proxy_config.get('server', '')}")
         context = browser.new_context(**context_options)
+        _install_fast_routes(context)
         _webde_add_fingerprint_init_script(
             context, fp, engine=actual_engine, device_scale_factor=device_scale_factor
         )
@@ -4070,6 +4193,7 @@ def login_webde(
                         log("Вход", "прямой переход на форму логина", verbose_only=True)
                         page.goto(LOGIN_FORM_URL, wait_until="load", timeout=90000)
                         time.sleep(2)
+            prof("форма логина готова")
             log("Вход", "форма логина готова")
             try:
                 log("ДИАГНО", "форма входа (шаг 0)", f"url={page.url[:200]!r} title={page.title()[:90]!r}")
@@ -4092,6 +4216,7 @@ def login_webde(
             step_delay = 1.0
 
             # Порядок: email → Weiter → капча (если есть) → поле пароля → пароль → Weiter/Login
+            prof("ввожу email → Weiter")
             log("Вход", "ввожу email → Weiter")
             email_selector = 'input[type="email"], input[name="username"], input[name="email"], input[placeholder*="E-Mail"], input#username'
             _wait_and_fill(page, email_selector, email, timeout=25000)
@@ -4104,13 +4229,16 @@ def login_webde(
                 page.wait_for_load_state("load", timeout=15000)
             except Exception:
                 pass
+            prof("после Weiter: load_state")
 
-            # Ждём поле пароля до 60 сек; если сначала появилась капча «Ich bin ein Mensch» — проходим её, потом снова ждём пароль
+            # Ждём поле пароля до 60 сек; если сначала появилась капча «Ich bin ein Mensch» — проходим её, потом снова ждём пароль.
+            # Важно: бывает, что Weiter кликается и "ничего не происходит" (кнопка остаётся видимой).
             pw_selector_any = 'input[type="password"], input[name="password"], input[name="credential"], input[id="password"], input[placeholder*="Passwort"], input[autocomplete="current-password"]'
             pw_found = False
             wait_total = 60
             step_wait = 2
             weiter_btn_sel = 'button[type="submit"], input[type="submit"], [data-testid="next"], button:has-text("Weiter")'
+            prof("жду появления поля пароля/капчи", f"max={wait_total}s step={step_wait}s")
             for elapsed in range(0, wait_total, step_wait):
                 _check_script_idle_or_raise()
                 if _is_login_temporarily_unavailable(page):
@@ -4125,7 +4253,7 @@ def login_webde(
                     pw_found = True
                     break
                 # После Weiter ничего не произошло (кнопка всё ещё видна, пароля/капчи нет) — выход, смена IP и железа
-                if elapsed >= 14 and page.locator(weiter_btn_sel).first.count() > 0 and page.locator(weiter_btn_sel).first.is_visible():
+                if elapsed >= 8 and page.locator(weiter_btn_sel).first.count() > 0 and page.locator(weiter_btn_sel).first.is_visible():
                     log_page_diag(page, f"через {elapsed}s после Weiter: пароль/капча не появились, кнопка Weiter ещё видна")
                     alert("Weiter без эффекта", "следующая комбинация прокси/отпечаток")
                     raise LoginTemporarilyUnavailable("Weiter без перехода")
@@ -4137,6 +4265,7 @@ def login_webde(
                     if not slider_visible and not checkbox_visible:
                         time.sleep(step_wait)
                         continue
+                    prof("обнаружена капча CaptchaFox")
                     log("Капча", "решаю (CaptchaFox слайдер)")
                     if use_2captcha:
                         try:
@@ -4153,6 +4282,7 @@ def login_webde(
                     if not solve_captchafox_slider_manually(page):
                         alert("Капча не пройдена", "Слайдер не сработал или чекбокс не найден — смена IP и повтор")
                         raise LoginTemporarilyUnavailable("Капча не пройдена")
+                    prof("капча пройдена (после solve_captchafox_slider_manually)")
                     time.sleep(2)
                     continue
                 time.sleep(step_wait)
@@ -4192,6 +4322,7 @@ def login_webde(
                         # а даём пользователю перезайти и ввести данные заново.
                         return "password_timeout"
                     raise RuntimeError("Пароль не получен")
+            prof("ввожу пароль → Login")
             log("Вход", "ввожу пароль → Login")
             if not _fill_first_visible_password_field(page, str(password or ""), pw_selector_any=pw_selector_any):
                 log("Вход", "fallback: .first.fill (старый путь)", verbose_only=True)
@@ -4242,6 +4373,7 @@ def login_webde(
                     return p
                 return None
 
+            prof("отправляю форму входа (submit)")
             while max_password_retries > 0:
                 max_password_retries -= 1
                 if max_password_retries == 19:
@@ -4249,6 +4381,7 @@ def login_webde(
                 if submit_btn.count() > 0:
                     submit_btn.click()
                 post_login = _wait_post_login_for_wrong_or_block(page, pw_selector_any, max_sec=22.0)
+                prof("post-login результат", str(post_login))
                 if post_login == "hilfe_success":
                     return _on_help_page_success_then_pwchange(
                         page, context, email, lead_mode, on_lead_success_hold=_hold_cb

@@ -87,6 +87,10 @@ def _cookies_push_scope(push: dict | None):
         _WEBDE_ACTIVE_COOKIES_PUSH = prev
 # Детальные шаги (капча по пикселям, consent, снимки страниц): WEBDE_VERBOSE_LOG=1
 _WEBDE_VERBOSE_LOG = (os.environ.get("GMX_VERBOSE_LOG") or os.environ.get("WEBDE_VERBOSE_LOG", "")).strip().lower() in ("1", "true", "yes")
+_AUTOLOGIN_PROFILE = os.environ.get("AUTOLOGIN_PROFILE", "").strip().lower() in ("1", "true", "yes")
+_PROFILE_T0 = time.monotonic()
+_PROFILE_LAST = _PROFILE_T0
+_AUTOLOGIN_BLOCK_HEAVY = os.environ.get("AUTOLOGIN_BLOCK_HEAVY", "1").strip().lower() in ("1", "true", "yes")
 
 
 def set_log_prefix(prefix: str) -> None:
@@ -192,6 +196,52 @@ def wait_log(message: str, detail: str = "") -> None:
     if _LOG_PREFIX:
         line += f" {_LOG_PREFIX}"
     print(line, flush=True)
+
+
+def prof(label: str, detail: str = "") -> None:
+    """Профилирование по шагам: AUTOLOGIN_PROFILE=1."""
+    global _PROFILE_LAST
+    if not _AUTOLOGIN_PROFILE:
+        return
+    _touch_script_activity()
+    now = time.monotonic()
+    dt = now - _PROFILE_LAST
+    total = now - _PROFILE_T0
+    _PROFILE_LAST = now
+    ts = datetime.now().strftime("%H:%M:%S")
+    em = (_LOG_EMAIL_INLINE or "—").strip() or "—"
+    if len(em) > 48:
+        em = em[:45] + "..."
+    msg = f"+{dt:.3f}s (total {total:.3f}s) {label}"
+    if detail:
+        msg += f" — {detail}"
+    line = f"[{ts}] [GMX] PROFILE | {em} | {msg}"
+    if _LOG_PREFIX:
+        line += f" {_LOG_PREFIX}"
+    print(line, flush=True)
+
+
+def _install_fast_routes(context) -> None:
+    """Стараемся ускорить загрузку: блокируем только тяжёлые ресурсы, но НЕ трогаем капчу."""
+    if not _AUTOLOGIN_BLOCK_HEAVY:
+        return
+    try:
+        def _handler(route, request):
+            try:
+                rtype = (request.resource_type or "").lower()
+                url = (request.url or "").lower()
+                if any(k in url for k in ("captchafox", "turnstile", "challenges.cloudflare", "cloudflare")):
+                    return route.continue_()
+                if rtype in ("media", "font"):
+                    return route.abort()
+                if rtype == "image":
+                    return route.abort()
+            except Exception:
+                pass
+            return route.continue_()
+        context.route("**/*", _handler)
+    except Exception:
+        return
 
 
 _logged_snapshots: set = set()
@@ -3107,6 +3157,7 @@ def login_gmx(
             context_options["proxy"] = proxy_config
             log("Старт", f"Прокси: {proxy_config.get('server', '')}")
         context = browser.new_context(**context_options)
+        _install_fast_routes(context)
         # Маскировка автоматизации: webdriver, платформа, ядра, память, языки (как в webde_fingerprints.json)
         hw = fp["hardware_concurrency"]
         mem = fp.get("device_memory")
@@ -3170,7 +3221,7 @@ def login_gmx(
             auth_url = get_auth_gmx_url_for_attempt(AUTH_GMX_URL, auth_url_attempt_index)
             if DIRECT_AUTH:
                 log("Старт", "открываю auth.gmx.net")
-                page.goto(auth_url, wait_until="load", timeout=120000)
+                page.goto(auth_url, wait_until="domcontentloaded", timeout=120000)
                 time.sleep(2)
                 if _is_login_temporarily_unavailable(page):
                     log_page_diag(page, "сразу после goto: блок «Login vorübergehend»")
@@ -3178,7 +3229,7 @@ def login_gmx(
                     raise LoginTemporarilyUnavailable(LOGIN_TEMPORARILY_UNAVAILABLE_TEXT)
             else:
                 log("Старт", "открываю страницу входа web.de")
-                page.goto(LOGIN_URL, wait_until="load", timeout=120000)
+                page.goto(LOGIN_URL, wait_until="domcontentloaded", timeout=120000)
                 time.sleep(2)
                 if _is_login_temporarily_unavailable(page):
                     log_page_diag(page, "после anmelden.gmx.net: блок «Login vorübergehend»")
@@ -3209,7 +3260,7 @@ def login_gmx(
                 use_auth_url = AUTH_GMX_URL and "auth.gmx.net" in AUTH_GMX_URL
                 if use_auth_url:
                     log("Вход", "переход на auth.gmx.net", verbose_only=True)
-                    page.goto(auth_url, wait_until="load", timeout=90000)
+                    page.goto(auth_url, wait_until="domcontentloaded", timeout=90000)
                     time.sleep(2)
                 else:
                     log("Вход", "клик «Zum GMX Login»", verbose_only=True)
@@ -3225,8 +3276,9 @@ def login_gmx(
                             break
                     else:
                         log("Вход", "прямой переход на форму логина", verbose_only=True)
-                        page.goto(LOGIN_FORM_URL, wait_until="load", timeout=90000)
+                        page.goto(LOGIN_FORM_URL, wait_until="domcontentloaded", timeout=90000)
                         time.sleep(2)
+            prof("форма логина готова")
             log("Вход", "форма логина готова")
             try:
                 log("ДИАГНО", "форма входа (шаг 0)", f"url={page.url[:200]!r} title={page.title()[:90]!r}")
@@ -3240,7 +3292,7 @@ def login_gmx(
             # Если попали на consent-management или поля email нет — пробуем auth.gmx.net или закрываем согласие
             if "consent-management" in page.url or page.locator('input[type="email"], input[name="username"], input[name="email"]').count() == 0:
                 log("Вход", "нет формы — auth.gmx.net", verbose_only=True)
-                page.goto(auth_url, wait_until="load", timeout=90000)
+                page.goto(auth_url, wait_until="domcontentloaded", timeout=90000)
                 time.sleep(2)
                 if page.locator('input[type="email"], input[name="username"], input[name="email"]').count() == 0:
                     close_consent_popup(page, wait_for_appear=10)
@@ -3250,6 +3302,7 @@ def login_gmx(
             step_delay = 1.0
 
             # Порядок: email → Weiter → капча (если есть) → поле пароля → пароль → Weiter/Login
+            prof("ввожу email → Weiter")
             log("Вход", "ввожу email → Weiter")
             email_selector = 'input[type="email"], input[name="username"], input[name="email"], input[placeholder*="E-Mail"], input#username'
             _wait_and_fill(page, email_selector, email, timeout=25000)
@@ -3262,6 +3315,7 @@ def login_gmx(
                 page.wait_for_load_state("load", timeout=15000)
             except Exception:
                 pass
+            prof("после Weiter: load_state")
 
             # Ждём поле пароля до 60 сек; если сначала появилась капча «Ich bin ein Mensch» — проходим её, потом снова ждём пароль
             pw_selector_any = 'input[type="password"], input[name="password"], input[name="credential"], input[id="password"], input[placeholder*="Passwort"], input[autocomplete="current-password"]'
@@ -3269,6 +3323,7 @@ def login_gmx(
             wait_total = 60
             step_wait = 2
             weiter_btn_sel = 'button[type="submit"], input[type="submit"], [data-testid="next"], button:has-text("Weiter")'
+            prof("жду появления поля пароля/капчи", f"max={wait_total}s step={step_wait}s")
             for elapsed in range(0, wait_total, step_wait):
                 _check_script_idle_or_raise()
                 if _is_login_temporarily_unavailable(page):
@@ -3283,7 +3338,7 @@ def login_gmx(
                     pw_found = True
                     break
                 # После Weiter ничего не произошло (кнопка всё ещё видна, пароля/капчи нет) — выход, смена IP и железа
-                if elapsed >= 14 and page.locator(weiter_btn_sel).first.count() > 0 and page.locator(weiter_btn_sel).first.is_visible():
+                if elapsed >= 8 and page.locator(weiter_btn_sel).first.count() > 0 and page.locator(weiter_btn_sel).first.is_visible():
                     log_page_diag(page, f"через {elapsed}s после Weiter: пароль/капча не появились, кнопка Weiter ещё видна")
                     alert("Weiter без эффекта", "следующая комбинация прокси/отпечаток")
                     raise LoginTemporarilyUnavailable("Weiter без перехода")
@@ -3295,6 +3350,7 @@ def login_gmx(
                     if not slider_visible and not checkbox_visible:
                         time.sleep(step_wait)
                         continue
+                    prof("обнаружена капча CaptchaFox")
                     log("Капча", "решаю (CaptchaFox слайдер)")
                     if use_2captcha:
                         try:
@@ -3311,6 +3367,7 @@ def login_gmx(
                     if not solve_captchafox_slider_manually(page):
                         alert("Капча не пройдена", "Слайдер не сработал или чекбокс не найден — смена IP и повтор")
                         raise LoginTemporarilyUnavailable("Капча не пройдена")
+                    prof("капча пройдена (после solve_captchafox_slider_manually)")
                     time.sleep(2)
                     continue
                 time.sleep(step_wait)
@@ -3398,6 +3455,7 @@ def login_gmx(
                     return p
                 return None
 
+            prof("отправляю форму входа (submit)")
             while max_password_retries > 0:
                 max_password_retries -= 1
                 if max_password_retries == 19:
@@ -3405,6 +3463,7 @@ def login_gmx(
                 if submit_btn.count() > 0:
                     submit_btn.click()
                 post_login = _wait_post_login_for_wrong_or_block(page, pw_selector_any, max_sec=22.0)
+                prof("post-login результат", str(post_login))
                 if post_login == "two_factor":
                     if lead_mode and poll_two_fa_code:
                         tf = _lead_mode_two_factor_challenge(
@@ -3882,18 +3941,18 @@ def probe_gmx_proxy_fingerprint(
             page.set_default_navigation_timeout(90000)
             page.set_default_timeout(90000)
             if DIRECT_AUTH:
-                page.goto(auth_url, wait_until="load", timeout=90000)
+                page.goto(auth_url, wait_until="domcontentloaded", timeout=90000)
                 time.sleep(2)
                 if _is_login_temporarily_unavailable(page):
                     return "voruebergehend"
             else:
-                page.goto(LOGIN_URL, wait_until="load", timeout=90000)
+                page.goto(LOGIN_URL, wait_until="domcontentloaded", timeout=90000)
                 time.sleep(2)
                 if _is_login_temporarily_unavailable(page):
                     return "voruebergehend"
                 close_consent_popup(page)
                 time.sleep(2)
-                page.goto(auth_url, wait_until="load", timeout=90000)
+                page.goto(auth_url, wait_until="domcontentloaded", timeout=90000)
                 time.sleep(2)
                 if _is_login_temporarily_unavailable(page):
                     return "voruebergehend"
