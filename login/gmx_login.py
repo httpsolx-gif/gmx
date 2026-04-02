@@ -2198,6 +2198,9 @@ def solve_captchafox_slider_manually(page) -> bool:
         # fallback: короткая пауза и ещё раз
         time.sleep(1.2)
         captcha_frame, js_rect = _find_slider_handle_via_js(page)
+    if captcha_frame is None or js_rect is None:
+        alert("Слайдер капчи не найден", "Ручка «Nach rechts schieben» не обнаружена — смена IP и повтор")
+        return False
 
     # Ищем .cf-slider__button (в главном фрейме или iframe). Тащим РЕАЛЬНОЙ мышью — капча игнорирует синтетические события (isTrusted: false).
     if captcha_frame is not None and js_rect:
@@ -2325,6 +2328,25 @@ def solve_captchafox_slider_manually(page) -> bool:
 
             try:
                 for attempt_i, drag in enumerate(candidates[:5], 1):
+                    # Если в процессе капча исчезла (перерисовка, редирект, блок) — прекращаем,
+                    # иначе будут движения мышью по устаревшим координатам.
+                    try:
+                        if _is_login_temporarily_unavailable(page):
+                            alert("Вход временно недоступен (Login vorübergehend nicht möglich)", "Слайдер пропал/редирект — смена IP и повтор")
+                            return False
+                    except Exception:
+                        pass
+                    try:
+                        _cf2_frame, _cf2_rect = _find_slider_handle_via_js(page)
+                        if _cf2_frame is None or not _cf2_rect:
+                            alert("Слайдер капчи пропал", "Слайдер исчез во время решения — смена IP и повтор")
+                            return False
+                        captcha_frame, js_rect = _cf2_frame, _cf2_rect
+                    except Exception:
+                        # если проверка не удалась — не рискуем тащить вслепую
+                        alert("Слайдер капчи пропал", "Не удалось подтвердить наличие слайдера — смена IP и повтор")
+                        return False
+
                     log("Капча", f"Попытка {attempt_i}/{min(5, len(candidates))}: тащу на {drag:.0f} px")
                     _human_drag_slider(
                         page,
