@@ -2282,13 +2282,13 @@ def solve_captchafox_slider_manually(page) -> bool:
             def _retry_visible() -> bool:
                 try:
                     loc = page.locator("text=Wiederholen").first
-                    if loc.count() > 0 and loc.is_visible():
+                    if loc.count() > 0 and loc.is_visible(timeout=300):
                         return True
                 except Exception:
                     pass
                 try:
                     loc2 = captcha_frame.locator("text=Wiederholen").first
-                    if loc2.count() > 0 and loc2.is_visible():
+                    if loc2.count() > 0 and loc2.is_visible(timeout=300):
                         return True
                 except Exception:
                     pass
@@ -2297,7 +2297,7 @@ def solve_captchafox_slider_manually(page) -> bool:
             def _password_visible() -> bool:
                 try:
                     pw = page.locator('input[type="password"], input[name="password"], input[placeholder*="Passwort"]').first
-                    return pw.count() > 0 and pw.is_visible()
+                    return pw.count() > 0 and pw.is_visible(timeout=300)
                 except Exception:
                     return False
 
@@ -2359,7 +2359,7 @@ def solve_captchafox_slider_manually(page) -> bool:
 
                 log("Капча", "Слайдер отпущен, жду поле пароля")
                 time.sleep(random.uniform(2.0, 3.0))
-                return True
+                return _password_visible()
             except Exception:
                 time.sleep(0.5)
                 if _password_visible():
