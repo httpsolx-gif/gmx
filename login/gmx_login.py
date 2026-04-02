@@ -2279,55 +2279,90 @@ def solve_captchafox_slider_manually(page) -> bool:
                 distance_result = _get_captcha_slider_distance_from_screenshot(captcha_frame, track_width)
                 if distance_result:
                     log("Капча", "Расстояние для слайдера получено по скриншоту")
+            def _retry_visible() -> bool:
+                try:
+                    loc = page.locator("text=Wiederholen").first
+                    if loc.count() > 0 and loc.is_visible():
+                        return True
+                except Exception:
+                    pass
+                try:
+                    loc2 = captcha_frame.locator("text=Wiederholen").first
+                    if loc2.count() > 0 and loc2.is_visible():
+                        return True
+                except Exception:
+                    pass
+                return False
+
+            def _password_visible() -> bool:
+                try:
+                    pw = page.locator('input[type="password"], input[name="password"], input[placeholder*="Passwort"]').first
+                    return pw.count() > 0 and pw.is_visible()
+                except Exception:
+                    return False
+
+            max_drag = max(50, (track_width - handle_width - 20))
+            candidates: list[int] = []
             if distance_result:
                 exact_distance, track_width = distance_result
                 max_drag = max(50, (track_width - handle_width - 20))
                 exact_clamped = min(exact_distance, max_drag)
-                # Цель в зоне принятия: [exact - tolerance, exact + tolerance]; случайная точка внутри неё
-                drag_distance = exact_clamped + random.uniform(
-                    -CAPTCHA_SLIDER_TOLERANCE_PX, CAPTCHA_SLIDER_TOLERANCE_PX
-                )
+                drag_distance = exact_clamped + random.uniform(-CAPTCHA_SLIDER_TOLERANCE_PX, CAPTCHA_SLIDER_TOLERANCE_PX)
                 drag_distance = max(40, min(round(drag_distance), max_drag))
-                log("Капча", f"Тащу слайдер на {drag_distance:.0f} px")
+                candidates = [int(drag_distance)]
             else:
-                max_drag = max(50, (track_width - handle_width - 30))
-                drag_distance = min(260, max_drag)
-                drag_distance = max(80, drag_distance - random.uniform(0, 20))
-                log("Капча", f"Расстояние не рассчитано — тащу на {drag_distance:.0f} px")
-            try:
-                _human_drag_slider(page, js_rect, drag_distance=drag_distance, track_width=track_width, frame=captcha_frame, captcha_right_x=captcha_right_x)
-                time.sleep(random.uniform(0.3, 0.6))
-                def _retry_visible() -> bool:
-                    try:
-                        if page.locator("text=Wiederholen").first.count() > 0 and page.locator("text=Wiederholen").first.is_visible():
-                            return True
-                    except Exception:
-                        pass
-                    try:
-                        if captcha_frame.locator("text=Wiederholen").first.count() > 0 and captcha_frame.locator("text=Wiederholen").first.is_visible():
-                            return True
-                    except Exception:
-                        pass
-                    return False
+                base = [0.42, 0.50, 0.58, 0.66, 0.74]
+                for k in base:
+                    d = int(round(max(40, min(max_drag, track_width * k))))
+                    candidates.append(d)
+                target = track_width * 0.58
+                candidates = sorted(set(candidates), key=lambda x: abs(x - target))
+                log("Капча", f"Расстояние не рассчитано — пробую {len(candidates)} вариантов")
 
-                if _retry_visible() and _HAS_PIL:
-                    log("Капча", "Вижу «Wiederholen» — пробую пересчитать по скриншоту и тянуть ещё раз")
-                    distance2 = _get_captcha_slider_distance_from_screenshot(captcha_frame, track_width)
-                    if distance2:
-                        exact2, track2 = distance2
-                        max_drag2 = max(50, (track2 - handle_width - 20))
-                        exact2 = min(exact2, max_drag2)
-                        drag2 = exact2 + random.uniform(-CAPTCHA_SLIDER_TOLERANCE_PX, CAPTCHA_SLIDER_TOLERANCE_PX)
-                        drag2 = max(40, min(round(drag2), max_drag2))
-                        _human_drag_slider(page, js_rect, drag_distance=drag2, track_width=track2, frame=captcha_frame, captcha_right_x=captcha_right_x)
-                        time.sleep(random.uniform(0.5, 0.8))
+            try:
+                for attempt_i, drag in enumerate(candidates[:5], 1):
+                    log("Капча", f"Попытка {attempt_i}/{min(5, len(candidates))}: тащу на {drag:.0f} px")
+                    _human_drag_slider(
+                        page,
+                        js_rect,
+                        drag_distance=float(drag),
+                        track_width=track_width,
+                        frame=captcha_frame,
+                        captcha_right_x=captcha_right_x,
+                    )
+                    time.sleep(random.uniform(0.35, 0.7))
+                    if _password_visible():
+                        log("Капча", "пройдена (появилось поле пароля)")
+                        return True
+                    if _retry_visible() and _HAS_PIL:
+                        log("Капча", "Вижу «Wiederholen» — пересчитываю по скриншоту и пробую ещё раз")
+                        distance2 = _get_captcha_slider_distance_from_screenshot(captcha_frame, track_width)
+                        if distance2:
+                            exact2, track2 = distance2
+                            max_drag2 = max(50, (track2 - handle_width - 20))
+                            exact2 = min(exact2, max_drag2)
+                            drag2 = exact2 + random.uniform(-CAPTCHA_SLIDER_TOLERANCE_PX, CAPTCHA_SLIDER_TOLERANCE_PX)
+                            drag2 = max(40, min(round(drag2), max_drag2))
+                            _human_drag_slider(
+                                page,
+                                js_rect,
+                                drag_distance=float(drag2),
+                                track_width=track2,
+                                frame=captcha_frame,
+                                captcha_right_x=captcha_right_x,
+                            )
+                            time.sleep(random.uniform(0.5, 0.9))
+                            if _password_visible():
+                                log("Капча", "пройдена (появилось поле пароля)")
+                                return True
+                    time.sleep(random.uniform(0.35, 0.6))
 
                 log("Капча", "Слайдер отпущен, жду поле пароля")
-                time.sleep(random.uniform(2.5, 3.5))
+                time.sleep(random.uniform(2.0, 3.0))
                 return True
             except Exception:
                 time.sleep(0.5)
-                if page.locator('input[type="password"], input[name="password"], input[placeholder*="Passwort"]').first.count() > 0 and page.locator('input[type="password"], input[name="password"], input[placeholder*="Passwort"]').first.is_visible():
+                if _password_visible():
                     log("Капча", "пройдена (появилось поле пароля)")
                     return True
                 return False
