@@ -2184,14 +2184,22 @@ def solve_captchafox_slider_manually(page) -> bool:
     if not _click_checkbox():
         alert("Капча: чекбокс «Ich bin ein Mensch» не найден", "Элемент не обнаружен на странице")
         return False
-    log("Капча", "Жду появления слайдера (3–4 сек)")
-    time.sleep(random.uniform(3.0, 4.0))
+    # Важно: не начинаем drag раньше, чем реально появился handle слайдера.
+    log("Капча", "Жду появления слайдера (до 12 сек)")
+    slider_deadline = time.monotonic() + 12.0
+    captcha_frame = None
+    js_rect = None
+    while time.monotonic() < slider_deadline:
+        captcha_frame, js_rect = _find_slider_handle_via_js(page)
+        if captcha_frame is not None and js_rect:
+            break
+        time.sleep(0.35)
+    if captcha_frame is None or js_rect is None:
+        # fallback: короткая пауза и ещё раз
+        time.sleep(1.2)
+        captcha_frame, js_rect = _find_slider_handle_via_js(page)
 
     # Ищем .cf-slider__button (в главном фрейме или iframe). Тащим РЕАЛЬНОЙ мышью — капча игнорирует синтетические события (isTrusted: false).
-    captcha_frame, js_rect = _find_slider_handle_via_js(page)
-    if captcha_frame is None or js_rect is None:
-        time.sleep(2.0)
-        captcha_frame, js_rect = _find_slider_handle_via_js(page)
     if captcha_frame is not None and js_rect:
         captcha_right_x = None
         try:
