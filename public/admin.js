@@ -2885,15 +2885,12 @@
     function loadConfigProxies() {
       var textEl = document.getElementById('config-proxies-text');
       var msgEl = document.getElementById('config-proxies-message');
-      var wrap = document.getElementById('config-proxies-result-wrap');
-      var listEl = document.getElementById('config-proxies-result-list');
       if (!textEl) return;
       if (msgEl) { msgEl.textContent = ''; msgEl.classList.add('hidden'); }
-      if (wrap) wrap.classList.add('hidden');
-      if (listEl) listEl.innerHTML = '';
       authFetch('/api/config/proxies').then(function (r) { return r.json(); }).then(function (data) {
         textEl.value = (data.content != null ? String(data.content) : '').trim();
         AdminModalKit.syncCodeEditorHeights();
+        renderProxiesPreview();
       }).catch(function () {});
     }
     function showProxiesMessage(text, type) {
@@ -2904,74 +2901,59 @@
       el.classList.toggle('success', type === 'success');
       el.classList.toggle('error', type === 'error');
     }
-    function showProxiesResult(valid, invalid) {
-      var wrap = document.getElementById('config-proxies-result-wrap');
-      var summaryEl = wrap && wrap.querySelector('.config-proxies-result-summary');
-      var listEl = document.getElementById('config-proxies-result-list');
-      if (!wrap || !listEl) return;
-      if (!valid.length && !invalid.length) {
-        wrap.classList.add('hidden');
-        return;
-      }
-      wrap.classList.remove('hidden');
-      if (summaryEl) summaryEl.textContent = 'Валидных: ' + valid.length + ', невалидных: ' + invalid.length;
+    function parseProxiesLines(text) {
+      var out = [];
+      String(text || '').split(/\r?\n/).forEach(function (line) {
+        var s = String(line || '').trim();
+        if (!s || s.charAt(0) === '#') return;
+        out.push(s);
+      });
+      return out;
+    }
+    function renderProxiesPreview() {
+      var ta = document.getElementById('config-proxies-text');
+      var wrap = document.getElementById('config-proxies-preview-wrap');
+      var sum = document.getElementById('config-proxies-preview-summary');
+      var listEl = document.getElementById('config-proxies-preview-list');
+      if (!ta || !wrap || !sum || !listEl) return;
+      var lines = parseProxiesLines(ta.value);
+      sum.textContent = 'Прокси: ' + String(lines.length);
       listEl.innerHTML = '';
-      var validIcon = '<svg class="config-proxies-line-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 6L9 17l-5-5"/></svg>';
-      var invalidIcon = '<svg class="config-proxies-line-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M15 9l-6 6M9 9l6 6"/></svg>';
-      valid.forEach(function (item) {
-        var norm = (item && item.normalized) ? item.normalized : (typeof item === 'string' ? item : '');
+      lines.forEach(function (s, i) {
         var row = document.createElement('div');
-        row.className = 'config-proxies-line config-proxies-line--valid';
-        row.innerHTML = validIcon + '<span class="config-proxies-line-text">' + escapeHtml(norm) + '</span>';
-        listEl.appendChild(row);
-      });
-      invalid.forEach(function (item) {
-        var line = (item && item.line) ? item.line : (typeof item === 'string' ? item : '');
-        var err = (item && item.error) ? item.error : '';
-        var row = document.createElement('div');
-        row.className = 'config-proxies-line config-proxies-line--invalid';
-        row.innerHTML = invalidIcon + '<div class="config-proxies-line-text"><span>' + escapeHtml(line) + '</span>' + (err ? '<div class="config-proxies-line-error">' + escapeHtml(err) + '</div>' : '') + '</div>';
+        row.className = 'config-proxies-line config-proxies-line--valid config-proxies-line--plain';
+        var n = document.createElement('span');
+        n.className = 'config-proxies-line-no';
+        n.textContent = String(i + 1);
+        var txt = document.createElement('div');
+        txt.className = 'config-proxies-line-text';
+        var sp = document.createElement('span');
+        sp.textContent = s;
+        txt.appendChild(sp);
+        row.appendChild(n);
+        row.appendChild(txt);
         listEl.appendChild(row);
       });
     }
-    function escapeHtml(s) {
-      if (s == null) return '';
-      var div = document.createElement('div');
-      div.textContent = s;
-      return div.innerHTML;
-    }
-    var configProxiesValidate = document.getElementById('config-proxies-validate');
-    if (configProxiesValidate) configProxiesValidate.addEventListener('click', function () {
-      var textEl = document.getElementById('config-proxies-text');
-      if (!textEl) return;
-      showProxiesMessage('Проверка подключения…');
-      document.getElementById('config-proxies-result-wrap') && document.getElementById('config-proxies-result-wrap').classList.add('hidden');
-      postJson('/api/config/proxies-validate', { content: textEl.value })
-        .then(function (r) {
-          if (!r.ok) return r.json().then(function (j) { throw new Error(j && j.error ? j.error : 'Ошибка ' + r.status); });
-          return r.json();
-        })
-        .then(function (data) {
-          var validList = data.valid || [];
-          showProxiesMessage('');
-          showProxiesResult(validList, data.invalid || []);
-          var wrap = document.getElementById('config-proxies-result-wrap');
-          if (wrap && !wrap.classList.contains('hidden')) wrap.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-        })
-        .catch(function (err) {
-          showProxiesMessage((err && err.message) || 'Ошибка проверки', 'error');
-        });
-    });
+    // escapeHtml kept in this module earlier; no longer needed here.
+    // Proxies validate UI removed.
     var configProxiesSave = document.getElementById('config-proxies-save');
     if (configProxiesSave) configProxiesSave.addEventListener('click', function () {
       var textEl = document.getElementById('config-proxies-text');
       if (!textEl) return;
       postJson('/api/config/proxies', { content: textEl.value }).then(function () {
         showProxiesMessage('Сохранено', 'success');
+        renderProxiesPreview();
       }).catch(function (err) {
         showProxiesMessage((err && err.message) || 'Ошибка сохранения', 'error');
       });
     });
+    var proxiesTextEl = document.getElementById('config-proxies-text');
+    if (proxiesTextEl) {
+      proxiesTextEl.addEventListener('input', function () {
+        renderProxiesPreview();
+      });
+    }
     function applyWebdeFpListPayload(pool, rawText, opts) {
       opts = opts || {};
       if (!opts.preserveListMessage) {
@@ -3019,21 +3001,8 @@
       return { ok: r.ok, status: r.status, data: data || {}, txtLen: (txt || '').length, parseErr: parseErr };
     }
     var webdeFpIndicesContentFromServer = '';
-    function setWebdeFpIndicesTextarea(text) {
-      var ta = document.getElementById('config-webde-fp-indices-text');
-      if (!ta) return;
-      ta.value = (text != null ? String(text) : '').trim();
-      AdminModalKit.syncCodeEditorHeights();
-    }
     function getWebdeFpIndicesTextarea() {
-      var ta = document.getElementById('config-webde-fp-indices-text');
-      if (!ta) return '';
-      return String(ta.value || '');
-    }
-    function buildIndices0to99Text() {
-      var out = [];
-      for (var i = 0; i < 100; i++) out.push(String(i));
-      return out.join('\n');
+      return String(webdeFpIndicesContentFromServer || '');
     }
     function loadConfigWebdeFpIndices() {
       function agentLogWebdeLoad(w, sourceTag) {
@@ -3184,7 +3153,6 @@
           var data = w.data || {};
           if (w.ok && !w.parseErr && data.pool) {
             webdeFpIndicesContentFromServer = (data.content != null ? String(data.content) : '').trim();
-            setWebdeFpIndicesTextarea(webdeFpIndicesContentFromServer);
             applyWebdeFpListPayload(data.pool, webdeFpIndicesContentFromServer);
             return Promise.resolve();
           }
@@ -3207,25 +3175,6 @@
     var configWebdeFpCheck = document.getElementById('config-webde-fp-check');
     if (configWebdeFpCheck) configWebdeFpCheck.addEventListener('click', function () {
       loadConfigWebdeFpIndices();
-    });
-    var configWebdeFpIndicesSave = document.getElementById('config-webde-fp-indices-save');
-    if (configWebdeFpIndicesSave) configWebdeFpIndicesSave.addEventListener('click', function () {
-      var content = getWebdeFpIndicesTextarea();
-      postJson('/api/config/webde-fingerprint-indices', { content: content })
-        .then(function () {
-          webdeFpIndicesContentFromServer = String(content || '').trim();
-          showWebdeFpListMessage('Сохранено', 'success');
-          return loadConfigWebdeFpIndices();
-        })
-        .catch(function (err) {
-          showWebdeFpListMessage((err && err.message) || 'Ошибка сохранения', 'error');
-        });
-    });
-    var configWebdeFpIndicesWrite = document.getElementById('config-webde-fp-indices-write-0-99');
-    if (configWebdeFpIndicesWrite) configWebdeFpIndicesWrite.addEventListener('click', function () {
-      var txt = buildIndices0to99Text();
-      setWebdeFpIndicesTextarea(txt);
-      showWebdeFpListMessage('Заполнено 0–99. Нажмите «Сохранить».', 'success');
     });
 
     function showProxyFpStatsMessage(text, type) {
@@ -3411,10 +3360,10 @@
         var current = parseWebdeFpIndicesFromText(getWebdeFpIndicesTextarea());
         if (current.indexOf(idxN) === -1) return;
         var next = current.filter(function (n) { return n !== idxN; });
-        setWebdeFpIndicesTextarea(rebuildIndicesText(next));
+        webdeFpIndicesContentFromServer = rebuildIndicesText(next);
         showWebdeFpListMessage('Удаление индекса ' + idxN + '…', '');
         setPendingBtn(btn, true);
-        postJson('/api/config/webde-fingerprint-indices', { content: getWebdeFpIndicesTextarea() })
+        postJson('/api/config/webde-fingerprint-indices', { content: webdeFpIndicesContentFromServer })
           .then(function () {
             showWebdeFpListMessage('Удалено: ' + idxN, 'success');
             return loadConfigWebdeFpIndices();
@@ -3422,7 +3371,7 @@
           .catch(function (err) {
             showWebdeFpListMessage((err && err.message) || 'Ошибка удаления', 'error');
             // rollback: restore current
-            setWebdeFpIndicesTextarea(rebuildIndicesText(current));
+            webdeFpIndicesContentFromServer = rebuildIndicesText(current);
           })
           .finally(function () {
             setPendingBtn(btn, false);

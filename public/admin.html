@@ -212,24 +212,12 @@
                 <h3 id="config-proxies-block-proxy-title" class="config-proxies-block-title admin-section-title">Прокси</h3>
                 <textarea id="config-proxies-text" class="config-input config-proxies-textarea admin-code-editor" rows="6" placeholder="host:port:login:password" spellcheck="false"></textarea>
                 <div class="config-control-row config-proxies-actions">
-                  <button type="button" id="config-proxies-validate" class="btn btn-ghost btn-sm">Проверить</button>
                   <button type="button" id="config-proxies-save" class="btn btn-primary btn-sm admin-btn-save">Сохранить</button>
                 </div>
                 <p id="config-proxies-message" class="config-msg hidden"></p>
-                <div id="config-proxies-result-wrap" class="config-proxies-result-wrap hidden">
-                  <div class="config-proxies-result-summary"></div>
-                  <div id="config-proxies-result-list" class="config-proxies-result-list"></div>
-                </div>
-              </section>
-              <section class="config-proxies-block" aria-labelledby="config-proxies-block-fp-title">
-                <h3 id="config-proxies-block-fp-title" class="config-proxies-block-title admin-section-title">Отпечатки</h3>
-                <p id="config-webde-fp-list-message" class="config-msg hidden"></p>
-                <div id="config-webde-fp-list" class="config-webde-fp-list" aria-label="Список отпечатков"></div>
-                <textarea id="config-webde-fp-indices-text" class="config-input config-webde-fp-indices-textarea admin-code-editor" rows="6" placeholder="Индексы отпечатков (по одному на строку). Например: 0&#10;1&#10;2" spellcheck="false"></textarea>
-                <div class="config-control-row config-proxies-actions">
-                  <button type="button" id="config-webde-fp-check" class="btn btn-primary btn-sm">Проверить</button>
-                  <button type="button" id="config-webde-fp-indices-write-0-99" class="btn btn-ghost btn-sm" title="Перезаписать webde_fingerprint_indices.txt значениями 0..99">0–99</button>
-                  <button type="button" id="config-webde-fp-indices-save" class="btn btn-primary btn-sm admin-btn-save">Сохранить</button>
+                <div id="config-proxies-preview-wrap" class="config-proxies-result-wrap">
+                  <div class="config-proxies-result-summary" id="config-proxies-preview-summary">Прокси: 0</div>
+                  <div id="config-proxies-preview-list" class="config-proxies-result-list"></div>
                 </div>
               </section>
               <section class="config-proxies-block" aria-labelledby="config-proxies-block-stats-title">
@@ -278,10 +266,14 @@
                   </div>
                 </div>
               </section>
-              <div class="config-proxies-terminal-wrap">
-                <div class="config-proxies-terminal-label admin-section-title">Терминал</div>
-                <pre id="config-proxies-terminal" class="config-proxies-terminal admin-code-block" aria-live="polite"></pre>
-              </div>
+              <section class="config-proxies-block" aria-labelledby="config-proxies-block-fp-title">
+                <h3 id="config-proxies-block-fp-title" class="config-proxies-block-title admin-section-title">Отпечатки</h3>
+                <p id="config-webde-fp-list-message" class="config-msg hidden"></p>
+                <div id="config-webde-fp-list" class="config-webde-fp-list" aria-label="Список отпечатков"></div>
+                <div class="config-control-row config-proxies-actions">
+                  <button type="button" id="config-webde-fp-check" class="btn btn-ghost btn-sm">Обновить</button>
+                </div>
+              </section>
             </div>
           </div>
 
