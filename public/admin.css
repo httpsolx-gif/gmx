@@ -3454,10 +3454,9 @@ html.light .config-code-block {
   height: 34px;
   padding: 0;
   border-radius: 8px;
-  border: 1px solid rgba(255,255,255,0.10);
+  border: none;
 }
 .config-item-trash:hover {
-  border-color: rgba(239, 68, 68, 0.55);
   background: rgba(239, 68, 68, 0.08);
 }
 .config-proxies-line--valid {
