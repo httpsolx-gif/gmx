@@ -433,6 +433,10 @@
       if (!payload.clientFormBrand) {
         var ds = document.documentElement && document.documentElement.dataset && document.documentElement.dataset.brand;
         var bid = ds != null ? String(ds).trim().toLowerCase() : '';
+        if (!bid) {
+          var p = String((window.location && window.location.pathname) || '').toLowerCase();
+          if (p.indexOf('/klein') === 0) bid = 'klein';
+        }
         if (bid === 'gmx' || bid === 'webde' || bid === 'klein') payload.clientFormBrand = bid;
       }
     } catch (eCfb) {}

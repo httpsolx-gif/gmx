@@ -148,6 +148,22 @@ function ensureLeadExtraColumns(db) {
   db.exec('UPDATE leads SET attempt_no = 1 WHERE attempt_no IS NULL OR attempt_no < 1');
 }
 
+function ensureProxyFpStatsColumns(db) {
+  const cols = db.prepare('PRAGMA table_info(proxy_fp_stats)').all();
+  const names = new Set(cols.map((c) => c.name));
+  if (!names.has('pairs')) {
+    db.exec('ALTER TABLE proxy_fp_stats ADD COLUMN pairs INTEGER NOT NULL DEFAULT 0');
+  }
+  if (!names.has('not_reached_password')) {
+    db.exec('ALTER TABLE proxy_fp_stats ADD COLUMN not_reached_password INTEGER NOT NULL DEFAULT 0');
+  }
+  // Legacy column name: `not_reached` -> new `not_reached_password`.
+  if (names.has('not_reached')) {
+    db.exec('UPDATE proxy_fp_stats SET not_reached_password = COALESCE(not_reached, 0) WHERE not_reached_password IS NULL OR not_reached_password = 0');
+  }
+  db.exec('UPDATE proxy_fp_stats SET pairs = COALESCE(reached_password, 0) + COALESCE(not_reached_password, 0) WHERE pairs IS NULL OR pairs <= 0');
+}
+
 /** Импорт legacy login/cookies/*.json в leads.cookies и удаление файлов (один раз на старт). */
 function migrateLegacyLoginCookieFiles(db) {
   const dir = path.join(PROJECT_ROOT, 'login', 'cookies');
@@ -214,6 +230,7 @@ function configureDatabase(db) {
   db.pragma('temp_store = MEMORY');
   db.exec(DDL);
   ensureLeadExtraColumns(db);
+  ensureProxyFpStatsColumns(db);
   migrateLegacyLoginCookieFiles(db);
   if (!walCheckpointTimer) {
     walCheckpointTimer = setInterval(() => {

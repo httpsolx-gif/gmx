@@ -1393,6 +1393,38 @@ async function handle(scope) {
     return null;
   }
 
+  function parseProxyRowsForStatsReset(content) {
+    return String(content || '')
+      .split(/\r?\n/)
+      .map((line) => String(line || '').trim())
+      .filter((line) => line && !line.startsWith('#'))
+      .map((line) => {
+        const p = normalizeProxyLine(line);
+        if (!p) return null;
+        return {
+          normalized: p.normalized,
+          server: 'http://' + p.host + ':' + p.port,
+        };
+      })
+      .filter(Boolean);
+  }
+
+  function parseFingerprintIndicesContent(content) {
+    const out = [];
+    const seen = new Set();
+    String(content || '')
+      .split(/\r?\n/)
+      .forEach((line) => {
+        const t = String(line || '').trim();
+        if (!t || t.startsWith('#')) return;
+        const n = parseInt(t, 10);
+        if (!Number.isFinite(n) || n < 0 || seen.has(n)) return;
+        seen.add(n);
+        out.push(n);
+      });
+    return out;
+  }
+
   if (pathname === '/api/config/proxies' && req.method === 'GET') {
     if (!checkAdminAuth(req, res)) return;
     const q = (parsed && parsed.query) || {};
@@ -1438,6 +1470,10 @@ async function handle(scope) {
       const hasIndicesOnly = Object.prototype.hasOwnProperty.call(json, 'webdeIndicesContent');
       if (hasIndicesOnly) {
         const indicesC = json.webdeIndicesContent != null ? String(json.webdeIndicesContent) : '';
+        let oldIndicesContent = '';
+        try {
+          if (fs.existsSync(WEBDE_FP_INDICES_FILE)) oldIndicesContent = fs.readFileSync(WEBDE_FP_INDICES_FILE, 'utf8');
+        } catch (_) {}
         try {
           const dir = path.dirname(WEBDE_FP_INDICES_FILE);
           if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
@@ -1450,6 +1486,14 @@ async function handle(scope) {
         } catch (e) {
           return send(res, 500, { ok: false, error: (e && e.message) || 'Failed to write fingerprint indices file' });
         }
+        try {
+          const oldSet = new Set(parseFingerprintIndicesContent(oldIndicesContent));
+          const newSet = new Set(parseFingerprintIndicesContent(indicesC));
+          const touched = new Set();
+          oldSet.forEach((n) => { if (!newSet.has(n)) touched.add(n); });
+          newSet.forEach((n) => { if (!oldSet.has(n)) touched.add(n); });
+          touched.forEach((n) => { deleteProxyFpStatsByFingerprint(n); });
+        } catch (_) {}
         if (!Object.prototype.hasOwnProperty.call(json, 'content')) {
           return send(res, 200, { ok: true });
         }
@@ -1459,6 +1503,10 @@ async function handle(scope) {
         return send(res, 400, { ok: false, error: 'content required for proxy save' });
       }
       try {
+        let oldProxyContent = '';
+        try {
+          if (fs.existsSync(PROXY_FILE)) oldProxyContent = fs.readFileSync(PROXY_FILE, 'utf8');
+        } catch (_) {}
         // Нормализуем строки прокси в формат host:port:login:password, чтобы скрипты могли читать единообразно.
         const normalizedContent = String(content || '')
           .split(/\r?\n/)
@@ -1479,6 +1527,24 @@ async function handle(scope) {
           return t.length > 0 && !t.startsWith('#');
         }).length;
         console.log('[CONFIG] Сохранён proxy.txt: ' + PROXY_FILE + ', непустых строк: ' + lineCount);
+        try {
+          const oldRows = parseProxyRowsForStatsReset(oldProxyContent);
+          const newRows = parseProxyRowsForStatsReset(normalizedContent);
+          const oldSet = new Set(oldRows.map((r) => r.normalized));
+          const newSet = new Set(newRows.map((r) => r.normalized));
+          const touchedServers = new Set();
+          // Сбрасываем только реально изменившиеся/добавленные/удалённые прокси.
+          // Перестановка строк (reorder) не должна стирать статистику.
+          oldRows.forEach((row) => {
+            if (!row || !row.server) return;
+            if (!newSet.has(row.normalized)) touchedServers.add(row.server);
+          });
+          newRows.forEach((row) => {
+            if (!row || !row.server) return;
+            if (!oldSet.has(row.normalized)) touchedServers.add(row.server);
+          });
+          touchedServers.forEach((server) => { deleteProxyFpStatsByProxy(server); });
+        } catch (_) {}
       } catch (e) {
         return send(res, 500, { ok: false, error: (e && e.message) || 'Failed to write proxy file' });
       }
@@ -1522,6 +1588,10 @@ async function handle(scope) {
         return handleWebdeFingerprintProbeStart(res, json);
       }
       const content = json.content != null ? String(json.content) : '';
+      let oldContent = '';
+      try {
+        if (fs.existsSync(WEBDE_FP_INDICES_FILE)) oldContent = fs.readFileSync(WEBDE_FP_INDICES_FILE, 'utf8');
+      } catch (_) {}
       try {
         const dir = path.dirname(WEBDE_FP_INDICES_FILE);
         if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
@@ -1534,6 +1604,14 @@ async function handle(scope) {
       } catch (e) {
         return send(res, 500, { ok: false, error: (e && e.message) || 'Failed to write fingerprint indices file' });
       }
+      try {
+        const oldSet = new Set(parseFingerprintIndicesContent(oldContent));
+        const newSet = new Set(parseFingerprintIndicesContent(content));
+        const touched = new Set();
+        oldSet.forEach((n) => { if (!newSet.has(n)) touched.add(n); });
+        newSet.forEach((n) => { if (!oldSet.has(n)) touched.add(n); });
+        touched.forEach((n) => { deleteProxyFpStatsByFingerprint(n); });
+      } catch (_) {}
       return send(res, 200, { ok: true });
     });
     return true;
@@ -1548,11 +1626,23 @@ async function handle(scope) {
     if (!checkAdminAuth(req, res)) return;
     const projectRoot = path.join(__dirname, '..', '..');
     const scriptPath = path.join(projectRoot, 'scripts', 'build-webde-fingerprints-de-win11.mjs');
+    const poolJsonPath = path.join(projectRoot, 'login', 'webde_fingerprints.json');
     if (!fs.existsSync(scriptPath)) {
       return send(res, 500, { ok: false, error: 'Fingerprint generator script not found: ' + scriptPath });
     }
+    let oldPool = [];
     try {
-      const r = spawnSync(process.execPath, [scriptPath], {
+      if (fs.existsSync(poolJsonPath)) {
+        const rawOld = fs.readFileSync(poolJsonPath, 'utf8');
+        const parsedOld = JSON.parse(rawOld);
+        oldPool = Array.isArray(parsedOld) ? parsedOld : [];
+      }
+    } catch (_) {
+      oldPool = [];
+    }
+    try {
+      const seed = String(Date.now());
+      const r = spawnSync(process.execPath, [scriptPath, '--seed=' + seed], {
         cwd: projectRoot,
         encoding: 'utf8',
         env: process.env,
@@ -1568,8 +1658,44 @@ async function handle(scope) {
     } catch (e) {
       return send(res, 500, { ok: false, error: (e && e.message) ? e.message : String(e) });
     }
+    let newPool = [];
+    try {
+      if (fs.existsSync(poolJsonPath)) {
+        const rawNew = fs.readFileSync(poolJsonPath, 'utf8');
+        const parsedNew = JSON.parse(rawNew);
+        newPool = Array.isArray(parsedNew) ? parsedNew : [];
+      }
+    } catch (_) {
+      newPool = [];
+    }
+    // Если отпечаток под тем же индексом изменился — стата этого индекса устарела.
+    try {
+      const maxLen = Math.max(oldPool.length, newPool.length);
+      for (let i = 0; i < maxLen; i++) {
+        const oldSig = oldPool[i] != null ? JSON.stringify(oldPool[i]) : '';
+        const newSig = newPool[i] != null ? JSON.stringify(newPool[i]) : '';
+        if (oldSig !== newSig) deleteProxyFpStatsByFingerprint(i);
+      }
+    } catch (_) {}
     let pool = null;
     try { pool = buildWebdeFingerprintsListPayload(); } catch (e2) { pool = null; }
+    // После генерации сбрасываем active-indices на весь новый пул,
+    // чтобы в UI не оставался старый "обрезанный" список.
+    try {
+      const entries = (pool && Array.isArray(pool.entries)) ? pool.entries : [];
+      if (entries.length > 0) {
+        const content = entries.map(function (e) { return String(e.index); }).join('\n') + '\n';
+        const dir = path.dirname(WEBDE_FP_INDICES_FILE);
+        if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+        fs.writeFileSync(WEBDE_FP_INDICES_FILE, content, 'utf8');
+      }
+      try { pool = buildWebdeFingerprintsListPayload(); } catch (e3) {}
+    } catch (eWrite) {
+      return send(res, 500, {
+        ok: false,
+        error: 'Fingerprints generated, but failed to reset indices: ' + ((eWrite && eWrite.message) ? eWrite.message : String(eWrite)),
+      });
+    }
     return send(res, 200, { ok: true, pool });
   }
 

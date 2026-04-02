@@ -17,14 +17,21 @@ function ensureChatDataReady() {
   getDb();
 }
 
+function normalizeBrandId(brand) {
+  const b = brand != null ? String(brand).trim().toLowerCase() : '';
+  return (b === 'gmx' || b === 'webde' || b === 'klein') ? b : '';
+}
+
 /** Чат поддержки: привязан к почте (email), а не к leadId. Один и тот же чат для всех логов с одной почтой.
  *  cachedLeads — опционально уже прочитанный массив лидов, чтобы не вызывать getAllLeads() N раз в /api/leads. */
-function getChatKeyForLeadId(leadId, cachedLeads) {
+function getChatKeyForLeadId(leadId, cachedLeads, brandHint) {
   if (!leadId || typeof leadId !== 'string') return leadId || '';
   const leads = Array.isArray(cachedLeads) ? cachedLeads : getAllLeads();
   const lead = leads.find((l) => l && l.id === leadId);
+  const brand = normalizeBrandId(brandHint) || normalizeBrandId(lead && (lead.clientFormBrand || lead.brand));
   const email = (lead && lead.email) ? String(lead.email).trim().toLowerCase() : '';
-  return email || leadId;
+  const base = email || leadId;
+  return brand ? (brand + ':' + base) : base;
 }
 
 /** Миграция: если есть старые сообщения по leadId, сливаем их в чат по email и удаляем chat[leadId]. */

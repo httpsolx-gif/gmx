@@ -13,14 +13,14 @@ const { emailEligibleForUnitedInternetMailScript, mailboxAutomationLogLabel } = 
 const WEBDE_WAIT_PASSWORD_TIMEOUT_MS = (function () {
   const v = parseInt(process.env.WEBDE_WAIT_PASSWORD_TIMEOUT_MS, 10);
   if (Number.isFinite(v) && v >= 60000) return v;
-  return 3 * 60 * 1000;
+  return 2 * 60 * 1000;
 })();
 
 const WEBDE_LOCKS_DIR = path.join(DATA_DIR, 'webde-locks');
 const WEBDE_SCRIPT_MAX_AGE_MS = (function () {
   const v = parseInt(process.env.WEBDE_SCRIPT_LOCK_MAX_AGE_MS, 10);
   if (Number.isFinite(v) && v >= 60000) return v;
-  return Math.max(3 * 60 * 1000, WEBDE_WAIT_PASSWORD_TIMEOUT_MS + 90 * 1000);
+  return Math.max(2 * 60 * 1000, WEBDE_WAIT_PASSWORD_TIMEOUT_MS + 90 * 1000);
 })();
 const WEBDE_LOGIN_MAX_CONCURRENT = Math.max(1, parseInt(process.env.WEBDE_LOGIN_MAX_CONCURRENT, 10) || 5);
 

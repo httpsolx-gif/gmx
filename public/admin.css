@@ -1713,6 +1713,16 @@ html.light .action-badge.action-download {
   padding: 0;
 }
 
+.detail-top-actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: 8px;
+}
+
+.detail-top-actions .btn {
+  min-width: 96px;
+}
+
 .detail-row {
   margin-bottom: 16px;
 }
@@ -3488,7 +3498,8 @@ html.light .config-code-block {
   align-items: center;
   gap: 6px;
   flex-wrap: wrap;
-  justify-content: flex-end;
+  justify-content: flex-start;
+  margin-right: 12px;
 }
 .config-inline-stats-chip {
   display: inline-flex;

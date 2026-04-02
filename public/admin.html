@@ -212,6 +212,7 @@
                 <h3 id="config-proxies-block-proxy-title" class="config-proxies-block-title admin-section-title">Прокси</h3>
                 <div class="config-control-row config-proxies-actions">
                   <button type="button" id="config-proxies-validate" class="btn btn-ghost btn-sm">Проверить</button>
+                  <button type="button" id="config-proxies-add-row" class="btn btn-ghost btn-sm">+ Строка</button>
                   <button type="button" id="config-proxies-save" class="btn btn-primary btn-sm admin-btn-save">Сохранить</button>
                   <button type="button" id="config-proxy-fp-stats-refresh-top" class="btn btn-ghost btn-sm">Обновить статистику</button>
                 </div>
@@ -337,6 +338,9 @@
       <div id="mainContent" class="main-detail hidden">
         <div class="detail-card">
           <div id="detail-worked-banner" class="detail-worked-banner hidden" role="status">Отработан</div>
+          <div class="detail-top-actions">
+            <button type="button" id="btn-autologin-start" class="btn btn-ghost btn-sm" title="Запустить автовход для текущего лида">Автовход</button>
+          </div>
           <div class="detail-row">
             <div class="detail-label">Email</div>
             <div class="detail-value" id="detail-email"></div>

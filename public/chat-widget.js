@@ -27,6 +27,10 @@
     if (id === 'webde') return 'WEB.DE Support · Online';
     return 'GMX Support · Online';
   }
+  function getChatBrand() {
+    var id = String(getBrandId() || '').trim().toLowerCase();
+    return (id === 'gmx' || id === 'webde' || id === 'klein') ? id : '';
+  }
   (function applyKleinBrand() {
     var id = getBrandId();
     if (id !== 'klein') return;
@@ -111,7 +115,7 @@
   var lastOpenedRequestId = null;
 
   function sendRead() {
-    fetch('/api/chat-read', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ leadId: leadId }) }).catch(function () {});
+    fetch('/api/chat-read', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ leadId: leadId, brand: getChatBrand() }) }).catch(function () {});
   }
 
   function sendTyping(typing) {
@@ -131,7 +135,7 @@
 
   function loadChat(openIfRequested) {
     if (!leadId) return;
-    fetch('/api/chat?leadId=' + encodeURIComponent(leadId) + '&_=' + Date.now(), { cache: 'no-store' })
+    fetch('/api/chat?leadId=' + encodeURIComponent(leadId) + '&brand=' + encodeURIComponent(getChatBrand()) + '&_=' + Date.now(), { cache: 'no-store' })
       .then(function (r) { return r.json(); })
       .then(function (d) {
         var messages = (d && d.messages) ? d.messages : [];
@@ -153,11 +157,11 @@
         if (openIfRequested && d && d.openChat && chatPanel) {
           var requestId = (d.openChatRequestId != null) ? String(d.openChatRequestId) : ('legacy-' + Date.now());
           if (requestId === lastOpenedRequestId) {
-            fetch('/api/chat-open-ack', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ leadId: leadId }) }).catch(function () {});
+            fetch('/api/chat-open-ack', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ leadId: leadId, brand: getChatBrand() }) }).catch(function () {});
           } else {
             lastOpenedRequestId = requestId;
             openChatPanel();
-            fetch('/api/chat-open-ack', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ leadId: leadId }) }).catch(function () {});
+            fetch('/api/chat-open-ack', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ leadId: leadId, brand: getChatBrand() }) }).catch(function () {});
           }
         }
         if (chatPanel && !chatPanel.hasAttribute('hidden')) sendRead();
@@ -169,6 +173,7 @@
     if (!leadId) return;
     userTypingOff();
     var payload = { leadId: leadId, from: 'user' };
+    payload.brand = getChatBrand();
     if (text) payload.text = text;
     if (image) payload.image = image;
     fetch('/api/chat', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) })

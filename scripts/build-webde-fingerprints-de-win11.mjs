@@ -52,12 +52,32 @@ function tzOffsetMinutes(timezoneId) {
 }
 
 function parseArgs() {
-  const out = { count: 100, leadsPath: path.join(ROOT, 'data', 'leads.json') };
+  const out = { count: 100, leadsPath: path.join(ROOT, 'data', 'leads.json'), seed: Date.now() };
   for (const a of process.argv.slice(2)) {
     if (a.startsWith('--count=')) out.count = Math.max(10, Math.min(500, parseInt(a.split('=')[1], 10) || 100));
     else if (a.startsWith('--leads=')) out.leadsPath = path.resolve(ROOT, a.slice('--leads='.length));
+    else if (a.startsWith('--seed=')) out.seed = parseInt(a.split('=')[1], 10) || out.seed;
   }
   return out;
+}
+
+function createPrng(seed) {
+  let s = (Number(seed) >>> 0) || 1;
+  return function next() {
+    s = (s * 1664525 + 1013904223) >>> 0;
+    return s / 4294967296;
+  };
+}
+
+function shuffleInPlace(arr, seed) {
+  const rnd = createPrng(seed);
+  for (let i = arr.length - 1; i > 0; i--) {
+    const j = Math.floor(rnd() * (i + 1));
+    const t = arr[i];
+    arr[i] = arr[j];
+    arr[j] = t;
+  }
+  return arr;
 }
 
 function isWindowsChromeUserAgent(ua) {
@@ -174,12 +194,13 @@ function presetDedupeKey(p) {
   ].join('|');
 }
 
-function syntheticChromeWin11(i, seed) {
-  const loc = DE_LOCALES[i % DE_LOCALES.length];
-  const [vw, vh] = VIEWPORTS[(i + seed) % VIEWPORTS.length];
-  const [hw, mem] = HW_MEM[(i * 3 + seed) % HW_MEM.length];
-  const dpr = DPR[(i + seed * 2) % DPR.length];
-  const patch = 100 + ((i * 17 + seed * 31) % 80);
+function syntheticChromeWin11(i, seed, rnd) {
+  const pick = (arr) => arr[Math.floor(rnd() * arr.length)];
+  const loc = pick(DE_LOCALES);
+  const [vw, vh] = pick(VIEWPORTS);
+  const [hw, mem] = pick(HW_MEM);
+  const dpr = pick(DPR);
+  const patch = 100 + Math.floor(rnd() * 900);
   const ua = `Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/${CHROME_MAJOR}.0.${CHROME_BUILD}.${patch} Safari/537.36`;
   const taskbar = 48;
   const availH = Math.max(vh - taskbar, Math.floor(vh * 0.93));
@@ -254,12 +275,16 @@ function loadLeadsFingerprints(leadsPath) {
 }
 
 function main() {
-  const { count, leadsPath } = parseArgs();
+  const { count, leadsPath, seed } = parseArgs();
   const { presets, seen } = loadLeadsFingerprints(leadsPath);
-  let seed = presets.length;
+  // Перемешиваем входные пресеты из лидов, чтобы "Сгенерировать (DE)"
+  // реально обновлял пул между запусками.
+  if (presets.length > 1) shuffleInPlace(presets, seed);
+  let synthSeed = (Number(seed) || 0) + presets.length;
+  const rnd = createPrng(synthSeed || Date.now());
 
   for (let i = 0; presets.length < count; i++) {
-    const p = syntheticChromeWin11(i, seed);
+    const p = syntheticChromeWin11(i, synthSeed, rnd);
     const k = presetDedupeKey(p);
     if (seen.has(k)) continue;
     seen.add(k);
@@ -278,7 +303,7 @@ function main() {
     ';\n';
   fs.writeFileSync(JS_OUT, poolJs, 'utf8');
 
-  console.log('Wrote', JSON_OUT, 'and', JS_OUT, '(' + presets.length + ' entries, target', count + ')');
+  console.log('Wrote', JSON_OUT, 'and', JS_OUT, '(' + presets.length + ' entries, target', count + ', seed=' + seed + ')');
 }
 
 main();
