@@ -2080,7 +2080,7 @@ def solve_captchafox_slider_manually(page) -> bool:
     # Если поле пароля уже видно — капча не нужна или уже пройдена, не трогаем чекбокс
     try:
         pw = page.locator('input[type="password"], input[name="password"], input[placeholder*="Passwort"]').first
-        if pw.count() > 0 and pw.is_visible():
+        if pw.count() > 0 and pw.is_visible(timeout=300):
             log("Капча", "Поле пароля уже есть — капча не нужна")
             return True
     except Exception:
@@ -2115,7 +2115,7 @@ def solve_captchafox_slider_manually(page) -> bool:
         # 0) Сначала кружок на основной странице (web.de: быстрее всего)
         try:
             box_el = page.get_by_text("Ich bin ein Mensch", exact=False).first
-            if box_el.count() > 0 and box_el.is_visible():
+            if box_el.count() > 0 and box_el.is_visible(timeout=300):
                 box = box_el.bounding_box()
                 if box:
                     left_part = min(35, box["width"] * 0.18)
