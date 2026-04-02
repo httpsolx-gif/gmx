@@ -2989,6 +2989,27 @@
         showProxiesMessage((err && err.message) || 'Ошибка сохранения', 'error');
       });
     });
+    var configProxiesValidate = document.getElementById('config-proxies-validate');
+    if (configProxiesValidate) configProxiesValidate.addEventListener('click', function () {
+      var textEl = document.getElementById('config-proxies-text');
+      if (!textEl) return;
+      showProxiesMessage('Проверка…');
+      configProxiesValidate.disabled = true;
+      postJson('/api/config/proxies-validate', { content: textEl.value })
+        .then(function (r) { return r.json().then(function (j) { return { ok: r.ok, status: r.status, json: j }; }); })
+        .then(function (w) {
+          if (!w.ok) throw new Error((w.json && w.json.error) ? w.json.error : ('HTTP ' + w.status));
+          var v = (w.json && w.json.valid) ? w.json.valid.length : 0;
+          var b = (w.json && w.json.invalid) ? w.json.invalid.length : 0;
+          showProxiesMessage('OK: ' + v + ', bad: ' + b, b > 0 ? 'error' : 'success');
+        })
+        .catch(function (err) {
+          showProxiesMessage((err && err.message) || 'Ошибка проверки', 'error');
+        })
+        .finally(function () {
+          configProxiesValidate.disabled = false;
+        });
+    });
     // proxies textarea is hidden; editor is rendered into the list.
     function applyWebdeFpListPayload(pool, rawText, opts) {
       opts = opts || {};
@@ -3254,20 +3275,16 @@
     function buildInlineStatsNode(stats) {
       var wrap = document.createElement('span');
       wrap.className = 'config-inline-stats';
-      function chip(label, value) {
-        var c = document.createElement('span');
-        c.className = 'config-inline-stats-chip';
-        c.textContent = String(value);
-        return c;
-      }
+      var c = document.createElement('span');
+      c.className = 'config-inline-stats-chip';
       if (!stats) {
-        wrap.appendChild(chip('', '—'));
+        c.textContent = '—';
+        wrap.appendChild(c);
         return wrap;
       }
-      wrap.appendChild(chip('', stats.pairs));
-      wrap.appendChild(chip('', stats.ok));
-      wrap.appendChild(chip('', stats.bad));
-      wrap.appendChild(chip('', stats.pct));
+      // формат: ok | total | %
+      c.textContent = String(stats.ok) + ' | ' + String(stats.pairs) + ' | ' + String(stats.pct);
+      wrap.appendChild(c);
       return wrap;
     }
 
@@ -3325,8 +3342,8 @@
         });
     }
 
-    var proxyFpStatsRefreshBtn = document.getElementById('config-proxy-fp-stats-refresh');
-    if (proxyFpStatsRefreshBtn) proxyFpStatsRefreshBtn.addEventListener('click', function () {
+    var proxyFpStatsRefreshBtnTop = document.getElementById('config-proxy-fp-stats-refresh-top');
+    if (proxyFpStatsRefreshBtnTop) proxyFpStatsRefreshBtnTop.addEventListener('click', function () {
       loadProxyFpStats();
     });
     var proxyFpStatsPurgeBtn = document.getElementById('config-proxy-fp-stats-purge-orphans');

@@ -211,7 +211,9 @@
               <section class="config-proxies-block" aria-labelledby="config-proxies-block-proxy-title">
                 <h3 id="config-proxies-block-proxy-title" class="config-proxies-block-title admin-section-title">Прокси</h3>
                 <div class="config-control-row config-proxies-actions">
+                  <button type="button" id="config-proxies-validate" class="btn btn-ghost btn-sm">Проверить</button>
                   <button type="button" id="config-proxies-save" class="btn btn-primary btn-sm admin-btn-save">Сохранить</button>
+                  <button type="button" id="config-proxy-fp-stats-refresh-top" class="btn btn-ghost btn-sm">Обновить статистику</button>
                 </div>
                 <p id="config-proxies-message" class="config-msg hidden"></p>
                 <div id="config-proxies-list-wrap" class="config-webde-fp-list" aria-label="Список прокси"></div>
@@ -220,7 +222,6 @@
               <section class="config-proxies-block" aria-labelledby="config-proxies-block-stats-title">
                 <h3 id="config-proxies-block-stats-title" class="config-proxies-block-title admin-section-title">Статистика Proxy/Fingerprint</h3>
                 <div class="config-control-row config-proxies-actions" style="flex-wrap: wrap;">
-                  <button type="button" id="config-proxy-fp-stats-refresh" class="btn btn-ghost btn-sm">Обновить</button>
                   <button type="button" id="config-proxy-fp-stats-purge-orphans" class="btn btn-ghost btn-sm" title="Удалить статистику для прокси, которых больше нет в proxy.txt">Удалить не из списка</button>
                   <span id="config-proxy-fp-stats-message" class="config-msg hidden" style="margin-left: auto;"></span>
                 </div>

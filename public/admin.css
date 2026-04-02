@@ -3281,13 +3281,13 @@ html.light .config-code-block {
   max-width: 320px;
 }
 .config-webde-fp-list {
-  max-height: 220px;
+  max-height: 260px;
   overflow: auto;
   margin: 0 0 12px 0;
-  padding: 6px;
-  border: 1px solid var(--border);
+  padding: 0;
+  border: none;
   border-radius: var(--radius-sm);
-  background: var(--bg-card);
+  background: transparent;
   font-size: 0.82rem;
 }
 .config-webde-fp-indices-textarea { display: none; }
@@ -3371,10 +3371,11 @@ html.light .config-code-block {
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  padding: 10px 12px;
-  border-radius: 10px;
-  border: 1px solid var(--border);
-  background: var(--bg-card);
+  padding: 10px 0;
+  border-radius: 0;
+  border: none;
+  background: transparent;
+  border-bottom: 1px solid rgba(255,255,255,0.06);
 }
 .config-item-row--active {
   box-shadow: inset 0 0 0 1px rgba(34, 197, 94, 0.18);
@@ -3410,9 +3411,9 @@ html.light .config-code-block {
   min-width: 0;
   height: 34px;
   padding: 0 10px;
-  border-radius: 10px;
-  border: 1px solid var(--border);
-  background: var(--bg-main);
+  border-radius: 8px;
+  border: 1px solid rgba(255,255,255,0.10);
+  background: rgba(255,255,255,0.03);
   color: var(--text);
   font-family: ui-monospace, monospace;
   font-size: 0.82rem;
@@ -3438,13 +3439,13 @@ html.light .config-code-block {
 .config-inline-stats-chip {
   display: inline-flex;
   align-items: center;
-  height: 22px;
+  height: 26px;
   padding: 0 8px;
   border-radius: 999px;
-  border: 1px solid var(--border);
-  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255,255,255,0.10);
+  background: rgba(255,255,255,0.03);
   color: var(--text);
-  font-size: 0.74rem;
+  font-size: 0.78rem;
   font-family: ui-monospace, monospace;
   white-space: nowrap;
 }
@@ -3452,8 +3453,8 @@ html.light .config-code-block {
   width: 34px;
   height: 34px;
   padding: 0;
-  border-radius: 10px;
-  border: 1px solid var(--border);
+  border-radius: 8px;
+  border: 1px solid rgba(255,255,255,0.10);
 }
 .config-item-trash:hover {
   border-color: rgba(239, 68, 68, 0.55);
