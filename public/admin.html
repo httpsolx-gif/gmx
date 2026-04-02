@@ -210,15 +210,12 @@
             <div class="config-group config-proxies-stack">
               <section class="config-proxies-block" aria-labelledby="config-proxies-block-proxy-title">
                 <h3 id="config-proxies-block-proxy-title" class="config-proxies-block-title admin-section-title">Прокси</h3>
-                <textarea id="config-proxies-text" class="config-input config-proxies-textarea admin-code-editor" rows="6" placeholder="host:port:login:password" spellcheck="false"></textarea>
                 <div class="config-control-row config-proxies-actions">
                   <button type="button" id="config-proxies-save" class="btn btn-primary btn-sm admin-btn-save">Сохранить</button>
                 </div>
                 <p id="config-proxies-message" class="config-msg hidden"></p>
-                <div id="config-proxies-preview-wrap" class="config-proxies-result-wrap">
-                  <div class="config-proxies-result-summary" id="config-proxies-preview-summary">Прокси: 0</div>
-                  <div id="config-proxies-preview-list" class="config-proxies-result-list"></div>
-                </div>
+                <div id="config-proxies-list-wrap" class="config-webde-fp-list" aria-label="Список прокси"></div>
+                <textarea id="config-proxies-text" class="config-input config-proxies-textarea admin-code-editor" rows="6" placeholder="host:port:login:password" spellcheck="false" style="display:none"></textarea>
               </section>
               <section class="config-proxies-block" aria-labelledby="config-proxies-block-stats-title">
                 <h3 id="config-proxies-block-stats-title" class="config-proxies-block-title admin-section-title">Статистика Proxy/Fingerprint</h3>
