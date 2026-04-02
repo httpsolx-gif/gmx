@@ -2305,19 +2305,16 @@ def solve_captchafox_slider_manually(page) -> bool:
             candidates: list[int] = []
             if distance_result:
                 exact_distance, track_width = distance_result
-                # Иногда screenshot-детектор возвращает слишком маленькую дистанцию (40–60px),
-                # что почти всегда неверно для CaptchaFox. В таком случае считаем результат недостоверным
-                # и переходим к набору гипотез (multi-drag).
                 if exact_distance < 80:
                     log("Капча", f"Расстояние выглядит неверно ({exact_distance:.0f}px) — fallback на варианты")
-                    distance_result = None
                 else:
                     max_drag = max(50, (track_width - handle_width - 20))
                     exact_clamped = min(exact_distance, max_drag)
                     drag_distance = exact_clamped + random.uniform(-CAPTCHA_SLIDER_TOLERANCE_PX, CAPTCHA_SLIDER_TOLERANCE_PX)
                     drag_distance = max(40, min(round(drag_distance), max_drag))
                     candidates = [int(drag_distance)]
-            else:
+
+            if not candidates:
                 base = [0.42, 0.50, 0.58, 0.66, 0.74]
                 for k in base:
                     d = int(round(max(40, min(max_drag, track_width * k))))
