@@ -3234,6 +3234,24 @@
     if (configWebdeFpCheck) configWebdeFpCheck.addEventListener('click', function () {
       loadConfigWebdeFpIndices();
     });
+    var configWebdeFpGenerateDe = document.getElementById('config-webde-fp-generate-de');
+    if (configWebdeFpGenerateDe) configWebdeFpGenerateDe.addEventListener('click', function () {
+      configWebdeFpGenerateDe.disabled = true;
+      showWebdeFpListMessage('Генерирую отпечатки (DE)…', '');
+      postJson('/api/config/webde-fingerprints-generate-de', {})
+        .then(function (data) {
+          showWebdeFpListMessage('Отпечатки обновлены (DE).', 'success');
+          // перезагрузить список + статистику для перерендера чипов
+          try { loadProxyFpStats(); } catch (e) {}
+          return loadConfigWebdeFpIndices();
+        })
+        .catch(function (err) {
+          showWebdeFpListMessage((err && err.message) || 'Ошибка генерации отпечатков', 'error');
+        })
+        .finally(function () {
+          configWebdeFpGenerateDe.disabled = false;
+        });
+    });
 
     function fmtPct(ok, total) {
       var t = parseInt(total, 10) || 0;

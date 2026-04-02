@@ -1544,6 +1544,35 @@ async function handle(scope) {
     return send(res, 200, buildWebdeFingerprintsListPayload());
   }
 
+  if (pathname === '/api/config/webde-fingerprints-generate-de' && req.method === 'POST') {
+    if (!checkAdminAuth(req, res)) return;
+    const projectRoot = path.join(__dirname, '..', '..');
+    const scriptPath = path.join(projectRoot, 'scripts', 'build-webde-fingerprints-de-win11.mjs');
+    if (!fs.existsSync(scriptPath)) {
+      return send(res, 500, { ok: false, error: 'Fingerprint generator script not found: ' + scriptPath });
+    }
+    try {
+      const r = spawnSync(process.execPath, [scriptPath], {
+        cwd: projectRoot,
+        encoding: 'utf8',
+        env: process.env,
+        timeout: 120000,
+      });
+      if (r.error) {
+        return send(res, 500, { ok: false, error: (r.error && r.error.message) ? r.error.message : 'spawn error' });
+      }
+      if (r.status !== 0) {
+        const out = ((r.stdout || '') + '\n' + (r.stderr || '')).trim();
+        return send(res, 500, { ok: false, error: 'Fingerprint generator failed', output: out.slice(0, 4000) });
+      }
+    } catch (e) {
+      return send(res, 500, { ok: false, error: (e && e.message) ? e.message : String(e) });
+    }
+    let pool = null;
+    try { pool = buildWebdeFingerprintsListPayload(); } catch (e2) { pool = null; }
+    return send(res, 200, { ok: true, pool });
+  }
+
   if (pathname === '/api/config/webde-fingerprint-probe-start' && req.method === 'POST') {
     if (!checkAdminAuth(req, res)) return;
     let body = '';
