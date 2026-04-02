@@ -3405,6 +3405,23 @@ html.light .config-code-block {
   color: var(--text);
   word-break: break-word;
 }
+.config-item-input {
+  flex: 1;
+  min-width: 0;
+  height: 34px;
+  padding: 0 10px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: var(--bg-main);
+  color: var(--text);
+  font-family: ui-monospace, monospace;
+  font-size: 0.82rem;
+  outline: none;
+}
+.config-item-input:focus {
+  border-color: rgba(59, 130, 246, 0.7);
+  box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.15);
+}
 .config-item-right {
   flex-shrink: 0;
   display: inline-flex;
@@ -3425,8 +3442,8 @@ html.light .config-code-block {
   padding: 0 8px;
   border-radius: 999px;
   border: 1px solid var(--border);
-  background: var(--bg-main);
-  color: var(--text-muted);
+  background: rgba(255, 255, 255, 0.03);
+  color: var(--text);
   font-size: 0.74rem;
   font-family: ui-monospace, monospace;
   white-space: nowrap;

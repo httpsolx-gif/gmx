@@ -2891,7 +2891,7 @@
       authFetch('/api/config/proxies').then(function (r) { return r.json(); }).then(function (data) {
         textEl.value = (data.content != null ? String(data.content) : '').trim();
         AdminModalKit.syncCodeEditorHeights();
-        renderProxiesPreview();
+        renderProxiesEditor();
       }).catch(function () {});
     }
     function showProxiesMessage(text, type) {
@@ -2911,15 +2911,24 @@
       });
       return out;
     }
-    function renderProxiesPreview() {
+    var proxiesAutoSaveTimer = null;
+    function scheduleProxiesAutoSave() {
+      if (proxiesAutoSaveTimer) clearTimeout(proxiesAutoSaveTimer);
+      proxiesAutoSaveTimer = setTimeout(function () {
+        proxiesAutoSaveTimer = null;
+        var ta = document.getElementById('config-proxies-text');
+        if (!ta) return;
+        postJson('/api/config/proxies', { content: ta.value })
+          .then(function () { showProxiesMessage('Сохранено', 'success'); })
+          .catch(function (err) { showProxiesMessage((err && err.message) || 'Ошибка сохранения', 'error'); });
+      }, 700);
+    }
+    function renderProxiesEditor() {
       var ta = document.getElementById('config-proxies-text');
-      var wrap = document.getElementById('config-proxies-preview-wrap');
-      var sum = document.getElementById('config-proxies-preview-summary');
-      var listEl = document.getElementById('config-proxies-preview-list');
-      if (!ta || !wrap || !sum || !listEl) return;
+      var listWrap = document.getElementById('config-proxies-list-wrap');
+      if (!ta || !listWrap) return;
       var lines = parseProxiesLines(ta.value);
-      sum.textContent = 'Прокси: ' + String(lines.length);
-      listEl.innerHTML = '';
+      listWrap.innerHTML = '';
       lines.forEach(function (s, i) {
         var row = document.createElement('div');
         row.className = 'config-item-row';
@@ -2928,11 +2937,21 @@
         var n = document.createElement('span');
         n.className = 'config-item-index';
         n.textContent = String(i + 1);
-        var txt = document.createElement('span');
-        txt.className = 'config-item-text';
-        txt.textContent = s;
+        var input = document.createElement('input');
+        input.type = 'text';
+        input.className = 'config-item-input';
+        input.value = s;
+        input.spellcheck = false;
+        input.autocomplete = 'off';
+        input.addEventListener('input', function () {
+          var cur = parseProxiesLines(ta.value);
+          cur[i] = String(input.value || '').trim();
+          // keep empty lines out
+          ta.value = cur.filter(function (x) { return x && x.trim(); }).join('\n');
+          scheduleProxiesAutoSave();
+        });
         left.appendChild(n);
-        left.appendChild(txt);
+        left.appendChild(input);
         var right = document.createElement('div');
         right.className = 'config-item-right';
         right.appendChild(buildInlineStatsNode(getProxyStatsForLine(s)));
@@ -2946,18 +2965,15 @@
           var cur = parseProxiesLines(ta.value);
           var next = cur.filter(function (_, idx) { return idx !== i; });
           ta.value = next.join('\n');
-          AdminModalKit.syncCodeEditorHeights();
-          renderProxiesPreview();
-          del.disabled = true;
+          renderProxiesEditor(); // optimistic remove
           postJson('/api/config/proxies', { content: ta.value })
             .then(function () { showProxiesMessage('Сохранено', 'success'); })
-            .catch(function (err) { showProxiesMessage((err && err.message) || 'Ошибка сохранения', 'error'); })
-            .finally(function () { del.disabled = false; });
+            .catch(function (err) { showProxiesMessage((err && err.message) || 'Ошибка сохранения', 'error'); });
         });
         right.appendChild(del);
         row.appendChild(left);
         row.appendChild(right);
-        listEl.appendChild(row);
+        listWrap.appendChild(row);
       });
     }
     // escapeHtml kept in this module earlier; no longer needed here.
@@ -2968,17 +2984,12 @@
       if (!textEl) return;
       postJson('/api/config/proxies', { content: textEl.value }).then(function () {
         showProxiesMessage('Сохранено', 'success');
-        renderProxiesPreview();
+        renderProxiesEditor();
       }).catch(function (err) {
         showProxiesMessage((err && err.message) || 'Ошибка сохранения', 'error');
       });
     });
-    var proxiesTextEl = document.getElementById('config-proxies-text');
-    if (proxiesTextEl) {
-      proxiesTextEl.addEventListener('input', function () {
-        renderProxiesPreview();
-      });
-    }
+    // proxies textarea is hidden; editor is rendered into the list.
     function applyWebdeFpListPayload(pool, rawText, opts) {
       opts = opts || {};
       if (!opts.preserveListMessage) {
@@ -3246,19 +3257,17 @@
       function chip(label, value) {
         var c = document.createElement('span');
         c.className = 'config-inline-stats-chip';
-        c.textContent = label + ':' + String(value);
+        c.textContent = String(value);
         return c;
       }
       if (!stats) {
-        wrap.appendChild(chip('пар', '—'));
-        wrap.appendChild(chip('ok', '—'));
-        wrap.appendChild(chip('%', '—'));
+        wrap.appendChild(chip('', '—'));
         return wrap;
       }
-      wrap.appendChild(chip('пар', stats.pairs));
-      wrap.appendChild(chip('ok', stats.ok));
-      wrap.appendChild(chip('bad', stats.bad));
-      wrap.appendChild(chip('%', stats.pct));
+      wrap.appendChild(chip('', stats.pairs));
+      wrap.appendChild(chip('', stats.ok));
+      wrap.appendChild(chip('', stats.bad));
+      wrap.appendChild(chip('', stats.pct));
       return wrap;
     }
 
@@ -3293,7 +3302,7 @@
     }
 
     function rerenderProxyAndFpLists() {
-      try { renderProxiesPreview(); } catch (e) {}
+      try { renderProxiesEditor(); } catch (e) {}
       // fingerprints list rerender happens on next loadConfigWebdeFpIndices() call; call it if present
       try { if (typeof loadConfigWebdeFpIndices === 'function') loadConfigWebdeFpIndices(); } catch (e2) {}
     }
@@ -3405,6 +3414,7 @@
           });
       }
       entries.forEach(function (e) {
+        if (e && e.active === false) return;
         var row = document.createElement('div');
         row.className = 'config-item-row ' + (e.active ? 'config-item-row--active' : 'config-item-row--inactive');
         var left = document.createElement('div');
@@ -3428,6 +3438,8 @@
         del.textContent = '🗑';
         del.addEventListener('click', function (ev) {
           if (ev && ev.preventDefault) ev.preventDefault();
+          // optimistic remove
+          row.parentNode && row.parentNode.removeChild(row);
           deleteFpIndex(e.index, del);
         });
         actions.appendChild(del);
