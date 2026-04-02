@@ -2929,6 +2929,7 @@
       if (!ta || !listWrap) return;
       var lines = parseProxiesLines(ta.value);
       listWrap.innerHTML = '';
+      if (!lines.length) lines = [''];
       lines.forEach(function (s, i) {
         var row = document.createElement('div');
         row.className = 'config-item-row';
