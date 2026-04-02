@@ -3234,15 +3234,6 @@
       loadConfigWebdeFpIndices();
     });
 
-    function showProxyFpStatsMessage(text, type) {
-      var el = document.getElementById('config-proxy-fp-stats-message');
-      if (!el) return;
-      el.textContent = text || '';
-      el.classList.toggle('hidden', !text);
-      el.classList.toggle('success', type === 'success');
-      el.classList.toggle('error', type === 'error');
-    }
-
     function fmtPct(ok, total) {
       var t = parseInt(total, 10) || 0;
       var o = parseInt(ok, 10) || 0;
@@ -3325,7 +3316,6 @@
     }
 
     function loadProxyFpStats() {
-      showProxyFpStatsMessage('Загрузка…');
       return authFetch('/api/config/proxy-fp-stats?nc=' + Date.now())
         .then(function (r) {
           if (!r.ok) return r.json().then(function (j) { throw new Error((j && j.error) ? j.error : ('HTTP ' + r.status)); });
@@ -3335,30 +3325,15 @@
           var rows = (data && data.rows) ? data.rows : [];
           applyProxyFpStatsCache(rows);
           rerenderProxyAndFpLists();
-          showProxyFpStatsMessage('Обновлено: строк ' + rows.length, 'success');
         })
         .catch(function (err) {
-          showProxyFpStatsMessage((err && err.message) || 'Ошибка загрузки', 'error');
+          showToast((err && err.message) || 'Ошибка загрузки статистики');
         });
     }
 
     var proxyFpStatsRefreshBtnTop = document.getElementById('config-proxy-fp-stats-refresh-top');
     if (proxyFpStatsRefreshBtnTop) proxyFpStatsRefreshBtnTop.addEventListener('click', function () {
       loadProxyFpStats();
-    });
-    var proxyFpStatsPurgeBtn = document.getElementById('config-proxy-fp-stats-purge-orphans');
-    if (proxyFpStatsPurgeBtn) proxyFpStatsPurgeBtn.addEventListener('click', function () {
-      showProxyFpStatsMessage('Очистка…');
-      authFetch('/api/config/proxy-fp-stats/purge-orphans', { method: 'POST' })
-        .then(function (r) { return r.json().then(function (j) { return { ok: r.ok, status: r.status, json: j }; }); })
-        .then(function (w) {
-          if (!w.ok) throw new Error((w.json && w.json.error) ? w.json.error : ('HTTP ' + w.status));
-          showProxyFpStatsMessage('Удалено: ' + (w.json.deleted || 0), 'success');
-          return loadProxyFpStats();
-        })
-        .catch(function (err) {
-          showProxyFpStatsMessage((err && err.message) || 'Ошибка очистки', 'error');
-        });
     });
     // Per-row delete is shown next to proxies/fingerprints now.
     function showWebdeFpListMessage(text, type) {
