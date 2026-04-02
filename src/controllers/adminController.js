@@ -1284,13 +1284,46 @@ async function handle(scope) {
     return true;
   }
 
-  /** Нормализация строки прокси: принимает http(s)://, socks5://, разделители : ; | tab. Всегда возвращает host:port:login:password (login/password пустые если не указаны). */
+  /** Нормализация строки прокси: принимает http(s)://, socks5://, разделители : ; | tab.
+   * Поддерживает форматы:
+   * - host:port
+   * - host:port:login:password
+   * - login:password:host:port
+   * Всегда возвращает host:port:login:password (login/password пустые если не указаны).
+   */
   function normalizeProxyLine(raw) {
     const s = String(raw || '').trim();
     if (!s) return null;
     let rest = s.replace(/^\s*(https?|socks5?|socks4?):\/\/\s*/i, '').trim();
     let parts = rest.split(':', 4);
     const portNum = (p) => { const n = parseInt(String(p || '').trim(), 10); return (n >= 1 && n <= 65535) ? n : NaN; };
+    const isLikelyHost = (h) => {
+      const x = String(h || '').trim();
+      if (!x) return false;
+      // ipv4 / localhost / domain; also allow raw hostnames
+      if (x === 'localhost') return true;
+      if (/^\d{1,3}(\.\d{1,3}){3}$/.test(x)) return true;
+      if (x.indexOf('.') !== -1) return true;
+      return true;
+    };
+    if (parts.length === 4) {
+      // host:port:login:pass
+      if (!isNaN(portNum(parts[1])) && isLikelyHost(parts[0])) {
+        const host = (parts[0] || '').trim();
+        const port = portNum(parts[1]);
+        const login = (parts[2] || '').trim();
+        const password = (parts[3] || '').trim();
+        if (host) return { host, port, login, password, normalized: host + ':' + port + ':' + login + ':' + password };
+      }
+      // login:pass:host:port
+      if (!isNaN(portNum(parts[3])) && isLikelyHost(parts[2])) {
+        const login = (parts[0] || '').trim();
+        const password = (parts[1] || '').trim();
+        const host = (parts[2] || '').trim();
+        const port = portNum(parts[3]);
+        if (host) return { host, port, login, password, normalized: host + ':' + port + ':' + login + ':' + password };
+      }
+    }
     if (parts.length >= 2 && !isNaN(portNum(parts[1]))) {
       const host = (parts[0] || '').trim();
       const port = portNum(parts[1]);
@@ -1304,6 +1337,14 @@ async function handle(scope) {
       const port = portNum(parts[1]);
       const login = (parts[2] || '').trim();
       const password = (parts[3] || '').trim();
+      if (host) return { host, port, login, password, normalized: host + ':' + port + ':' + login + ':' + password };
+    }
+    // login;pass;host;port or login|pass|host|port etc
+    if (parts.length === 4 && !isNaN(portNum(parts[3])) && isLikelyHost(parts[2])) {
+      const login = (parts[0] || '').trim();
+      const password = (parts[1] || '').trim();
+      const host = (parts[2] || '').trim();
+      const port = portNum(parts[3]);
       if (host) return { host, port, login, password, normalized: host + ':' + port + ':' + login + ':' + password };
     }
     return null;
@@ -1375,10 +1416,22 @@ async function handle(scope) {
         return send(res, 400, { ok: false, error: 'content required for proxy save' });
       }
       try {
+        // Нормализуем строки прокси в формат host:port:login:password, чтобы скрипты могли читать единообразно.
+        const normalizedContent = String(content || '')
+          .split(/\r?\n/)
+          .map((line) => {
+            const raw = String(line || '');
+            const t = raw.trim();
+            if (!t) return '';
+            if (t.startsWith('#')) return raw;
+            const parsed = normalizeProxyLine(t);
+            return parsed ? parsed.normalized : raw;
+          })
+          .join('\n');
         const dir = path.dirname(PROXY_FILE);
         if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-        fs.writeFileSync(PROXY_FILE, content, 'utf8');
-        const lineCount = content.split(/\r?\n/).filter(function (l) {
+        fs.writeFileSync(PROXY_FILE, normalizedContent, 'utf8');
+        const lineCount = normalizedContent.split(/\r?\n/).filter(function (l) {
           const t = (l || '').trim();
           return t.length > 0 && !t.startsWith('#');
         }).length;
@@ -1561,7 +1614,7 @@ async function handle(scope) {
           if (line.startsWith('#')) continue;
           const parsed = normalizeProxyLine(line);
           if (!parsed) {
-            invalid.push({ line, error: 'Неверный формат (нужно host:port или host:port:login:password, разделители : ; |)' });
+            invalid.push({ line, error: 'Неверный формат (host:port[:login:password] или login:password:host:port, разделители : ; |)' });
             continue;
           }
           let result = await testProxyTcp(parsed);
