@@ -2856,11 +2856,11 @@ def solve_captchafox_slider_manually(page) -> bool:
                 pass
             track_width = track_width_from_dom if isinstance(track_width_from_dom, (int, float)) and track_width_from_dom > 0 else 300
             time.sleep(0.12)
-            distance_result = _get_captcha_slider_distance(captcha_frame)
-            if not distance_result:
-                distance_result = _get_captcha_slider_distance_from_canvas(captcha_frame)
-                if distance_result:
-                    log("Капча", "Расстояние для слайдера получено по картинке")
+            # Стратегия: сначала canvas (точнее, не цепляет лишние DOM-элементы),
+            # затем fallback на скриншот (если canvas не дал ответ или видим «Wiederholen» после drag).
+            distance_result = _get_captcha_slider_distance_from_canvas(captcha_frame)
+            if distance_result:
+                log("Капча", "Расстояние для слайдера получено по canvas")
             if not distance_result and _HAS_PIL:
                 distance_result = _get_captcha_slider_distance_from_screenshot(captcha_frame, track_width)
                 if distance_result:
@@ -2883,6 +2883,31 @@ def solve_captchafox_slider_manually(page) -> bool:
             try:
                 _human_drag_slider(page, js_rect, drag_distance=drag_distance, track_width=track_width, frame=captcha_frame, captcha_right_x=captcha_right_x)
                 time.sleep(random.uniform(0.3, 0.6))
+                def _retry_visible() -> bool:
+                    try:
+                        if page.locator("text=Wiederholen").first.count() > 0 and page.locator("text=Wiederholen").first.is_visible():
+                            return True
+                    except Exception:
+                        pass
+                    try:
+                        if captcha_frame.locator("text=Wiederholen").first.count() > 0 and captcha_frame.locator("text=Wiederholen").first.is_visible():
+                            return True
+                    except Exception:
+                        pass
+                    return False
+
+                if _retry_visible() and _HAS_PIL:
+                    log("Капча", "Вижу «Wiederholen» — пробую пересчитать по скриншоту и тянуть ещё раз")
+                    distance2 = _get_captcha_slider_distance_from_screenshot(captcha_frame, track_width)
+                    if distance2:
+                        exact2, track2 = distance2
+                        max_drag2 = max(50, (track2 - handle_width - 20))
+                        exact2 = min(exact2, max_drag2)
+                        drag2 = exact2 + random.uniform(-CAPTCHA_SLIDER_TOLERANCE_PX, CAPTCHA_SLIDER_TOLERANCE_PX)
+                        drag2 = max(40, min(round(drag2), max_drag2))
+                        _human_drag_slider(page, js_rect, drag_distance=drag2, track_width=track2, frame=captcha_frame, captcha_right_x=captcha_right_x)
+                        time.sleep(random.uniform(0.5, 0.8))
+
                 log("Капча", "Слайдер отпущен, жду поле пароля")
                 time.sleep(random.uniform(2.5, 3.5))
                 return True
