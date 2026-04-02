@@ -3291,67 +3291,13 @@ html.light .config-code-block {
   font-size: 0.82rem;
 }
 .config-webde-fp-indices-textarea { display: none; }
-.config-webde-fp-row {
-  display: flex;
-  gap: 10px;
-  align-items: center;
-  padding: 8px 10px;
-  border-radius: 8px;
-  margin-bottom: 2px;
-}
-.config-webde-fp-row:last-child {
-  margin-bottom: 0;
-}
-.config-webde-fp-row--active {
-  background: rgba(34, 197, 94, 0.1);
-  border-left: 3px solid var(--success, #16a34a);
-  padding-left: 9px;
-}
-.config-webde-fp-row--inactive {
-  opacity: 0.72;
-  border-left: 3px solid transparent;
-  padding-left: 9px;
-}
-.config-webde-fp-idx {
-  flex-shrink: 0;
-  min-width: 2rem;
-  font-weight: 600;
-  font-variant-numeric: tabular-nums;
-  color: var(--text-muted);
-}
-.config-webde-fp-sum {
-  flex: 1;
-  min-width: 0;
-  color: var(--text);
-  word-break: break-word;
-}
-.config-webde-fp-actions {
-  flex-shrink: 0;
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-}
-.config-webde-fp-del {
-  width: 30px;
-  height: 30px;
-  padding: 0;
-  line-height: 1;
-  border-radius: 8px;
-  border: 1px solid var(--border);
-}
-.config-webde-fp-del:hover {
-  border-color: rgba(239, 68, 68, 0.55);
-  background: rgba(239, 68, 68, 0.08);
-}
+/* legacy fp row styles removed (unified via .config-item-*) */
 
 .config-proxy-fp-stats-grid {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 12px;
-  margin-top: 10px;
+  display: none;
 }
 @media (max-width: 980px) {
-  .config-proxy-fp-stats-grid { grid-template-columns: 1fr; }
+  .config-proxy-fp-stats-grid { display: none; }
 }
 .config-proxy-fp-stats-card {
   border: 1px solid var(--border);
@@ -3418,29 +3364,83 @@ html.light .config-code-block {
 .config-proxies-result-list {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 6px;
 }
-.config-proxies-line {
+.config-item-row {
   display: flex;
-  align-items: flex-start;
-  gap: 8px;
-  padding: 6px 8px;
-  border-radius: 6px;
-  font-family: ui-monospace, monospace;
-  font-size: 0.8rem;
-  word-break: break-all;
-}
-.config-proxies-line--plain {
-  background: var(--bg-card);
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 12px;
+  border-radius: 10px;
   border: 1px solid var(--border);
+  background: var(--bg-card);
 }
-.config-proxies-line-no {
+.config-item-row--active {
+  box-shadow: inset 0 0 0 1px rgba(34, 197, 94, 0.18);
+}
+.config-item-row--inactive {
+  opacity: 0.78;
+}
+.config-item-left {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  flex: 1;
+}
+.config-item-index {
   flex-shrink: 0;
-  min-width: 26px;
+  min-width: 2rem;
   text-align: right;
   font-variant-numeric: tabular-nums;
+  font-weight: 700;
   color: var(--text-muted);
-  padding-top: 1px;
+}
+.config-item-text {
+  flex: 1;
+  min-width: 0;
+  font-family: ui-monospace, monospace;
+  font-size: 0.82rem;
+  color: var(--text);
+  word-break: break-word;
+}
+.config-item-right {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+.config-inline-stats {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+.config-inline-stats-chip {
+  display: inline-flex;
+  align-items: center;
+  height: 22px;
+  padding: 0 8px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--bg-main);
+  color: var(--text-muted);
+  font-size: 0.74rem;
+  font-family: ui-monospace, monospace;
+  white-space: nowrap;
+}
+.config-item-trash {
+  width: 34px;
+  height: 34px;
+  padding: 0;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+}
+.config-item-trash:hover {
+  border-color: rgba(239, 68, 68, 0.55);
+  background: rgba(239, 68, 68, 0.08);
 }
 .config-proxies-line--valid {
   background: rgba(34, 197, 94, 0.12);
