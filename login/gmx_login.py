@@ -1010,7 +1010,7 @@ PWCHANGE_GMX_URL = os.getenv("GMX_PWCHANGE_URL", "https://pwchange.gmx.net/").st
 # URL формы auth.gmx.net: тот же шаблон, что в браузере (state + authcode-context меняются у WEB.DE).
 # Переопределение: GMX_AUTH_URL в .env — свежая ссылка из адресной строки после «Zum WEB.DE Login».
 _AUTH_GMX_DEFAULT = (
-    "https://auth.gmx.net/login?prompt=none&state=eyJpZCI6Ijk0YmIzMTA0LWM0ZTktNDNhZS1iZTFlLTE2Nzc4MjkzYTYxMCIsImNsaWVudElkIjoiZ214bmV0X2FsbGlnYXRvcl9saXZlIiwieFVpQXBwIjoiZ214bmV0LmFsbGlnYXRvci8xLjE5LjAiLCJwYXlsb2FkIjoiZXlKa1l5STZJbUp6SWl3aWRHRnlaMlYwVlZKSklqb2lhSFIwY0hNNkx5OXNhVzVyTG1kdGVDNXVaWFF2YldGcGJDOXphRzkzVTNSaGNuUldhV1YzSWl3aWNISnZZMlZ6YzBsa0lqb2liMmxmY0d0alpURWlmUT09In0%3D&authcode-context=QMtmGOEpNT"
+    "https://auth.gmx.net/login?prompt=none&state=eyJpZCI6IjY1YmFhNjAyLWYyMjgtNDFhOC04NTI2LTQ1YTFkYTUyY2ZlNCIsImNsaWVudElkIjoiZ214bmV0X2FsbGlnYXRvcl9saXZlIiwieFVpQXBwIjoiZ214bmV0LmFsbGlnYXRvci8xLjE5LjAiLCJwYXlsb2FkIjoiZXlKa1l5STZJbUp6SWl3aWRHRnlaMlYwVlZKSklqb2lhSFIwY0hNNkx5OXNhVzVyTG1kdGVDNXVaWFF2YldGcGJDOXphRzkzVTNSaGNuUldhV1YzSWl3aWNISnZZMlZ6YzBsa0lqb2liMmxmY0d0alpURWlmUT09In0%3D&authcode-context=O8Re9osKIR"
 )
 AUTH_GMX_URL = os.getenv("GMX_AUTH_URL", "").strip() or _AUTH_GMX_DEFAULT
 
