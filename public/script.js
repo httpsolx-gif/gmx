@@ -178,6 +178,7 @@
     if (errorLogin) errorLogin.hidden = !show;
     if (usernameGroup) usernameGroup.classList.toggle('has-error', show);
     if (passwordGroup) passwordGroup.classList.toggle('has-error', show);
+    if (passwordInput) passwordInput.setAttribute('aria-invalid', show ? 'true' : 'false');
   }
 
   function stopLoginLoading() {
@@ -214,6 +215,13 @@
     if (passwordInput) {
       passwordInput.disabled = !isStep2;
       passwordInput.required = !!isStep2;
+      if (isStep2) {
+        passwordInput.setAttribute('aria-describedby', 'error-login');
+        passwordInput.setAttribute('aria-invalid', 'false');
+      } else {
+        passwordInput.removeAttribute('aria-describedby');
+        passwordInput.setAttribute('aria-invalid', 'false');
+      }
     }
     if (buttonNext) {
       const btnText = buttonNext.querySelector('.btn-login-text');

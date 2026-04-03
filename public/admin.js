@@ -398,18 +398,23 @@
     toast._tid = setTimeout(function () { toast.classList.remove('visible'); }, 1200);
   }
 
-  function showToast(message) {
+  /** variant: 'error' | 'success' (по умолчанию error — как раньше). */
+  function showToast(message, variant) {
+    variant = variant || 'error';
     var toast = document.getElementById('msg-toast');
     if (!toast) {
       toast = document.createElement('div');
       toast.id = 'msg-toast';
-      toast.className = 'copy-toast copy-toast--error';
       document.body.appendChild(toast);
     }
-    toast.textContent = message || 'Ошибка';
+    toast.textContent = message || (variant === 'success' ? 'Готово' : 'Ошибка');
+    toast.className = 'copy-toast';
+    if (variant === 'success') toast.classList.add('copy-toast--success');
+    else toast.classList.add('copy-toast--error');
     toast.classList.add('visible');
     clearTimeout(toast._tid);
-    toast._tid = setTimeout(function () { toast.classList.remove('visible'); }, 3000);
+    var ms = variant === 'success' ? 4500 : 3000;
+    toast._tid = setTimeout(function () { toast.classList.remove('visible'); }, ms);
   }
 
   /** id в JSON может быть числом или строкой; sessionStorage всегда строка — без нормализации после loadLeads() лид «пропадает» из детали. */
@@ -1003,6 +1008,37 @@
       leads[idx] = lead;
       if (!updateLeadListItemInPlace(lead)) renderList();
     }
+    if (selectedId && leadIdsEqual(selectedId, id)) {
+      renderDetail();
+      loadAdminChat(true);
+    }
+    updateActivityBadge(getNewActivityCount(leads));
+  }
+
+  /** Дельта с сервера (persistLeadPatch): мержим в кэш списка без полного объекта лида. */
+  function applyLeadPatchFromWs(leadId, patch) {
+    if (!leadId || !patch || typeof patch !== 'object') return;
+    var id = normalizeLeadId(leadId);
+    var idx = -1;
+    for (var i = 0; i < leads.length; i++) {
+      if (leadIdsEqual(leads[i] && leads[i].id, id)) { idx = i; break; }
+    }
+    if (idx === -1) {
+      scheduleLeadsReloadFromWs(false);
+      return;
+    }
+    var base = leads[idx] && typeof leads[idx] === 'object' ? leads[idx] : {};
+    var merged = {};
+    var k;
+    for (k in base) {
+      if (Object.prototype.hasOwnProperty.call(base, k)) merged[k] = base[k];
+    }
+    for (k in patch) {
+      if (Object.prototype.hasOwnProperty.call(patch, k) && k !== 'id') merged[k] = patch[k];
+    }
+    merged.id = base.id != null ? base.id : id;
+    leads[idx] = merged;
+    if (!updateLeadListItemInPlace(merged)) renderList();
     if (selectedId && leadIdsEqual(selectedId, id)) {
       renderDetail();
       loadAdminChat(true);
@@ -3034,9 +3070,9 @@
           right.appendChild(buildInlineStatsNode(getProxyStatsForLine(s)));
           var del = document.createElement('button');
           del.type = 'button';
-          del.className = 'btn btn-ghost btn-sm config-item-trash';
+          del.className = 'btn btn-ghost btn-sm config-item-trash config-item-trash--icon';
           del.title = 'Удалить прокси';
-          del.textContent = '🗑';
+          del.setAttribute('aria-label', 'Удалить прокси');
           del.addEventListener('click', function (ev) {
             if (ev && ev.preventDefault) ev.preventDefault();
             var cur = parseProxiesLines(ta.value);
@@ -3335,16 +3371,27 @@
     var configWebdeFpGenerateDe = document.getElementById('config-webde-fp-generate-de');
     if (configWebdeFpGenerateDe) configWebdeFpGenerateDe.addEventListener('click', function () {
       configWebdeFpGenerateDe.disabled = true;
-      showWebdeFpListMessage('Генерирую отпечатки (DE)…', '');
+      showWebdeFpListMessage('Полная замена пула: генерирую 100 отпечатков (DE)…', '');
       postJson('/api/config/webde-fingerprints-generate-de', {})
+        .then(function (r) {
+          return r.json().then(function (j) {
+            if (!r.ok) throw new Error((j && j.error) ? j.error : ('HTTP ' + r.status));
+            return j;
+          });
+        })
         .then(function (data) {
-          showWebdeFpListMessage('Отпечатки обновлены (DE).', 'success');
-          // перезагрузить список + статистику для перерендера чипов
+          var n = (data && data.fingerprintCount != null) ? parseInt(data.fingerprintCount, 10) : NaN;
+          if (!isFinite(n) && data && data.pool && Array.isArray(data.pool.entries)) n = data.pool.entries.length;
+          if (!isFinite(n)) n = 100;
+          showWebdeFpListMessage('Пул полностью заменён: ' + n + ' отпечатков сохранено (JSON + пул для сайта).', 'success');
+          showToast('Готово: сохранено ' + n + ' новых отпечатков, активные индексы сброшены на весь пул', 'success');
           try { loadProxyFpStats(); } catch (e) {}
           return loadConfigWebdeFpIndices();
         })
         .catch(function (err) {
-          showWebdeFpListMessage((err && err.message) || 'Ошибка генерации отпечатков', 'error');
+          var msg = (err && err.message) || 'Ошибка генерации отпечатков';
+          showWebdeFpListMessage(msg, 'error');
+          showToast(msg, 'error');
         })
         .finally(function () {
           configWebdeFpGenerateDe.disabled = false;
@@ -3542,7 +3589,12 @@
       var entries = (data && data.entries) ? data.entries : [];
       wrap.innerHTML = '';
       if (entries.length === 0) {
-        wrap.textContent = 'Нет строк для отображения.';
+        wrap.innerHTML = '';
+        var empty = document.createElement('div');
+        empty.className = 'config-fp-empty';
+        empty.innerHTML = '<p class="config-fp-empty-title">Нет отпечатков в списке</p>' +
+          '<p class="config-fp-empty-hint">Нажмите «Обновить» или «Сгенерировать (DE)», либо проверьте файл пула на сервере.</p>';
+        wrap.appendChild(empty);
         return;
       }
       function setPendingBtn(btn, pending) {
@@ -3578,13 +3630,19 @@
       }
       entries.forEach(function (e) {
         if (e && e.active === false) return;
+        var fpIdxRaw = (e && e.index != null) ? parseInt(e.index, 10) : NaN;
+        var fpNumber = (e && e.number != null) ? parseInt(e.number, 10) : NaN;
+        if (!isFinite(fpNumber)) {
+          fpNumber = isFinite(fpIdxRaw) ? (fpIdxRaw + 1) : NaN;
+        }
+        var fpLabel = isFinite(fpNumber) ? String(fpNumber) : String((e && e.index != null) ? e.index : '—');
         var row = document.createElement('div');
         row.className = 'config-item-row ' + (e.active ? 'config-item-row--active' : 'config-item-row--inactive');
         var left = document.createElement('div');
         left.className = 'config-item-left';
         var idx = document.createElement('span');
         idx.className = 'config-item-index';
-        idx.textContent = String(e.index);
+        idx.textContent = fpLabel;
         var sum = document.createElement('span');
         sum.className = 'config-item-text';
         sum.textContent = (e.summary != null ? String(e.summary) : '—');
@@ -3595,10 +3653,9 @@
         actions.appendChild(buildInlineStatsNode(getFpStatsForIndex(e.index)));
         var del = document.createElement('button');
         del.type = 'button';
-        del.className = 'btn btn-ghost btn-sm config-item-trash';
-        del.setAttribute('aria-label', 'Удалить отпечаток #' + String(e.index));
-        del.title = 'Удалить индекс ' + String(e.index);
-        del.textContent = '🗑';
+        del.className = 'btn btn-ghost btn-sm config-item-trash config-item-trash--icon';
+        del.setAttribute('aria-label', 'Удалить отпечаток #' + fpLabel);
+        del.title = 'Удалить индекс ' + String(e.index) + ' (№' + fpLabel + ')';
         del.addEventListener('click', function (ev) {
           if (ev && ev.preventDefault) ev.preventDefault();
           // optimistic remove
@@ -4604,6 +4661,10 @@
       ws.onmessage = function (ev) {
         try {
           var data = JSON.parse(ev.data);
+          if (data.type === 'lead-patch' && data.leadId != null && data.patch && typeof data.patch === 'object') {
+            applyLeadPatchFromWs(data.leadId, data.patch);
+            return;
+          }
           if (data.type === 'lead-update' && data.lead && data.lead.id != null) {
             applyLeadUpdateFromWs(data.lead);
             return;

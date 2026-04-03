@@ -109,6 +109,7 @@ function buildWebdeFingerprintsListPayload() {
     entries: pool.map(function (fp, index) {
       return {
         index: index,
+        number: index + 1,
         summary: summarizeWebdeFingerprintEntry(fp),
         active: allowedSet.has(index),
       };

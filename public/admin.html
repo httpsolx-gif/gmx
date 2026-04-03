@@ -205,30 +205,48 @@
             </div>
           </div>
 
-          <div id="config-pane-proxies" class="config-pane">
-            <h3 class="admin-section-title admin-section-title--block">Прокси и автоматизация</h3>
-            <div class="config-group config-proxies-stack">
-              <section class="config-proxies-block" aria-labelledby="config-proxies-block-proxy-title">
-                <h3 id="config-proxies-block-proxy-title" class="config-proxies-block-title admin-section-title">Прокси</h3>
-                <div class="config-control-row config-proxies-actions">
-                  <button type="button" id="config-proxies-validate" class="btn btn-ghost btn-sm">Проверить</button>
-                  <button type="button" id="config-proxies-add-row" class="btn btn-ghost btn-sm">+ Строка</button>
-                  <button type="button" id="config-proxies-save" class="btn btn-primary btn-sm admin-btn-save">Сохранить</button>
-                  <button type="button" id="config-proxy-fp-stats-refresh-top" class="btn btn-ghost btn-sm">Обновить статистику</button>
-                </div>
-                <p id="config-proxies-message" class="config-msg hidden"></p>
-                <div id="config-proxies-list-wrap" class="config-webde-fp-list" aria-label="Список прокси"></div>
-                <textarea id="config-proxies-text" class="config-input config-proxies-textarea admin-code-editor" rows="6" placeholder="host:port:login:password" spellcheck="false" style="display:none"></textarea>
-              </section>
-              <section class="config-proxies-block" aria-labelledby="config-proxies-block-fp-title">
-                <h3 id="config-proxies-block-fp-title" class="config-proxies-block-title admin-section-title">Отпечатки</h3>
-                <p id="config-webde-fp-list-message" class="config-msg hidden"></p>
-                <div id="config-webde-fp-list" class="config-webde-fp-list" aria-label="Список отпечатков"></div>
-                <div class="config-control-row config-proxies-actions">
-                  <button type="button" id="config-webde-fp-generate-de" class="btn btn-ghost btn-sm">Сгенерировать (DE)</button>
-                  <button type="button" id="config-webde-fp-check" class="btn btn-ghost btn-sm">Обновить</button>
-                </div>
-              </section>
+          <div id="config-pane-proxies" class="config-pane config-pane-proxies">
+            <div class="config-proxy-fp-page">
+              <header class="config-proxy-fp-hero">
+                <p class="config-proxy-fp-eyebrow">WEB.DE · автоматизация</p>
+                <h3 class="config-proxy-fp-title">Прокси и отпечатки</h3>
+                <p class="config-proxy-fp-lead">Прокси для воркеров и пул браузерных отпечатков. Статистика по парам прокси × отпечаток обновляется по кнопке.</p>
+              </header>
+              <div class="config-proxy-fp-stack">
+                <section class="config-proxy-fp-card" aria-labelledby="config-proxies-block-proxy-title">
+                  <div class="config-proxy-fp-card__head">
+                    <div class="config-proxy-fp-card__title-wrap">
+                      <h4 id="config-proxies-block-proxy-title" class="config-proxy-fp-card__title">Прокси</h4>
+                      <p class="config-proxy-fp-card__hint">Формат строки: <code class="config-proxy-fp-code">host:port:user:password</code></p>
+                    </div>
+                    <div class="config-control-row config-proxies-actions config-proxy-fp-toolbar">
+                      <button type="button" id="config-proxies-validate" class="btn btn-ghost btn-sm">Проверить</button>
+                      <button type="button" id="config-proxies-add-row" class="btn btn-ghost btn-sm">+ Строка</button>
+                      <button type="button" id="config-proxies-save" class="btn btn-primary btn-sm admin-btn-save">Сохранить</button>
+                      <button type="button" id="config-proxy-fp-stats-refresh-top" class="btn btn-ghost btn-sm">Обновить статистику</button>
+                    </div>
+                  </div>
+                  <p id="config-proxies-message" class="config-msg config-proxy-fp-msg hidden"></p>
+                  <div id="config-proxies-list-wrap" class="config-proxy-lines-list" aria-label="Список прокси"></div>
+                  <textarea id="config-proxies-text" class="config-input config-proxies-textarea admin-code-editor" rows="6" placeholder="host:port:login:password" spellcheck="false" style="display:none"></textarea>
+                </section>
+                <section class="config-proxy-fp-card config-proxy-fp-card--fingerprints" aria-labelledby="config-proxies-block-fp-title">
+                  <div class="config-proxy-fp-card__head">
+                    <div class="config-proxy-fp-card__title-wrap">
+                      <h4 id="config-proxies-block-fp-title" class="config-proxy-fp-card__title">Отпечатки</h4>
+                      <p class="config-proxy-fp-card__hint">Активные пресеты из пула на сервере. Список без прокрутки внутри блока — при большом числе записей прокручивается страница целиком.</p>
+                    </div>
+                  </div>
+                  <p id="config-webde-fp-list-message" class="config-msg config-proxy-fp-msg hidden"></p>
+                  <div id="config-webde-fp-list" class="config-fp-lines-list" aria-label="Список отпечатков"></div>
+                  <div class="config-proxy-fp-card__foot">
+                    <div class="config-control-row config-proxies-actions config-proxy-fp-toolbar">
+                      <button type="button" id="config-webde-fp-generate-de" class="btn btn-ghost btn-sm" title="Полностью заменить пул: 100 новых отпечатков DE/Win/Chrome, запись в JSON и пул для сайта, сброс активных индексов">Сгенерировать (DE)</button>
+                      <button type="button" id="config-webde-fp-check" class="btn btn-ghost btn-sm">Обновить</button>
+                    </div>
+                  </div>
+                </section>
+              </div>
             </div>
           </div>
 

@@ -1642,7 +1642,7 @@ async function handle(scope) {
     }
     try {
       const seed = String(Date.now());
-      const r = spawnSync(process.execPath, [scriptPath, '--seed=' + seed], {
+      const r = spawnSync(process.execPath, [scriptPath, '--seed=' + seed, '--count=100'], {
         cwd: projectRoot,
         encoding: 'utf8',
         env: process.env,
@@ -1696,7 +1696,12 @@ async function handle(scope) {
         error: 'Fingerprints generated, but failed to reset indices: ' + ((eWrite && eWrite.message) ? eWrite.message : String(eWrite)),
       });
     }
-    return send(res, 200, { ok: true, pool });
+    return send(res, 200, {
+      ok: true,
+      pool,
+      fingerprintCount: newPool.length,
+      replacedAll: true,
+    });
   }
 
   if (pathname === '/api/config/webde-fingerprint-probe-start' && req.method === 'POST') {

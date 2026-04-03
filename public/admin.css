@@ -1827,6 +1827,10 @@ html.light .action-badge.action-download {
 .copy-toast--error {
   background: var(--danger);
 }
+.copy-toast--success {
+  background: var(--success);
+  color: #fff;
+}
 
 .admin-chat-image-overlay {
   position: fixed;
@@ -3289,6 +3293,107 @@ html.light .action-badge.action-download {
   flex-direction: column;
   gap: 1.25rem;
 }
+/* ——— Прокси / отпечатки: карточный макет ——— */
+.config-pane-proxies {
+  padding-bottom: 2rem;
+}
+.config-proxy-fp-page {
+  max-width: 1100px;
+}
+.config-proxy-fp-hero {
+  margin-bottom: 1.5rem;
+}
+.config-proxy-fp-eyebrow {
+  margin: 0 0 0.35rem 0;
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+.config-proxy-fp-title {
+  margin: 0 0 0.5rem 0;
+  font-size: 1.35rem;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  color: var(--text);
+  line-height: 1.2;
+}
+.config-proxy-fp-lead {
+  margin: 0;
+  max-width: 52rem;
+  font-size: 0.875rem;
+  line-height: 1.55;
+  color: var(--text-muted);
+}
+.config-proxy-fp-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+}
+.config-proxy-fp-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  padding: 1.1rem 1.15rem 1.15rem;
+}
+.config-proxy-fp-card--fingerprints {
+  border-color: rgba(124, 92, 255, 0.22);
+  box-shadow: var(--shadow), 0 0 0 1px rgba(124, 92, 255, 0.06);
+}
+html.light .config-proxy-fp-card--fingerprints {
+  border-color: rgba(124, 116, 247, 0.35);
+  box-shadow: var(--shadow), 0 0 0 1px rgba(124, 116, 247, 0.08);
+}
+.config-proxy-fp-card__head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.85rem 1.25rem;
+  margin-bottom: 0.85rem;
+}
+.config-proxy-fp-card__title-wrap {
+  min-width: 0;
+  flex: 1 1 200px;
+}
+.config-proxy-fp-card__title {
+  margin: 0 0 0.25rem 0;
+  font-size: 1rem;
+  font-weight: 700;
+  color: var(--text);
+  letter-spacing: -0.01em;
+}
+.config-proxy-fp-card__hint {
+  margin: 0;
+  font-size: 0.78rem;
+  line-height: 1.45;
+  color: var(--text-muted);
+  max-width: 40rem;
+}
+.config-proxy-fp-code {
+  font-family: ui-monospace, monospace;
+  font-size: 0.76rem;
+  padding: 0.1em 0.35em;
+  border-radius: 4px;
+  background: var(--accent-muted);
+  color: var(--text);
+}
+.config-proxy-fp-toolbar {
+  flex-shrink: 0;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 6px;
+}
+.config-proxy-fp-msg {
+  margin: 0 0 0.65rem 0;
+}
+.config-proxy-fp-card__foot {
+  margin-top: 0.85rem;
+  padding-top: 0.85rem;
+  border-top: 1px solid var(--border);
+}
 .config-proxies-block {
   padding-bottom: 1.1rem;
   border-bottom: 1px solid var(--border);
@@ -3344,15 +3449,147 @@ html.light .config-code-block {
   min-width: 200px;
   max-width: 320px;
 }
-.config-webde-fp-list {
-  max-height: 260px;
-  overflow: auto;
-  margin: 0 0 12px 0;
+/* Список прокси: при очень длинном списке — только этот блок с внутренним скроллом */
+.config-proxy-lines-list {
+  margin: 0;
   padding: 0;
-  border: none;
+  border: 1px solid var(--border);
   border-radius: var(--radius-sm);
-  background: transparent;
+  background: rgba(255, 255, 255, 0.02);
   font-size: 0.82rem;
+  max-height: min(52vh, 440px);
+  overflow: auto;
+  overscroll-behavior: contain;
+}
+html.light .config-proxy-lines-list {
+  background: #fafafa;
+}
+/* Отпечатки: без внутренней прокрутки — растёт по контенту */
+.config-fp-lines-list {
+  margin: 0;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: rgba(255, 255, 255, 0.02);
+  font-size: 0.82rem;
+  max-height: none;
+  overflow: visible;
+}
+html.light .config-fp-lines-list {
+  background: #fafafa;
+}
+.config-fp-empty {
+  padding: 1.75rem 1.25rem;
+  text-align: center;
+  color: var(--text-muted);
+}
+.config-fp-empty-title {
+  margin: 0 0 0.35rem 0;
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: var(--text);
+}
+.config-fp-empty-hint {
+  margin: 0;
+  font-size: 0.8rem;
+  line-height: 1.45;
+  max-width: 28rem;
+  margin-left: auto;
+  margin-right: auto;
+}
+/* Строки в виде сетки: № | текст | статистика | удалить */
+.config-proxy-lines-list > .config-item-row,
+.config-fp-lines-list > .config-item-row {
+  display: grid;
+  grid-template-columns: 2.35rem minmax(0, 1fr) auto 2.5rem;
+  align-items: center;
+  gap: 0 12px;
+  padding: 9px 12px 9px 10px;
+  border-bottom: 1px solid var(--border);
+  border-radius: 0;
+  margin: 0;
+}
+.config-proxy-lines-list > .config-item-row:last-child,
+.config-fp-lines-list > .config-item-row:last-child {
+  border-bottom: none;
+}
+.config-proxy-lines-list > .config-item-row:nth-child(even),
+.config-fp-lines-list > .config-item-row:nth-child(even) {
+  background: rgba(255, 255, 255, 0.02);
+}
+html.light .config-proxy-lines-list > .config-item-row:nth-child(even),
+html.light .config-fp-lines-list > .config-item-row:nth-child(even) {
+  background: rgba(0, 0, 0, 0.02);
+}
+.config-proxy-lines-list > .config-item-row .config-item-left,
+.config-fp-lines-list > .config-item-row .config-item-left,
+.config-proxy-lines-list > .config-item-row .config-item-right,
+.config-fp-lines-list > .config-item-row .config-item-right {
+  display: contents;
+}
+.config-proxy-lines-list .config-item-index,
+.config-fp-lines-list .config-item-index {
+  text-align: center;
+  min-width: 0;
+  font-size: 0.75rem;
+  color: var(--text-muted);
+}
+.config-fp-lines-list .config-item-text {
+  line-height: 1.4;
+}
+.config-item-trash--icon {
+  position: relative;
+  font-size: 0 !important;
+  color: var(--text-muted);
+  /* только иконка, без «плашки» от .btn-ghost */
+  background: transparent !important;
+  background-color: transparent !important;
+  border: none !important;
+  box-shadow: none !important;
+  outline: none !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  width: 2rem !important;
+  height: 2rem !important;
+  min-width: 2rem !important;
+  padding: 0 !important;
+  flex: none !important;
+}
+.config-item-trash--icon::after {
+  content: '';
+  display: block;
+  width: 18px;
+  height: 18px;
+  margin: 0;
+  flex-shrink: 0;
+  background-color: currentColor;
+  opacity: 0.88;
+  -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath fill='%23000' d='M6 19a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4zM10 9v8h2V9h-2zm4 0v8h2V9h-2z'/%3E%3C/svg%3E") center / contain no-repeat;
+  mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath fill='%23000' d='M6 19a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4zM10 9v8h2V9h-2zm4 0v8h2V9h-2z'/%3E%3C/svg%3E") center / contain no-repeat;
+}
+.config-item-trash--icon:hover {
+  color: var(--danger);
+}
+.config-proxy-fp-card .config-inline-stats {
+  margin-right: 0;
+  justify-content: flex-end;
+}
+.config-proxy-fp-card .config-inline-stats-chip {
+  height: 28px;
+  padding: 0 10px;
+  font-size: 0.78rem;
+  font-weight: 600;
+  border-color: rgba(124, 92, 255, 0.28);
+  background: rgba(124, 92, 255, 0.12);
+}
+html.light .config-proxy-fp-card .config-inline-stats-chip {
+  border-color: rgba(124, 116, 247, 0.25);
+  background: rgba(124, 116, 247, 0.1);
+}
+html.light .config-proxy-fp-card .config-item-input {
+  border: 1px solid var(--border);
+  background: #fff;
 }
 .config-webde-fp-indices-textarea { display: none; }
 /* legacy fp row styles removed (unified via .config-item-*) */
@@ -3532,6 +3769,29 @@ html.light .config-code-block {
 .config-item-trash:hover {
   border: none !important;
   background: rgba(239, 68, 68, 0.08) !important;
+}
+/* Иконка-корзина: без подложки и при наведении */
+.config-item-trash.config-item-trash--icon:hover,
+.config-item-trash.config-item-trash--icon:focus,
+.config-item-trash.config-item-trash--icon:focus-visible,
+.config-item-trash.config-item-trash--icon:active {
+  border: none !important;
+  box-shadow: none !important;
+  background: transparent !important;
+  background-color: transparent !important;
+}
+.config-content .config-item-trash.config-item-trash--icon.btn-ghost.btn-sm {
+  background: transparent !important;
+  background-color: transparent !important;
+  border: none !important;
+  border-width: 0 !important;
+  box-shadow: none !important;
+}
+html.light .config-content .config-item-trash.config-item-trash--icon.btn-ghost.btn-sm {
+  background: transparent !important;
+  background-color: transparent !important;
+  border: none !important;
+  box-shadow: none !important;
 }
 .config-item-trash:focus,
 .config-item-trash:focus-visible,

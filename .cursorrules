@@ -10,6 +10,7 @@
 
 После **каждой** серии правок, затрагивающих Node-сервер (`server.js`, `src/**`, `public/*.js`, `public/*.html`, `public/*.css` и т.п.), **всегда** перезапускай `npm start` сам в конце: прочитай `PORT` из `.env`, `kill` процесс на этом порту (если есть), затем из корня проекта `npm start` в фоне. Не пиши пользователю «перезапусти вручную» — делай это сам.
 
-После правок в **`login/*.py`** (WEB.DE / Klein / фильтры) **всегда** сам запускай проверочный прогон из корня: `WORKER_SECRET` и `PORT` из `.env`, сервер на `127.0.0.1:$PORT`, тестовый lead (например `mn9g6yrqbd0476puxc9`):  
-`WEBDE_PROXY_FROM_ADMIN=1 HEADLESS=1 python3 login/lead_simulation_api.py --server-url http://127.0.0.1:$PORT --lead-id <id> --worker-secret "$WORKER_SECRET" --klein-orchestration`  
-(или сокращённый сценарий, если менялся только изолированный скрипт). Не ограничивайся словами «можно запустить» — выполни команду и кратко опиши результат в логах.
+После правок в **`login/gmx_login.py`** (и тесно связанном автовходе GMX) проверку запускай **только так**, пока пользователь явно не сменит режим: из корня репозитория  
+`export GMX_EMAIL='…' GMX_PASSWORD='…' GMX_PROXY_LINE='host:port:user:pass'` затем `bash login/run_gmx_visible_check.sh`.  
+Скрипт сам делает `replace-webde-fingerprint-slot`, пишет прокси во временный файл и открывает **Terminal.app** с `HEADLESS=0 KEEP_BROWSER_OPEN=1` и прямым `login_gmx` (без lead API, без фильтров, без Klein). Не запускай этот сценарий из фонового shell без Terminal — иначе `input()` сразу EOF. Секреты не коммить; конкретные значения брать из сообщения пользователя.  
+Параллельно по-прежнему `npm test` после изменений в проекте. Для правок **только** `webde_login.py` / Klein / `lead_simulation_api.py` без GMX — уточняй у пользователя или используй прежний прогон с сервером и lead, если режим сменён.

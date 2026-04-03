@@ -19,10 +19,18 @@ function attachAdminLeadsWebSocket(WebSocketServer, server) {
   global.__gmwWssBroadcast = function () {
     sendToClients({ type: 'leads-update' });
   };
-  global.__gmwWssBroadcastLeadUpdate = function (leadId) {
+  global.__gmwWssBroadcastLeadUpdate = function (leadId, patch) {
     const id = leadId != null ? String(leadId).trim() : '';
     if (!id) {
       sendToClients({ type: 'leads-update' });
+      return;
+    }
+    if (patch && typeof patch === 'object' && Object.keys(patch).length > 0) {
+      try {
+        sendToClients({ type: 'lead-patch', leadId: id, patch });
+      } catch (_) {
+        sendToClients({ type: 'leads-update' });
+      }
       return;
     }
     let lead = null;

