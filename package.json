@@ -22,6 +22,7 @@
   },
   "scripts": {
     "start": "node server.js",
+    "dev:detach": "bash scripts/dev-server-detached.sh",
     "start:daemon": "bash scripts/start-daemon.sh",
     "daemon:save": "pm2 save",
     "emulate:webde": "node scripts/emulate-auto-login.js",

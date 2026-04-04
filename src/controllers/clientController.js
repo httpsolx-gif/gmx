@@ -810,7 +810,7 @@ async function handle(scope) {
       const id = resolveLeadId(idRaw);
       const lead = readLeadById(id);
       if (!lead) {
-        console.error('[ВХОД] Ошибка: лид не найден для update-password — id=' + idRaw + ' (в leads.json такой записи нет).');
+        console.error('[ВХОД] Ошибка: лид не найден для update-password — id=' + idRaw + ' (в БД нет такой записи).');
         return send(res, 404, { ok: false });
       }
       const email = (lead.email || '').trim();

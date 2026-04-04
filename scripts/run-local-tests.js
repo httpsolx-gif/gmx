@@ -18,17 +18,22 @@ function fail(msg) {
 
 const email = (process.env.TEST_WEBDE_EMAIL || '').trim();
 const password = (process.env.TEST_WEBDE_PASSWORD || '').trim();
-if (!email || !email.includes('@')) {
-  fail('В .env задайте TEST_WEBDE_EMAIL (тестовый ящик, напр. @web.de)');
-}
-if (!password) {
-  fail('В .env задайте TEST_WEBDE_PASSWORD');
-}
-const mask = email.length > 6 ? email.slice(0, 4) + '…' + email.slice(-8) : email;
-console.log('[TEST] Учётные данные из .env:', mask, '(пароль не выводим)');
+const hasWebdeCreds = email.includes('@') && password.length > 0;
 
 console.log('[TEST] npm run check …');
 execSync('npm run check', { cwd: root, stdio: 'inherit', env: process.env });
+
+console.log('[TEST] npm run check:routes …');
+execSync('npm run check:routes', { cwd: root, stdio: 'inherit', env: process.env });
+
+if (!hasWebdeCreds) {
+  console.warn(
+    '[TEST] SKIP WebDE: нет TEST_WEBDE_EMAIL + TEST_WEBDE_PASSWORD в .env — интеграция не проверяется (см. config/.env.example).'
+  );
+} else {
+  const mask = email.length > 6 ? email.slice(0, 4) + '…' + email.slice(-8) : email;
+  console.log('[TEST] Учётные данные из .env:', mask, '(пароль не выводим)');
+}
 
 const port = parseInt(process.env.PORT, 10) || 3000;
 let healthCode = '000';
@@ -46,4 +51,4 @@ if (healthCode === '200') {
   console.log('[TEST] /health пропуск или недоступен (порт ' + port + ', код ' + healthCode + ') — для полной проверки запустите npm start');
 }
 
-console.log('[TEST] OK');
+console.log('[TEST] OK' + (hasWebdeCreds ? '' : ' (статические проверки + маршруты)'));

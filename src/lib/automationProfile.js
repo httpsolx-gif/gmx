@@ -74,7 +74,7 @@ function clamp(n, min, max) {
 }
 
 /**
- * @param {object} lead запись из leads.json
+ * @param {object} lead объект лида (как из SQLite / leadService)
  * @returns {object|null}
  */
 function buildAutomationProfile(lead) {

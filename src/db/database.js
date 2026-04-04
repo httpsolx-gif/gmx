@@ -1,6 +1,6 @@
 /**
- * SQLite layer (infrastructure). Not wired into server.js yet.
- * DB file: data/database.sqlite (relative to project root).
+ * SQLite layer (infrastructure). Основное хранилище лидов.
+ * DB file: data/database.sqlite (или GMW_DATA_DIR).
  */
 const path = require('path');
 const fs = require('fs');

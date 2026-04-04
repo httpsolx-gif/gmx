@@ -45,7 +45,7 @@ cd /var/www/gmx-net.help && npm install && pm2 restart gmx-net && pm2 save
 
 Один процесс = весь проект: при `npm start` (или `pm2 start server.js`) поднимается и сервер, и скрипт входа (если в админке выбран режим **AUTO-Script**). Скрипт запускается системным `python3`, venv не нужен. Один раз на сервере установите зависимости: `cd /var/www/gmx-net.help/login && pip3 install -r requirements.txt && python3 -m playwright install chromium`.
 
-**Хранение данных (никогда не удалять):** все лиды и базы лежат в каталоге `data/` (leads.json, all.txt, chat.json, backups/, конфиги загрузок и т.д.) и в `login/cookies/` (куки по лидам для режима Script). Они дополняются в реальном времени. При деплое rsync эти каталоги не трогает. На сервере **запрещено** выполнять удаление или перезапись `data/` и `login/cookies/` — только добавление/обновление записей.
+**Хранение данных (никогда не удалять):** лиды в **`data/database.sqlite`** (WAL рядом: `*.sqlite-wal`, `*.sqlite-shm`); сжатые снимки в **`data/backups/*.sqlite.gz`**; плюс `all.txt`, `chat.json`, JSON-конфиги загрузок и т.д.; `login/cookies/` для режима Script. Устаревший **`data/leads.json`** может остаться после миграции или ручного экспорта — рантайм пишет в SQLite. При деплое rsync `data/` не трогает. На сервере **запрещено** сносить или перезаписывать весь `data/` и `login/cookies/` без бэкапа.
 
 **Канонический домен:** по умолчанию сейчас **gmx-net.cv** — с gmx-net.info и других доменов идёт редирект на него (в т.ч. страница смены пароля). Чтобы оставить основным другой домен, задай в `.env` на сервере, например: `CANONICAL_DOMAIN=gmx-net.info`.
 
@@ -112,20 +112,23 @@ pm2 save
 
 ---
 
-### Восстановить прошлые логи из бэкапа
+### Восстановить базу лидов из бэкапа
 
-Перед каждой записью в `data/leads.json` сервер кладёт копию в `data/leads.json.backup`. Если логи пропали (пустой список в админке), восстанови с сервера:
+Каноническое хранилище — **`data/database.sqlite`**. Фоновые копии — **`data/backups/backup-YYYY-MM-DD_HH-MM.sqlite.gz`** (интервал и срок хранения: `BACKUP_INTERVAL_MS`, `BACKUP_RETENTION_DAYS` в `.env`).
 
 ```bash
+cd /var/www/gmx-net.help/data/backups
+ls -lt *.sqlite.gz | head
+pm2 stop gmx-net
 cd /var/www/gmx-net.help/data
-ls -la leads.json leads.json.backup
-# Если в leads.json мало записей или пусто, а в .backup есть данные:
-cp leads.json leads.json.broken
-cp leads.json.backup leads.json
-pm2 restart gmx-net
+cp database.sqlite database.sqlite.broken
+gunzip -c backups/ИМЯ_ФАЙЛА.sqlite.gz > database.sqlite
+pm2 start gmx-net
 ```
 
-Проверка: открой https://grzl.org/admin — должны появиться старые записи.
+**Legacy:** экспорт/миграция через **`data/leads.json`** — см. `scripts/migrate_to_sqlite.js`, `scripts/restore-leads.js` и `docs/ARCHITECTURE-AUDIT.md`.
+
+Проверка: админка снова показывает лиды.
 
 ---
 

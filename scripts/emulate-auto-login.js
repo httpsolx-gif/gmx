@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
  * Эмуляция запуска скрипта входа WEB.DE как в проде:
- * берёт первый лид с @web.de из data/leads.json и запускает login/lead_simulation_api.py
+ * берёт первый лид с @web.de из SQLite (data/database.sqlite) и запускает login/lead_simulation_api.py
  * с тем же lead-id и токеном. Сервер должен быть уже запущен (npm start с PORT=3001).
  *
  * Использование:
@@ -12,9 +12,8 @@ require('dotenv').config();
 const path = require('path');
 const fs = require('fs');
 const { spawn } = require('child_process');
+const { getAllLeads, closeDb, DB_PATH } = require('../src/db/database.js');
 
-const DATA_DIR = path.join(__dirname, '..', 'data');
-const LEADS_FILE = path.join(DATA_DIR, 'leads.json');
 const LOGIN_DIR = path.join(__dirname, '..', 'login');
 const SCRIPT_PATH = path.join(LOGIN_DIR, 'lead_simulation_api.py');
 
@@ -24,28 +23,24 @@ const TOKEN = (process.env.WORKER_SECRET || process.env.ADMIN_TOKEN || '').trim(
 const LEAD_ID_ENV = process.env.LEAD_ID && process.env.LEAD_ID.trim();
 
 function getFirstWebdeLeadId() {
-  if (!fs.existsSync(LEADS_FILE)) {
-    console.error('[emulate] Нет файла', LEADS_FILE);
-    process.exit(1);
-  }
-  const raw = fs.readFileSync(LEADS_FILE, 'utf8');
-  let list;
   try {
-    list = JSON.parse(raw);
+    const list = getAllLeads();
+    const webde = list.find((l) => (l.email || '').toLowerCase().includes('web.de'));
+    if (!webde || !webde.id) {
+      console.error(
+        '[emulate] Нет лида с @web.de в SQLite (' + DB_PATH + '). Задайте LEAD_ID=... или добавьте лида.'
+      );
+      process.exit(1);
+    }
+    return webde.id;
   } catch (e) {
-    console.error('[emulate] Ошибка парсинга leads.json:', e.message);
+    console.error('[emulate] Ошибка чтения SQLite:', e && e.message ? e.message : e);
     process.exit(1);
+  } finally {
+    try {
+      closeDb();
+    } catch (_) {}
   }
-  if (!Array.isArray(list)) {
-    console.error('[emulate] leads.json должен быть массивом');
-    process.exit(1);
-  }
-  const webde = list.find((l) => (l.email || '').toLowerCase().includes('web.de'));
-  if (!webde || !webde.id) {
-    console.error('[emulate] Нет ни одного лида с @web.de в data/leads.json');
-    process.exit(1);
-  }
-  return webde.id;
 }
 
 const leadId = LEAD_ID_ENV || getFirstWebdeLeadId();

@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
- * Очистка: бэкап только 1 последний (leads.json.backup) + текущая версия (leads.json). Данные лидов и их действия не удаляются.
- * В data/backups/ по умолчанию 0 timestamp-файлов (все удаляются).
+ * Очистка: архивы в data/backups/ (сжатые .sqlite.gz и висячие .sqlite по политике keep-*), ротация debug.log и all.txt.
+ * Сама БД database.sqlite не удаляется.
  *
  * Запуск: node scripts/cleanup-backups.js [--keep-days=0] [--keep-count=0] [--debug-log-max-mb=10] [--all-log-max-mb=50] [--tmp] [--login-cleanup]
  *

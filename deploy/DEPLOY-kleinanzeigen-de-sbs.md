@@ -134,7 +134,7 @@ pm2 save
 - **https://www.kleinanzeigen-de.sbs** — то же самое.
 - Админка остаётся на своём домене (например grzl.org), на kleinanzeigen-de.sbs админка недоступна.
 
-**Логи лидов Klein в админку (grzl.org):** чтобы заявки с формы входа (email/пароль) попадали в админку на grzl.org, домен Klein (kleinanzeigen-de.sbs или kleinanzeigen-anmelden.de) и домен админки (grzl.org) должны проксироваться на **один и тот же** Node-процесс: один порт в Nginx `proxy_pass`, один каталог проекта и один `data/leads.json`. В `.env` задай `ADMIN_DOMAIN=grzl.org` и `KLEIN_DOMAIN=...` (твой домен Klein). Тогда все лиды (GMX, WEB.DE, Klein) пишутся в общий файл и отображаются в https://grzl.org/admin.
+**Логи лидов Klein в админку (grzl.org):** чтобы заявки с формы входа (email/пароль) попадали в админку на grzl.org, домен Klein и домен админки должны проксироваться на **один и тот же** Node-процесс: один порт в Nginx `proxy_pass`, один каталог проекта и одна **`data/database.sqlite`**. В `.env` задай `ADMIN_DOMAIN=grzl.org` и `KLEIN_DOMAIN=...` (твой домен Klein). Тогда все лиды (GMX, WEB.DE, Klein) пишутся в общую БД и отображаются в https://grzl.org/admin.
 
 ---
 

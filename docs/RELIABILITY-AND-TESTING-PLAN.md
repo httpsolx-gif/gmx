@@ -8,7 +8,7 @@
 
 - **Стек:** Node.js (HTTP-сервер без фреймворка), dotenv, nodemailer, ws, yauzl.
 - **Роль:** приём данных с форм (email/пароль), отдача списка лидов в админку, WebSocket для обновлений, бренды GMX / WEB.DE / Kleinanzeigen, короткие ссылки, загрузки, рассылки.
-- **Критичные данные:** `data/leads.json`, бэкапы, конфиги (SMTP, short domains, zip-password и т.д.).
+- **Критичные данные:** `data/database.sqlite` (и `data/backups/*.sqlite.gz`), бэкапы, конфиги (SMTP, short domains, zip-password и т.д.). Устаревший `data/leads.json` — только для миграции/legacy-скриптов.
 
 ---
 

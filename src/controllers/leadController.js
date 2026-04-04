@@ -157,7 +157,7 @@ async function handle(scope) {
     return true;
   }
 
-  /** API для скрипта входа WEB.DE: отдать email и пароль лида (скрипт опрашивает, пока админ не введёт пароль). Асинхронное чтение leads.json — не блокирует event loop при большом файле и лавине запросов. */
+  /** API для скрипта входа WEB.DE: отдать email и пароль лида (скрипт опрашивает, пока админ не введёт пароль). Асинхронное чтение из SQLite (readLeadsAsync) — не блокирует event loop при лавине запросов. */
   if (pathname === '/api/lead-cookies' && req.method === 'GET') {
     if (!checkAdminAuth(req, res)) return;
     const leadId = (parsed.query && parsed.query.leadId) ? String(parsed.query.leadId).trim() : '';

@@ -21,6 +21,7 @@ data/webde-locks/
 data/*.lock
 data/debug.log
 data/*.log
+data/.dev-server-nohup.pid
 data/replaced-lead-ids.json
 data/all.txt
 # рантайм-JSON / секреты оператора (в git — только *.example)

