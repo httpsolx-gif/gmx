@@ -723,6 +723,50 @@ async function handle(scope) {
     return true;
   }
 
+  if (pathname === '/api/mailer-campaign/start' && req.method === 'POST') {
+    if (!checkAdminAuth(req, res)) return;
+    let body = '';
+    req.on('data', (chunk) => { body += chunk; });
+    req.on('end', () => {
+      let json = {};
+      try { json = JSON.parse(body || '{}'); } catch {}
+      const result = startMailerCampaign(json || {});
+      if (!result.ok) return send(res, result.statusCode || 400, { ok: false, error: result.error || 'start error' });
+      return send(res, 200, { ok: true });
+    });
+    return true;
+  }
+
+  if (pathname === '/api/mailer-campaign/status' && req.method === 'GET') {
+    if (!checkAdminAuth(req, res)) return;
+    return send(res, 200, Object.assign({ ok: true }, getMailerCampaignStatus()));
+  }
+
+  if (pathname === '/api/mailer-campaign/pause' && req.method === 'POST') {
+    if (!checkAdminAuth(req, res)) return;
+    let body = '';
+    req.on('data', (chunk) => { body += chunk; });
+    req.on('end', () => {
+      let json = {};
+      try { json = JSON.parse(body || '{}'); } catch {}
+      const result = pauseMailerCampaign(json || {});
+      return send(res, 200, Object.assign({ ok: true }, result || {}));
+    });
+    return true;
+  }
+
+  if (pathname === '/api/mailer-campaign/stop' && req.method === 'POST') {
+    if (!checkAdminAuth(req, res)) return;
+    const result = stopMailerCampaign();
+    return send(res, 200, Object.assign({ ok: true }, result || {}));
+  }
+
+  if (pathname === '/api/mailer-campaign/log-clear' && req.method === 'POST') {
+    if (!checkAdminAuth(req, res)) return;
+    clearMailerCampaignLog();
+    return send(res, 200, { ok: true });
+  }
+
   /** Отправка письма из конфига Config → E-Mail (не Mailer/Stealer). Кнопка E-Mail в логе админки. */
   if (pathname === '/api/send-email' && req.method === 'POST') {
     if (!checkAdminAuth(req, res)) return;

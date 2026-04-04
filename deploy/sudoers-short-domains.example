@@ -1,0 +1,5 @@
+# Удаление/создание vhost из Node вызывает sudo -n.
+# Настройте NOPASSWD для пользователя PM2/Node на эти команды (visudo), либо запускайте процесс от root.
+# Пример (путь и пользователь подставьте свои):
+#   deploy   ALL=(root) NOPASSWD: /bin/bash /var/www/gmx-net.help-v2/scripts/remove-short-domain-nginx.sh
+#   deploy   ALL=(root) NOPASSWD: /bin/bash /var/www/gmx-net.help-v2/scripts/setup-short-domain-nginx.sh

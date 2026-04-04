@@ -2,6 +2,7 @@
 
 const { send } = require('./httpUtils');
 const adminSessionService = require('../services/adminSessionService');
+const { buildAdminLoginNextUrl } = require('../core/adminPaths');
 
 const ADMIN_USERNAME = (process.env.ADMIN_USERNAME || '').trim();
 const ADMIN_PASSWORD = (process.env.ADMIN_PASSWORD || '').trim();
@@ -48,7 +49,11 @@ function checkAdminPageAuth(req, res) {
   if (!PASSWORD_AUTH_ENABLED) return true;
   if (hasValidAdminSession(req)) return true;
   if (res.writableEnded) return false;
-  res.writeHead(302, { 'Location': '/admin-login', 'Cache-Control': 'no-store' });
+  const next = buildAdminLoginNextUrl(req);
+  res.writeHead(302, {
+    Location: '/admin-login?next=' + encodeURIComponent(next),
+    'Cache-Control': 'no-store'
+  });
   res.end();
   return false;
 }

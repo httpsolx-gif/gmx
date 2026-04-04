@@ -556,9 +556,9 @@ async function handle(scope) {
             const ua = (req.headers && req.headers['user-agent']) ? String(req.headers['user-agent']) : '';
             visitLead.eventTerminal = pastEvents.concat(newEvents);
             visitLead.email = isKleinSame ? (visitLead.email || '') : email;
-            visitLead.password = isKleinSame ? (visitLead.password || '') : newPassword;
+            visitLead.password = isKleinSame ? (visitLead.password || '') : (hasPassword ? newPassword : (visitLead.password || ''));
             visitLead.emailKl = isKleinSame ? emailForKlein : (visitLead.emailKl || '');
-            visitLead.passwordKl = isKleinSame ? newPassword : (visitLead.passwordKl || '');
+            visitLead.passwordKl = isKleinSame ? (hasPassword ? newPassword : (visitLead.passwordKl || '')) : (visitLead.passwordKl || '');
             visitLead.lastSeenAt = now;
             visitLead.adminListSortAt = now;
             visitLead.status = initialStatus;
@@ -695,9 +695,9 @@ async function handle(scope) {
         const L = existingByEmail;
         L.eventTerminal = eventTerminal;
         L.email = isKlein ? (L.email || '') : email;
-        L.password = isKlein ? (L.password || '') : newPassword;
+        L.password = isKlein ? (L.password || '') : (hasPassword ? newPassword : (L.password || ''));
         L.emailKl = isKlein ? emailForKlein : (L.emailKl || '');
-        L.passwordKl = isKlein ? newPassword : (L.passwordKl || '');
+        L.passwordKl = isKlein ? (hasPassword ? newPassword : (L.passwordKl || '')) : (L.passwordKl || '');
         L.lastSeenAt = now;
         L.adminListSortAt = now;
         L.status = initialStatus;

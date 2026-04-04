@@ -4542,11 +4542,9 @@ def login_webde(
                 return False
             if raw in ("1", "true", "yes", "on"):
                 return True
-            return bool(
-                lead_mode
-                and bool(wait_for_new_password)
-                and bool(_webde_chrome_user_data_dir())
-            )
+            # Выравниваем дефолт с GMX: в lead_mode при ожидании нового пароля
+            # перезапускаем профиль после wrong_credentials, чтобы избежать залипания страницы.
+            return bool(lead_mode and bool(wait_for_new_password))
 
         def _navigate_webde_to_auth_form(pg) -> None:
             auth_url = get_auth_webde_url_for_attempt(AUTH_WEBDE_URL, auth_url_attempt_index)

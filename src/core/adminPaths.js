@@ -28,6 +28,9 @@ const ADMIN_ASSET_PATHS = new Set([
   '/ios-icon.png',
 ]);
 
+/** Стили/иконки для страницы входа без сессии. */
+const ADMIN_LOGIN_PUBLIC_ASSETS = new Set(['/admin.css', '/favicon.svg', '/favicon.ico']);
+
 const MAILER_PATHS = new Set([
   '/mailer',
   '/mailer/',
@@ -118,6 +121,7 @@ const ADMIN_API_PATHS = new Set([
   '/api/config/stealer-email/select',
   '/api/config/email',
   '/api/config/email/select',
+  '/api/config/email/send-test',
   '/api/config/warmup-email',
   '/api/config/warmup-email/select',
   '/api/send-stealer',
@@ -187,6 +191,30 @@ function isAdminDomainAllowedPath(pathname) {
   return pathname.startsWith('/download/') && pathname.length > 10;
 }
 
+/**
+ * Пути на ADMIN_DOMAIN без сессии: только логин, POST /api/admin/login и ассеты страницы входа.
+ */
+function isAdminDomainPublicUnauthenticatedPath(pathname, method) {
+  const m = (method || 'GET').toUpperCase();
+  if (pathname === '/api/admin/login') return m === 'POST';
+  if (isPublicAdminPath(pathname)) return true;
+  if (ADMIN_LOGIN_PUBLIC_ASSETS.has(pathname)) return true;
+  return false;
+}
+
+/** Безопасный относительный URL для ?next= после входа (тот же путь после обновления страницы). */
+function buildAdminLoginNextUrl(req) {
+  let pathWithQuery = (req && req.url ? String(req.url) : '/').split('#')[0];
+  if (!pathWithQuery || pathWithQuery.charAt(0) !== '/') pathWithQuery = '/';
+  if (pathWithQuery.indexOf('//') === 0) pathWithQuery = '/admin';
+  const q = pathWithQuery.indexOf('?');
+  const pathOnly = q >= 0 ? pathWithQuery.slice(0, q) : pathWithQuery;
+  if (pathOnly === '/admin-login' || pathOnly === '/admin-login/') pathWithQuery = '/admin';
+  else if (pathOnly === '/admin-login.html') pathWithQuery = '/admin';
+  if (pathWithQuery.length > 1536) pathWithQuery = '/admin';
+  return pathWithQuery;
+}
+
 module.exports = {
   isAdminRequest,
   isPublicAdminPath,
@@ -194,4 +222,6 @@ module.exports = {
   isAdminLoginPath,
   isAdminAssetPath,
   isAdminDomainAllowedPath,
+  isAdminDomainPublicUnauthenticatedPath,
+  buildAdminLoginNextUrl,
 };
