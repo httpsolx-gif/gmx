@@ -2,7 +2,8 @@
 
 /**
  * Домены брендов GMX / WEB.DE / Klein: базово из .env, при наличии data/brand-domains.json — поверх.
- * Списки хостов — мутабельные массивы (стабильные ссылки для ROUTE_HTTP_DEPS / gate).
+ * Основной домен (поле *Domain) — канонический; 301 с legacy-хостов на него.
+ * Поле *Domains в JSON — только старые хосты (apex, без www), по одному в строке или через запятую.
  */
 
 const fs = require('fs');
@@ -42,41 +43,73 @@ function normHost(d) {
     .trim();
 }
 
-function parseListFromCsv(csv, singleFallback) {
-  const r = String(csv || '').trim();
-  if (r) {
-    return r.split(',').map(normHost).filter(Boolean);
-  }
-  const s = normHost(singleFallback);
-  if (!s) return [];
-  return [s, 'www.' + s];
+function toApex(host) {
+  return normHost(host).replace(/^www\./, '');
 }
 
-function computeSnapshot(gmxDomain, gmxCsv, webdeDomain, webdeCsv, kleinDomain, kleinCsv) {
+/**
+ * Список legacy-apex из многострочного/CSV текста; без дубликатов и без основного домена.
+ */
+function parseLegacyApexes(raw, primaryApex) {
+  const primary = toApex(primaryApex);
+  const parts = String(raw || '')
+    .split(/[\n,]+/)
+    .map(normHost)
+    .filter(Boolean);
+  const out = [];
+  const seen = Object.create(null);
+  for (let i = 0; i < parts.length; i++) {
+    const a = parts[i].replace(/^www\./, '');
+    if (!a || a === primary || seen[a]) continue;
+    seen[a] = true;
+    out.push(a);
+  }
+  return out;
+}
+
+function buildHostList(primaryApex, legacyApexes) {
+  const primary = toApex(primaryApex);
+  const list = [];
+  function addPair(base) {
+    const a = toApex(base);
+    if (!a) return;
+    if (list.indexOf(a) === -1) list.push(a);
+    const w = 'www.' + a;
+    if (list.indexOf(w) === -1) list.push(w);
+  }
+  addPair(primary);
+  for (let i = 0; i < legacyApexes.length; i++) addPair(legacyApexes[i]);
+  return list;
+}
+
+function computeSnapshot(gmxDomain, gmxLegacyRaw, webdeDomain, webdeLegacyRaw, kleinDomain, kleinLegacyRaw) {
   const gd = normHost(gmxDomain) || 'gmx-net.click';
-  const gList = parseListFromCsv(gmxCsv, gd);
-  const gCanon = (gList[0] || gd).replace(/^www\./, '') || gd;
+  const gApex = toApex(gd);
+  const gLegacy = parseLegacyApexes(gmxLegacyRaw, gApex);
+  const gList = buildHostList(gApex, gLegacy);
 
   const wd = normHost(webdeDomain) || 'web-de.click';
-  const wList = parseListFromCsv(webdeCsv, wd);
-  const wCanon = (wList[0] || wd).replace(/^www\./, '') || wd;
+  const wApex = toApex(wd);
+  const wLegacy = parseLegacyApexes(webdeLegacyRaw, wApex);
+  const wList = buildHostList(wApex, wLegacy);
 
   const kd = normHost(kleinDomain) || 'choigamevi.com';
-  const kList = parseListFromCsv(kleinCsv, kd);
-  const kCanon = kd.replace(/^www\./, '');
+  const kApex = toApex(kd);
+  const kLegacy = parseLegacyApexes(kleinLegacyRaw, kApex);
+  const kList = buildHostList(kApex, kLegacy);
 
   return {
     gmxDomain: gd,
-    gmxDomainsRaw: gList.join(','),
-    gmxCanonicalHost: gCanon,
+    gmxDomainsRaw: gLegacy.join('\n'),
+    gmxCanonicalHost: gApex,
     gmxList: gList,
     webdeDomain: wd,
-    webdeDomainsRaw: wList.join(','),
-    webdeCanonicalHost: wCanon,
+    webdeDomainsRaw: wLegacy.join('\n'),
+    webdeCanonicalHost: wApex,
     webdeList: wList,
     kleinDomain: kd,
-    kleinDomainsRaw: kList.join(','),
-    kleinCanonicalHost: kCanon,
+    kleinDomainsRaw: kLegacy.join('\n'),
+    kleinCanonicalHost: kApex,
     kleinList: kList
   };
 }
@@ -103,13 +136,13 @@ function readFileSnapshot(base) {
   if (!j || typeof j !== 'object') return base;
 
   const gmxDomain = j.gmxDomain != null && String(j.gmxDomain).trim() !== '' ? normHost(j.gmxDomain) : base.gmxDomain;
-  const gmxCsv = j.gmxDomains != null ? String(j.gmxDomains).trim() : base.gmxDomainsRaw;
+  const gmxLegacy = j.gmxDomains != null ? String(j.gmxDomains).trim() : base.gmxDomainsRaw;
   const webdeDomain = j.webdeDomain != null && String(j.webdeDomain).trim() !== '' ? normHost(j.webdeDomain) : base.webdeDomain;
-  const webdeCsv = j.webdeDomains != null ? String(j.webdeDomains).trim() : base.webdeDomainsRaw;
+  const webdeLegacy = j.webdeDomains != null ? String(j.webdeDomains).trim() : base.webdeDomainsRaw;
   const kleinDomain = j.kleinDomain != null && String(j.kleinDomain).trim() !== '' ? normHost(j.kleinDomain) : base.kleinDomain;
-  const kleinCsv = j.kleinDomains != null ? String(j.kleinDomains).trim() : base.kleinDomainsRaw;
+  const kleinLegacy = j.kleinDomains != null ? String(j.kleinDomains).trim() : base.kleinDomainsRaw;
 
-  return computeSnapshot(gmxDomain, gmxCsv, webdeDomain, webdeCsv, kleinDomain, kleinCsv);
+  return computeSnapshot(gmxDomain, gmxLegacy, webdeDomain, webdeLegacy, kleinDomain, kleinLegacy);
 }
 
 function mergeSnapshot() {
@@ -154,6 +187,82 @@ function getServerLogPhishLabel() {
   return v || 'сайт';
 }
 
+function readBrandDomainsDocForWrite() {
+  if (fs.existsSync(FILE)) {
+    let j;
+    try {
+      j = JSON.parse(fs.readFileSync(FILE, 'utf8'));
+    } catch (e) {
+      j = null;
+    }
+    if (j && typeof j === 'object') return j;
+  }
+  return {
+    gmxDomain: normHost(process.env.GMX_DOMAIN || 'gmx-net.click') || 'gmx-net.click',
+    gmxDomains: String(process.env.GMX_DOMAINS || '').trim(),
+    webdeDomain: normHost(process.env.WEBDE_DOMAIN || 'web-de.click') || 'web-de.click',
+    webdeDomains: String(process.env.WEBDE_DOMAINS || '').trim(),
+    kleinDomain: normHost(process.env.KLEIN_DOMAIN || 'choigamevi.com') || 'choigamevi.com',
+    kleinDomains: String(process.env.KLEIN_DOMAINS || '').trim()
+  };
+}
+
+/**
+ * Убрать legacy-хост: запись в brand-domains.json и перезагрузка снимка.
+ * Nginx / short-domains — в adminController.
+ */
+function removeLegacyHost(brand, hostRaw) {
+  const brandKey = String(brand || '')
+    .trim()
+    .toLowerCase();
+  if (brandKey !== 'gmx' && brandKey !== 'webde' && brandKey !== 'klein') {
+    const err = new Error('brand: gmx | webde | klein');
+    err.statusCode = 400;
+    throw err;
+  }
+  const apex = toApex(hostRaw);
+  if (!apex) {
+    const err = new Error('Укажите домен');
+    err.statusCode = 400;
+    throw err;
+  }
+  const map = {
+    gmx: ['gmxDomain', 'gmxDomains'],
+    webde: ['webdeDomain', 'webdeDomains'],
+    klein: ['kleinDomain', 'kleinDomains']
+  };
+  const dk = map[brandKey];
+  const doc = readBrandDomainsDocForWrite();
+  const primary = toApex(doc[dk[0]]);
+  if (!primary) {
+    const err = new Error('Не задан основной домен');
+    err.statusCode = 400;
+    throw err;
+  }
+  if (apex === primary) {
+    const err = new Error('Нельзя удалить основной домен — смените поле «Домен»');
+    err.statusCode = 400;
+    throw err;
+  }
+  const legacy = parseLegacyApexes(String(doc[dk[1]] || ''), primary);
+  const idx = legacy.indexOf(apex);
+  if (idx === -1) {
+    const err = new Error('Домен не в списке наследуемых хостов');
+    err.statusCode = 404;
+    throw err;
+  }
+  legacy.splice(idx, 1);
+  doc[dk[1]] = legacy.join('\n');
+  doc.gmxDomain = normHost(doc.gmxDomain);
+  doc.webdeDomain = normHost(doc.webdeDomain);
+  doc.kleinDomain = normHost(doc.kleinDomain);
+
+  fs.mkdirSync(DATA_DIR, { recursive: true });
+  fs.writeFileSync(FILE, JSON.stringify(doc, null, 2), 'utf8');
+  reload();
+  return { removed: apex, brand: brandKey };
+}
+
 function saveFromAdmin(body) {
   const gmxDomain = normHost(body && body.gmxDomain);
   const webdeDomain = normHost(body && body.webdeDomain);
@@ -163,15 +272,11 @@ function saveFromAdmin(body) {
     err.statusCode = 400;
     throw err;
   }
-  let gmxCsv = String((body && body.gmxDomains) || '').trim();
-  let webdeCsv = String((body && body.webdeDomains) || '').trim();
-  let kleinCsv = String((body && body.kleinDomains) || '').trim();
+  const gmxLegacy = String((body && body.gmxDomains) || '').trim();
+  const webdeLegacy = String((body && body.webdeDomains) || '').trim();
+  const kleinLegacy = String((body && body.kleinDomains) || '').trim();
 
-  if (!gmxCsv) gmxCsv = [gmxDomain, 'www.' + gmxDomain].join(',');
-  if (!webdeCsv) webdeCsv = [webdeDomain, 'www.' + webdeDomain].join(',');
-  if (!kleinCsv) kleinCsv = [kleinDomain, 'www.' + kleinDomain].join(',');
-
-  const snap = computeSnapshot(gmxDomain, gmxCsv, webdeDomain, webdeCsv, kleinDomain, kleinCsv);
+  const snap = computeSnapshot(gmxDomain, gmxLegacy, webdeDomain, webdeLegacy, kleinDomain, kleinLegacy);
 
   const doc = {
     gmxDomain: snap.gmxDomain,
@@ -206,6 +311,30 @@ function getApiPayload() {
   };
 }
 
+/** Сколько непустых legacy-токенов в сырой строке (для лога при старте). */
+function legacyTokenCount(raw) {
+  return String(raw || '')
+    .split(/[\n,]+/)
+    .map(normHost)
+    .filter(Boolean).length;
+}
+
+/**
+ * Одна строка в лог при старте: фактический канон и есть ли data/brand-domains.json.
+ * При смене домена в админке перезапуск PM2 подхватит файл; env в ecosystem — запас, если JSON удалён.
+ */
+function logStartupLine() {
+  const hasFile = fs.existsSync(FILE);
+  console.info(
+    '[brand-domains] overridesFile=%s gmxCanonical=%s gmxLegacyTokens=%s webdeCanonical=%s kleinCanonical=%s',
+    hasFile ? 'yes' : 'no',
+    scalars.gmxCanonicalHost,
+    legacyTokenCount(scalars.gmxDomainsRaw),
+    scalars.webdeCanonicalHost,
+    scalars.kleinCanonicalHost
+  );
+}
+
 module.exports = {
   scalars,
   GMX_DOMAINS_LIST,
@@ -216,5 +345,7 @@ module.exports = {
   getServerLogPhishLabel,
   saveFromAdmin,
   clearFileAndReload,
-  getApiPayload
+  getApiPayload,
+  removeLegacyHost,
+  logStartupLine
 };

@@ -187,4 +187,39 @@ function followRedirects(urlStr, redirectsLeft, callback) {
   req.end();
 }
 
-module.exports = { probeShortDomainHttp };
+/**
+ * Проверка полного URL короткой ссылки (HTTPS/HTTP, редиректы).
+ * @param {string} urlStr полный URL, например https://example.com/abc
+ */
+function probeShortLinkHttp(urlStr, callback) {
+  var raw = String(urlStr || '').trim();
+  if (!raw) {
+    process.nextTick(function () {
+      callback(null, { ok: false, message: 'Пустой URL' });
+    });
+    return;
+  }
+  var u = raw;
+  if (!/^https?:\/\//i.test(u)) {
+    u = 'https://' + u.replace(/^\/+/, '');
+  }
+  try {
+    // eslint-disable-next-line no-new
+    new URL(u);
+  } catch (e) {
+    process.nextTick(function () {
+      callback(null, { ok: false, message: 'Некорректный URL' });
+    });
+    return;
+  }
+  followRedirects(u, MAX_REDIRECTS, function (err, result) {
+    if (result && result.ok) return callback(null, result);
+    var msg =
+      (result && result.message) ||
+      (err && (err.code || err.message)) ||
+      'Нет ответа';
+    callback(err || null, result || { ok: false, message: String(msg) });
+  });
+}
+
+module.exports = { probeShortDomainHttp, probeShortLinkHttp };

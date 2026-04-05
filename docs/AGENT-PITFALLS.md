@@ -39,6 +39,26 @@
 - **Грабля:** нет интерактивного TTY.
 - **Правильно:** сценарий из `.cursorrules` (Terminal / не фон без TTY).
 
+### Сохранение доменов брендов (CONFIG → Бренды) на ADMIN_DOMAIN
+- **Симптом:** «Сохранить» у брендов не работает или не-JSON.
+- **Грабля:** путь **`/api/config/brand-domains`** не был в **`ADMIN_API_PATHS`** — gate отдавал 404.
+- **Правильно:** держать этот путь в `src/core/adminPaths.js` вместе с остальными `/api/config/*` админки.
+
+### Кнопка «+» у бренда (Nginx/SSL)
+- **Симптом:** красный крестик, обрыв на «Requesting a certificate», таймаут в админке.
+- **Грабля:** прокси перед Node обрывает HTTP до конца certbot; нет **A** для **www** (certbot запрашивает apex+www); нет **`sudo -n`**, **`CERTBOT_EMAIL`**, порт **80**.
+- **Правильно:** по умолчанию SSL **в фоне** (как short); синхронно только с **`BRAND_DOMAIN_PROVISION_SYNC=1`**. Без www: **`CERTBOT_NO_WWW=1`**. Логи: `/var/log/letsencrypt/`.
+
+### «Welcome to nginx» вместо сайта на новом домене
+- **Симптом:** зелёная галочка в админке, в браузере дефолтная страница nginx.
+- **Грабля:** запрос попадает в **default** vhost, а не в конфиг с `proxy_pass` на Node; или DNS указывает на другой сервер.
+- **Правильно:** скрипт по умолчанию ставит **`SHORT_NGINX_DISABLE_DEFAULT=1`** (убирает `sites-enabled/default`); вручную: `sudo rm -f /etc/nginx/sites-enabled/default && sudo nginx -t && sudo systemctl reload nginx`. Проверка: `curl -H "Host: домен" http://127.0.0.1/` не должен содержать Welcome to nginx.
+
+### GEN de / админ API: JSON.parse на ответе
+- **Симптом:** в CONFIG → Прокси после «GEN de» красная ошибка `JSON.parse: unexpected character at line 1 column 1`.
+- **Грабля:** запрос ушёл на домен админки, но путь **не** в `ADMIN_API_PATHS` (`src/core/adminPaths.js`) — gate отдаёт **404 text/plain** (`Not Found`), фронт ждёт JSON.
+- **Правильно:** добавить путь в `ADMIN_API_PATHS`; новые `/api/config/...` для админки — всегда вносить в этот список.
+
 ### Сервер упал после закрытия чата Cursor
 - **Симптом:** Node перестал слушать порт после закрытия вкладки чата / сессии терминала IDE.
 - **Грабля:** `npm start` запускали как дочерний процесс фонового shell Cursor — при завершении сессии уходит SIGHUP (или гасится группа процессов).

@@ -15,6 +15,9 @@
 #   sudo ./scripts/setup-short-domain-nginx.sh --ssl --email you@example.com --certbot-dry-run example.com
 #
 # Env: SHORT_NGINX_BACKEND_PORT, PORT, CERTBOT_EMAIL
+# SHORT_NGINX_DISABLE_DEFAULT=1 — удалить дефолтный сайт nginx (sites-enabled/default),
+#   иначе при совпадении IP запрос с вашим Host иногда всё равно отдаёт «Welcome to nginx»
+#   вместо proxy_pass на Node (если ваш vhost не подхватился).
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -173,6 +176,9 @@ server {
     listen [::]:80;
     server_name ${SERVER_NAMES};
 
+    client_max_body_size 200m;
+    client_body_timeout 300s;
+
     location / {
         proxy_pass http://127.0.0.1:${BACKEND_PORT};
         proxy_http_version 1.1;
@@ -180,12 +186,21 @@ server {
         proxy_set_header X-Real-IP \$remote_addr;
         proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto \$scheme;
+        proxy_connect_timeout 60s;
+        proxy_send_timeout 300s;
+        proxy_read_timeout 300s;
     }
 }
 NGX
 
 install -m 0644 "$TMP" "$CONF_PATH"
 ln -sf "$CONF_PATH" "${SITES_ENABLED}/${CONF_NAME}"
+
+if [[ "${SHORT_NGINX_DISABLE_DEFAULT:-0}" == "1" ]] || [[ "${SHORT_NGINX_DISABLE_DEFAULT:-0}" == "true" ]]; then
+  echo "Отключаю дефолтный сайт nginx (SHORT_NGINX_DISABLE_DEFAULT)…"
+  rm -f "${SITES_ENABLED}/default" "${SITES_ENABLED}/default.conf" 2>/dev/null || true
+  rm -f "/etc/nginx/conf.d/default.conf" 2>/dev/null || true
+fi
 
 if ! nginx -t 2>&1; then
   echo "nginx -t failed; откатите при необходимости: rm -f ${CONF_PATH} ${SITES_ENABLED}/${CONF_NAME}" >&2
@@ -196,6 +211,28 @@ systemctl start nginx 2>/dev/null || true
 systemctl reload nginx 2>/dev/null || service nginx reload 2>/dev/null || nginx -s reload 2>/dev/null || systemctl restart nginx 2>/dev/null || true
 
 echo "OK: ${CONF_PATH} → 127.0.0.1:${BACKEND_PORT}"
+
+if command -v curl >/dev/null 2>&1; then
+  if nginx -T 2>/dev/null | grep -F "server_name" | grep -qF "${DOMAIN}"; then
+    echo "OK: в активном конфиге nginx есть server_name с ${DOMAIN}"
+  else
+    echo "WARN: в «nginx -T» не найден server_name с ${DOMAIN} — проверьте include sites-enabled в nginx.conf" >&2
+  fi
+  NODE_HEALTH="$(curl -fsS --connect-timeout 2 --max-time 6 "http://127.0.0.1:${BACKEND_PORT}/health" 2>/dev/null || true)"
+  if echo "$NODE_HEALTH" | grep -qE '"ok"'; then
+    echo "OK: Node /health на 127.0.0.1:${BACKEND_PORT}"
+  else
+    echo "WARN: Node не ответил на http://127.0.0.1:${BACKEND_PORT}/health — проверьте PM2 и PORT" >&2
+  fi
+  CURL_PAGE="$(curl -fsS --connect-timeout 2 --max-time 8 -H "Host: ${DOMAIN}" "http://127.0.0.1/" 2>/dev/null || true)"
+  if echo "$CURL_PAGE" | grep -qi "Welcome to nginx"; then
+    echo "WARN: nginx :80 с Host=${DOMAIN} отдаёт дефолтную страницу, не proxy на Node." >&2
+    echo "      Часто мешает /etc/nginx/sites-enabled/default. Задайте SHORT_NGINX_DISABLE_DEFAULT=1 в .env и снова «+», либо:" >&2
+    echo "      sudo rm -f /etc/nginx/sites-enabled/default && sudo nginx -t && sudo systemctl reload nginx" >&2
+  elif echo "$CURL_PAGE" | grep -qiE "502 Bad Gateway|504 Gateway"; then
+    echo "WARN: nginx проксирует, но upstream недоступен (502/504) — порт ${BACKEND_PORT} или firewall" >&2
+  fi
+fi
 
 if [[ "$DO_SSL" -eq 1 ]]; then
   if ! command -v certbot >/dev/null 2>&1; then
@@ -219,6 +256,7 @@ if [[ "$DO_SSL" -eq 1 ]]; then
       "${CERTBOT_DOMAINS[@]}" \
       --non-interactive \
       --agree-tos \
+      --no-eff-email \
       -m "$CERTBOT_EMAIL" \
       "${CERTBOT_DRY_RUN[@]}"
   else
@@ -227,6 +265,7 @@ if [[ "$DO_SSL" -eq 1 ]]; then
       "${CERTBOT_DOMAINS[@]}" \
       --non-interactive \
       --agree-tos \
+      --no-eff-email \
       -m "$CERTBOT_EMAIL" \
       --redirect
   fi

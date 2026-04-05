@@ -1,378 +1,402 @@
 {
   "schemaVersion": 1,
   "sourceRoot": "src",
-  "totalEntries": 389,
+  "totalEntries": 401,
   "summaryByKind": {
-    "equals": 237,
+    "equals": 243,
     "startsWith": 10,
-    "setPath": 142
+    "setPath": 148
   },
   "entries": [
     {
-      "route": "/api/config/brand-domains",
+      "route": "/api/config/brand-domain-apply",
       "kind": "equals",
       "file": "src/controllers/adminController.js",
-      "line": 1295
+      "line": 1499
+    },
+    {
+      "route": "/api/config/brand-domain-check",
+      "kind": "equals",
+      "file": "src/controllers/adminController.js",
+      "line": 1454
     },
     {
       "route": "/api/config/brand-domains",
       "kind": "equals",
       "file": "src/controllers/adminController.js",
-      "line": 1300
+      "line": 1369
     },
     {
       "route": "/api/config/brand-domains",
       "kind": "equals",
       "file": "src/controllers/adminController.js",
-      "line": 1318
+      "line": 1374
+    },
+    {
+      "route": "/api/config/brand-domains",
+      "kind": "equals",
+      "file": "src/controllers/adminController.js",
+      "line": 1392
+    },
+    {
+      "route": "/api/config/brand-legacy-host-remove",
+      "kind": "equals",
+      "file": "src/controllers/adminController.js",
+      "line": 1402
     },
     {
       "route": "/api/config/check",
       "kind": "equals",
       "file": "src/controllers/adminController.js",
-      "line": 934
+      "line": 1008
     },
     {
       "route": "/api/config/cookies-export",
       "kind": "equals",
       "file": "src/controllers/adminController.js",
-      "line": 247
+      "line": 320
     },
     {
       "route": "/api/config/download",
       "kind": "equals",
       "file": "src/controllers/adminController.js",
-      "line": 387
+      "line": 460
     },
     {
       "route": "/api/config/download",
       "kind": "equals",
       "file": "src/controllers/adminController.js",
-      "line": 498
+      "line": 572
     },
     {
       "route": "/api/config/download-android",
       "kind": "equals",
       "file": "src/controllers/adminController.js",
-      "line": 642
+      "line": 716
     },
     {
       "route": "/api/config/download-android",
       "kind": "equals",
       "file": "src/controllers/adminController.js",
-      "line": 872
+      "line": 946
     },
     {
       "route": "/api/config/download-android-delete",
       "kind": "equals",
       "file": "src/controllers/adminController.js",
-      "line": 701
+      "line": 775
     },
     {
       "route": "/api/config/download-android-limit",
       "kind": "equals",
       "file": "src/controllers/adminController.js",
-      "line": 648
+      "line": 722
     },
     {
       "route": "/api/config/download-android-upload-multi",
       "kind": "equals",
       "file": "src/controllers/adminController.js",
-      "line": 775
+      "line": 849
     },
     {
       "route": "/api/config/download-delete",
       "kind": "equals",
       "file": "src/controllers/adminController.js",
-      "line": 672
+      "line": 746
     },
     {
       "route": "/api/config/download-limit",
       "kind": "equals",
       "file": "src/controllers/adminController.js",
-      "line": 393
+      "line": 466
     },
     {
       "route": "/api/config/download-reset-counts",
       "kind": "equals",
       "file": "src/controllers/adminController.js",
-      "line": 730
+      "line": 804
     },
     {
       "route": "/api/config/download-rotate-next",
       "kind": "equals",
       "file": "src/controllers/adminController.js",
-      "line": 755
+      "line": 829
     },
     {
       "route": "/api/config/download-settings",
       "kind": "equals",
       "file": "src/controllers/adminController.js",
-      "line": 846
+      "line": 920
     },
     {
       "route": "/api/config/download-settings",
       "kind": "equals",
       "file": "src/controllers/adminController.js",
-      "line": 857
+      "line": 931
     },
     {
       "route": "/api/config/download-upload-multi",
       "kind": "equals",
       "file": "src/controllers/adminController.js",
-      "line": 417
+      "line": 490
     },
     {
       "route": "/api/config/email",
       "kind": "equals",
       "file": "src/controllers/adminController.js",
-      "line": 2301
+      "line": 2586
     },
     {
       "route": "/api/config/email",
       "kind": "equals",
       "file": "src/controllers/adminController.js",
-      "line": 2319
+      "line": 2604
     },
     {
       "route": "/api/config/email",
       "kind": "equals",
       "file": "src/controllers/adminController.js",
-      "line": 2363
+      "line": 2648
     },
     {
       "route": "/api/config/email/select",
       "kind": "equals",
       "file": "src/controllers/adminController.js",
-      "line": 2378
+      "line": 2663
     },
     {
       "route": "/api/config/email/send-test",
       "kind": "equals",
       "file": "src/controllers/adminController.js",
-      "line": 2397
+      "line": 2682
     },
     {
       "route": "/api/config/proxies",
       "kind": "equals",
       "file": "src/controllers/adminController.js",
-      "line": 1712
+      "line": 1997
     },
     {
       "route": "/api/config/proxies",
       "kind": "equals",
       "file": "src/controllers/adminController.js",
-      "line": 1738
+      "line": 2023
     },
     {
       "route": "/api/config/proxies-validate",
       "kind": "equals",
       "file": "src/controllers/adminController.js",
-      "line": 2011
+      "line": 2296
     },
     {
       "route": "/api/config/proxies-validate",
       "kind": "equals",
       "file": "src/controllers/adminController.js",
-      "line": 2029
+      "line": 2314
     },
     {
       "route": "/api/config/proxy-fp-stats",
       "kind": "equals",
       "file": "src/controllers/adminController.js",
-      "line": 191
+      "line": 264
     },
     {
       "route": "/api/config/proxy-fp-stats",
       "kind": "equals",
       "file": "src/controllers/adminController.js",
-      "line": 202
+      "line": 275
     },
     {
       "route": "/api/config/proxy-fp-stats/purge-orphans",
       "kind": "equals",
       "file": "src/controllers/adminController.js",
-      "line": 221
+      "line": 294
     },
     {
       "route": "/api/config/short-domains",
       "kind": "equals",
       "file": "src/controllers/adminController.js",
-      "line": 1328
+      "line": 1567
     },
     {
       "route": "/api/config/short-domains",
       "kind": "equals",
       "file": "src/controllers/adminController.js",
-      "line": 1356
+      "line": 1595
     },
     {
       "route": "/api/config/short-domains",
       "kind": "equals",
       "file": "src/controllers/adminController.js",
-      "line": 1525
+      "line": 1810
     },
     {
       "route": "/api/config/short-domains-check",
       "kind": "equals",
       "file": "src/controllers/adminController.js",
-      "line": 1456
+      "line": 1695
+    },
+    {
+      "route": "/api/config/short-path-check",
+      "kind": "equals",
+      "file": "src/controllers/adminController.js",
+      "line": 1764
     },
     {
       "route": "/api/config/shortlinks",
       "kind": "equals",
       "file": "src/controllers/adminController.js",
-      "line": 1263
+      "line": 1337
     },
     {
       "route": "/api/config/shortlinks",
       "kind": "equals",
       "file": "src/controllers/adminController.js",
-      "line": 1269
+      "line": 1343
     },
     {
       "route": "/api/config/shortlinks",
       "kind": "equals",
       "file": "src/controllers/adminController.js",
-      "line": 1286
+      "line": 1360
     },
     {
       "route": "/api/config/stealer-email",
       "kind": "equals",
       "file": "src/controllers/adminController.js",
-      "line": 2211
+      "line": 2496
     },
     {
       "route": "/api/config/stealer-email",
       "kind": "equals",
       "file": "src/controllers/adminController.js",
-      "line": 2228
+      "line": 2513
     },
     {
       "route": "/api/config/stealer-email",
       "kind": "equals",
       "file": "src/controllers/adminController.js",
-      "line": 2267
+      "line": 2552
     },
     {
       "route": "/api/config/stealer-email/select",
       "kind": "equals",
       "file": "src/controllers/adminController.js",
-      "line": 2282
+      "line": 2567
     },
     {
       "route": "/api/config/upload-apply",
       "kind": "equals",
       "file": "src/controllers/adminController.js",
-      "line": 1039
+      "line": 1113
     },
     {
       "route": "/api/config/warmup-email",
       "kind": "equals",
       "file": "src/controllers/adminController.js",
-      "line": 2423
+      "line": 2708
     },
     {
       "route": "/api/config/warmup-email",
       "kind": "equals",
       "file": "src/controllers/adminController.js",
-      "line": 2440
+      "line": 2725
     },
     {
       "route": "/api/config/warmup-email",
       "kind": "equals",
       "file": "src/controllers/adminController.js",
-      "line": 2478
+      "line": 2763
     },
     {
       "route": "/api/config/warmup-email/select",
       "kind": "equals",
       "file": "src/controllers/adminController.js",
-      "line": 2493
+      "line": 2778
     },
     {
       "route": "/api/config/webde-fingerprint-indices",
       "kind": "equals",
       "file": "src/controllers/adminController.js",
-      "line": 1840
+      "line": 2125
     },
     {
       "route": "/api/config/webde-fingerprint-indices",
       "kind": "equals",
       "file": "src/controllers/adminController.js",
-      "line": 1858
+      "line": 2143
     },
     {
       "route": "/api/config/webde-fingerprint-probe-start",
       "kind": "equals",
       "file": "src/controllers/adminController.js",
-      "line": 1991
+      "line": 2276
     },
     {
       "route": "/api/config/webde-fingerprint-probe-status",
       "kind": "equals",
       "file": "src/controllers/adminController.js",
-      "line": 2003
+      "line": 2288
     },
     {
       "route": "/api/config/webde-fingerprints-generate-de",
       "kind": "equals",
       "file": "src/controllers/adminController.js",
-      "line": 1909
+      "line": 2194
     },
     {
       "route": "/api/config/webde-fingerprints-list",
       "kind": "equals",
       "file": "src/controllers/adminController.js",
-      "line": 1904
+      "line": 2189
     },
     {
       "route": "/api/config/zip-password",
       "kind": "equals",
       "file": "src/controllers/adminController.js",
-      "line": 1552
+      "line": 1837
     },
     {
       "route": "/api/config/zip-password",
       "kind": "equals",
       "file": "src/controllers/adminController.js",
-      "line": 1557
+      "line": 1842
     },
     {
       "route": "/api/config/zip-process",
       "kind": "equals",
       "file": "src/controllers/adminController.js",
-      "line": 2129
+      "line": 2414
     },
     {
       "route": "/api/mode",
       "kind": "equals",
       "file": "src/controllers/adminController.js",
-      "line": 318
+      "line": 391
     },
     {
       "route": "/api/mode",
       "kind": "equals",
       "file": "src/controllers/adminController.js",
-      "line": 326
+      "line": 399
     },
     {
       "route": "/api/start-page",
       "kind": "equals",
       "file": "src/controllers/adminController.js",
-      "line": 347
+      "line": 420
     },
     {
       "route": "/api/start-page",
       "kind": "equals",
       "file": "src/controllers/adminController.js",
-      "line": 352
+      "line": 425
     },
     {
       "route": "/api/stats",
       "kind": "equals",
       "file": "src/controllers/adminController.js",
-      "line": 371
+      "line": 444
     },
     {
       "route": "/api/admin/login",
@@ -1110,7 +1134,7 @@
       "route": "/admin-login",
       "kind": "equals",
       "file": "src/core/adminPaths.js",
-      "line": 176
+      "line": 182
     },
     {
       "route": "/admin-login",
@@ -1122,7 +1146,7 @@
       "route": "/admin-login.html",
       "kind": "equals",
       "file": "src/core/adminPaths.js",
-      "line": 176
+      "line": 182
     },
     {
       "route": "/admin-login.html",
@@ -1134,7 +1158,7 @@
       "route": "/admin-login/",
       "kind": "equals",
       "file": "src/core/adminPaths.js",
-      "line": 176
+      "line": 182
     },
     {
       "route": "/admin-login/",
@@ -1176,7 +1200,7 @@
       "route": "/api/admin/login",
       "kind": "equals",
       "file": "src/core/adminPaths.js",
-      "line": 199
+      "line": 205
     },
     {
       "route": "/api/admin/login",
@@ -1200,7 +1224,7 @@
       "route": "/api/archive-leads-by-filter",
       "kind": "setPath",
       "file": "src/core/adminPaths.js",
-      "line": 131
+      "line": 137
     },
     {
       "route": "/api/chat",
@@ -1231,6 +1255,30 @@
       "kind": "setPath",
       "file": "src/core/adminPaths.js",
       "line": 63
+    },
+    {
+      "route": "/api/config/brand-domain-apply",
+      "kind": "setPath",
+      "file": "src/core/adminPaths.js",
+      "line": 113
+    },
+    {
+      "route": "/api/config/brand-domain-check",
+      "kind": "setPath",
+      "file": "src/core/adminPaths.js",
+      "line": 112
+    },
+    {
+      "route": "/api/config/brand-domains",
+      "kind": "setPath",
+      "file": "src/core/adminPaths.js",
+      "line": 110
+    },
+    {
+      "route": "/api/config/brand-legacy-host-remove",
+      "kind": "setPath",
+      "file": "src/core/adminPaths.js",
+      "line": 111
     },
     {
       "route": "/api/config/check",
@@ -1314,43 +1362,43 @@
       "route": "/api/config/email",
       "kind": "setPath",
       "file": "src/core/adminPaths.js",
-      "line": 121
+      "line": 127
     },
     {
       "route": "/api/config/email/select",
       "kind": "setPath",
       "file": "src/core/adminPaths.js",
-      "line": 121
+      "line": 127
     },
     {
       "route": "/api/config/email/send-test",
       "kind": "setPath",
       "file": "src/core/adminPaths.js",
-      "line": 122
+      "line": 128
     },
     {
       "route": "/api/config/proxies",
       "kind": "setPath",
       "file": "src/core/adminPaths.js",
-      "line": 110
+      "line": 115
     },
     {
       "route": "/api/config/proxies-validate",
       "kind": "setPath",
       "file": "src/core/adminPaths.js",
-      "line": 111
+      "line": 116
     },
     {
       "route": "/api/config/proxy-fp-stats",
       "kind": "setPath",
       "file": "src/core/adminPaths.js",
-      "line": 113
+      "line": 118
     },
     {
       "route": "/api/config/proxy-fp-stats/purge-orphans",
       "kind": "setPath",
       "file": "src/core/adminPaths.js",
-      "line": 114
+      "line": 119
     },
     {
       "route": "/api/config/short-domains",
@@ -1365,6 +1413,12 @@
       "line": 108
     },
     {
+      "route": "/api/config/short-path-check",
+      "kind": "setPath",
+      "file": "src/core/adminPaths.js",
+      "line": 109
+    },
+    {
       "route": "/api/config/shortlinks",
       "kind": "setPath",
       "file": "src/core/adminPaths.js",
@@ -1374,13 +1428,13 @@
       "route": "/api/config/stealer-email",
       "kind": "setPath",
       "file": "src/core/adminPaths.js",
-      "line": 119
+      "line": 125
     },
     {
       "route": "/api/config/stealer-email/select",
       "kind": "setPath",
       "file": "src/core/adminPaths.js",
-      "line": 120
+      "line": 126
     },
     {
       "route": "/api/config/upload-apply",
@@ -1392,49 +1446,55 @@
       "route": "/api/config/warmup-email",
       "kind": "setPath",
       "file": "src/core/adminPaths.js",
-      "line": 124
+      "line": 130
     },
     {
       "route": "/api/config/warmup-email/select",
       "kind": "setPath",
       "file": "src/core/adminPaths.js",
-      "line": 124
+      "line": 130
     },
     {
       "route": "/api/config/webde-fingerprint-indices",
       "kind": "setPath",
       "file": "src/core/adminPaths.js",
-      "line": 115
+      "line": 120
     },
     {
       "route": "/api/config/webde-fingerprint-probe-start",
       "kind": "setPath",
       "file": "src/core/adminPaths.js",
-      "line": 117
+      "line": 123
     },
     {
       "route": "/api/config/webde-fingerprint-probe-status",
       "kind": "setPath",
       "file": "src/core/adminPaths.js",
-      "line": 118
+      "line": 124
+    },
+    {
+      "route": "/api/config/webde-fingerprints-generate-de",
+      "kind": "setPath",
+      "file": "src/core/adminPaths.js",
+      "line": 122
     },
     {
       "route": "/api/config/webde-fingerprints-list",
       "kind": "setPath",
       "file": "src/core/adminPaths.js",
-      "line": 116
+      "line": 121
     },
     {
       "route": "/api/config/zip-password",
       "kind": "setPath",
       "file": "src/core/adminPaths.js",
-      "line": 109
+      "line": 114
     },
     {
       "route": "/api/config/zip-process",
       "kind": "setPath",
       "file": "src/core/adminPaths.js",
-      "line": 109
+      "line": 114
     },
     {
       "route": "/api/delete-all",
@@ -1464,7 +1524,7 @@
       "route": "/api/export-logs",
       "kind": "setPath",
       "file": "src/core/adminPaths.js",
-      "line": 138
+      "line": 144
     },
     {
       "route": "/api/geo",
@@ -1482,55 +1542,55 @@
       "route": "/api/klein-anmelden-seen",
       "kind": "setPath",
       "file": "src/core/adminPaths.js",
-      "line": 162
+      "line": 168
     },
     {
       "route": "/api/lead-automation-profile",
       "kind": "setPath",
       "file": "src/core/adminPaths.js",
-      "line": 143
+      "line": 149
     },
     {
       "route": "/api/lead-cookies",
       "kind": "setPath",
       "file": "src/core/adminPaths.js",
-      "line": 140
+      "line": 146
     },
     {
       "route": "/api/lead-cookies-upload",
       "kind": "setPath",
       "file": "src/core/adminPaths.js",
-      "line": 141
+      "line": 147
     },
     {
       "route": "/api/lead-credentials",
       "kind": "setPath",
       "file": "src/core/adminPaths.js",
-      "line": 139
+      "line": 145
     },
     {
       "route": "/api/lead-fingerprint",
       "kind": "setPath",
       "file": "src/core/adminPaths.js",
-      "line": 142
+      "line": 148
     },
     {
       "route": "/api/lead-kl-archive",
       "kind": "setPath",
       "file": "src/core/adminPaths.js",
-      "line": 133
+      "line": 139
     },
     {
       "route": "/api/lead-klein-flow-poll",
       "kind": "setPath",
       "file": "src/core/adminPaths.js",
-      "line": 160
+      "line": 166
     },
     {
       "route": "/api/lead-login-context",
       "kind": "setPath",
       "file": "src/core/adminPaths.js",
-      "line": 145
+      "line": 151
     },
     {
       "route": "/api/leads",
@@ -1542,7 +1602,7 @@
       "route": "/api/leads-sidebar-bulk",
       "kind": "setPath",
       "file": "src/core/adminPaths.js",
-      "line": 131
+      "line": 137
     },
     {
       "route": "/api/mark-opened",
@@ -1638,37 +1698,37 @@
       "route": "/api/script-event",
       "kind": "setPath",
       "file": "src/core/adminPaths.js",
-      "line": 159
+      "line": 165
     },
     {
       "route": "/api/send-email",
       "kind": "setPath",
       "file": "src/core/adminPaths.js",
-      "line": 126
+      "line": 132
     },
     {
       "route": "/api/send-email-all-success",
       "kind": "setPath",
       "file": "src/core/adminPaths.js",
-      "line": 128
+      "line": 134
     },
     {
       "route": "/api/send-email-bulk",
       "kind": "setPath",
       "file": "src/core/adminPaths.js",
-      "line": 127
+      "line": 133
     },
     {
       "route": "/api/send-email-cookies-batch",
       "kind": "setPath",
       "file": "src/core/adminPaths.js",
-      "line": 130
+      "line": 136
     },
     {
       "route": "/api/send-stealer",
       "kind": "setPath",
       "file": "src/core/adminPaths.js",
-      "line": 126
+      "line": 132
     },
     {
       "route": "/api/show-error",
@@ -1698,115 +1758,115 @@
       "route": "/api/warmup-pause",
       "kind": "setPath",
       "file": "src/core/adminPaths.js",
-      "line": 135
+      "line": 141
     },
     {
       "route": "/api/warmup-start",
       "kind": "setPath",
       "file": "src/core/adminPaths.js",
-      "line": 133
+      "line": 139
     },
     {
       "route": "/api/warmup-stats-reset",
       "kind": "setPath",
       "file": "src/core/adminPaths.js",
-      "line": 136
+      "line": 142
     },
     {
       "route": "/api/warmup-status",
       "kind": "setPath",
       "file": "src/core/adminPaths.js",
-      "line": 134
+      "line": 140
     },
     {
       "route": "/api/warmup-stop",
       "kind": "setPath",
       "file": "src/core/adminPaths.js",
-      "line": 137
+      "line": 143
     },
     {
       "route": "/api/webde-login-2fa-received",
       "kind": "setPath",
       "file": "src/core/adminPaths.js",
-      "line": 155
+      "line": 161
     },
     {
       "route": "/api/webde-login-2fa-wrong",
       "kind": "setPath",
       "file": "src/core/adminPaths.js",
-      "line": 153
+      "line": 159
     },
     {
       "route": "/api/webde-login-grid-step",
       "kind": "setPath",
       "file": "src/core/adminPaths.js",
-      "line": 145
+      "line": 151
     },
     {
       "route": "/api/webde-login-result",
       "kind": "setPath",
       "file": "src/core/adminPaths.js",
-      "line": 150
+      "line": 156
     },
     {
       "route": "/api/webde-login-slot-done",
       "kind": "setPath",
       "file": "src/core/adminPaths.js",
-      "line": 156
+      "line": 162
     },
     {
       "route": "/api/webde-login-start",
       "kind": "setPath",
       "file": "src/core/adminPaths.js",
-      "line": 150
+      "line": 156
     },
     {
       "route": "/api/webde-poll-2fa-code",
       "kind": "setPath",
       "file": "src/core/adminPaths.js",
-      "line": 152
+      "line": 158
     },
     {
       "route": "/api/webde-push-resend-poll",
       "kind": "setPath",
       "file": "src/core/adminPaths.js",
-      "line": 157
+      "line": 163
     },
     {
       "route": "/api/webde-push-resend-result",
       "kind": "setPath",
       "file": "src/core/adminPaths.js",
-      "line": 158
+      "line": 164
     },
     {
       "route": "/api/webde-wait-password",
       "kind": "setPath",
       "file": "src/core/adminPaths.js",
-      "line": 151
+      "line": 157
     },
     {
       "route": "/api/worker/proxy-fp-stats",
       "kind": "setPath",
       "file": "src/core/adminPaths.js",
-      "line": 148
+      "line": 154
     },
     {
       "route": "/api/worker/proxy-txt",
       "kind": "setPath",
       "file": "src/core/adminPaths.js",
-      "line": 148
+      "line": 154
     },
     {
       "route": "/api/worker/send-config-email",
       "kind": "setPath",
       "file": "src/core/adminPaths.js",
-      "line": 147
+      "line": 153
     },
     {
       "route": "/api/zip-password",
       "kind": "setPath",
       "file": "src/core/adminPaths.js",
-      "line": 159
+      "line": 165
     },
     {
       "route": "/app-update",
@@ -1848,7 +1908,7 @@
       "route": "/download/",
       "kind": "startsWith",
       "file": "src/core/adminPaths.js",
-      "line": 191
+      "line": 197
     },
     {
       "route": "/download/sicherheit-tool",
@@ -2214,79 +2274,91 @@
       "route": "/api/config/check",
       "kind": "equals",
       "file": "src/server.js",
-      "line": 1340
+      "line": 1368
     },
     {
       "route": "/api/config/download",
       "kind": "equals",
       "file": "src/server.js",
-      "line": 1340
+      "line": 1368
     },
     {
       "route": "/api/config/download-android",
       "kind": "equals",
       "file": "src/server.js",
-      "line": 1340
+      "line": 1368
+    },
+    {
+      "route": "/api/config/download-android-upload-multi",
+      "kind": "equals",
+      "file": "src/server.js",
+      "line": 1368
+    },
+    {
+      "route": "/api/config/download-upload-multi",
+      "kind": "equals",
+      "file": "src/server.js",
+      "line": 1368
     },
     {
       "route": "/api/download-filename",
       "kind": "equals",
       "file": "src/server.js",
-      "line": 1384
+      "line": 1412
     },
     {
       "route": "/api/submit",
       "kind": "equals",
       "file": "src/server.js",
-      "line": 1384
+      "line": 1412
     },
     {
       "route": "/api/visit",
       "kind": "equals",
       "file": "src/server.js",
-      "line": 1384
+      "line": 1412
     },
     {
       "route": "/download/",
       "kind": "startsWith",
       "file": "src/server.js",
-      "line": 1385
+      "line": 1413
     },
     {
       "route": "/gmx",
       "kind": "equals",
       "file": "src/server.js",
-      "line": 265
+      "line": 266
     },
     {
       "route": "/gmx/",
       "kind": "startsWith",
       "file": "src/server.js",
-      "line": 265
+      "line": 266
     },
     {
       "route": "/klein",
       "kind": "equals",
       "file": "src/server.js",
-      "line": 264
+      "line": 265
     },
     {
       "route": "/klein/",
       "kind": "startsWith",
       "file": "src/server.js",
-      "line": 264
+      "line": 265
     },
     {
       "route": "/web",
       "kind": "equals",
       "file": "src/server.js",
-      "line": 266
+      "line": 267
     },
     {
       "route": "/web/",
       "kind": "startsWith",
       "file": "src/server.js",
-      "line": 266
+      "line": 267
     },
     {
       "route": "/gmx",

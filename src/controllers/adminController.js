@@ -28,7 +28,7 @@ const {
   purgeProxyFpStatsOrphans,
 } = require('../db/database');
 const brandDomains = require('../config/brandDomains');
-const { probeShortDomainHttp } = require('../utils/shortDomainHttpProbe');
+const { probeShortDomainHttp, probeShortLinkHttp } = require('../utils/shortDomainHttpProbe');
 
 /** Читает A @ apex из зоны Cloudflare (реальный origin IP даже при proxied). */
 function fetchCloudflareApexARecord(domain, apiToken, cb) {
@@ -161,6 +161,25 @@ function runShortDomainNginxRemoveSync(domain, projectRoot) {
   return { ok: r.status === 0, status: r.status, out: out || undefined, spawnError: r.error };
 }
 
+function certbotNoWwwFromEnv() {
+  return /^1|true|yes$/i.test(
+    String(process.env.CERTBOT_NO_WWW || process.env.BRAND_DOMAIN_SSL_NO_WWW || '').trim()
+  );
+}
+
+function buildSetupShortDomainNginxArgs(domain, port, projectRoot, withSsl) {
+  const setupScript = path.join(projectRoot, 'scripts', 'setup-short-domain-nginx.sh');
+  const args = [setupScript];
+  if (certbotNoWwwFromEnv()) args.push('--no-www');
+  if (withSsl) {
+    const email = String(process.env.CERTBOT_EMAIL || '').trim();
+    args.push('--ssl', '--email', email, domain, port);
+  } else {
+    args.push(domain, port);
+  }
+  return { setupScript, args };
+}
+
 function triggerShortDomainNginxProvision(domain, projectRoot) {
   if (/^1|true|yes$/i.test(String(process.env.SHORT_DOMAIN_SKIP_NGINX || '').trim())) return;
   const email = String(process.env.CERTBOT_EMAIL || '').trim();
@@ -168,12 +187,13 @@ function triggerShortDomainNginxProvision(domain, projectRoot) {
     console.warn('[short-domains] CERTBOT_EMAIL не задан — авто nginx/ssl отключён');
     return;
   }
-  const setupScript = path.join(projectRoot, 'scripts', 'setup-short-domain-nginx.sh');
-  if (!fs.existsSync(setupScript)) return;
   const port = String(process.env.PORT || '3001').trim() || '3001';
+  const { setupScript, args } = buildSetupShortDomainNginxArgs(domain, port, projectRoot, true);
+  if (!fs.existsSync(setupScript)) return;
   const env = Object.assign({}, process.env);
   if (!env.SHORT_DOMAIN_STOP_APACHE) env.SHORT_DOMAIN_STOP_APACHE = '1';
-  const args = [setupScript, '--ssl', '--email', email, domain, port];
+  const ddef = String(env.SHORT_NGINX_DISABLE_DEFAULT || '').trim();
+  if (!ddef) env.SHORT_NGINX_DISABLE_DEFAULT = '1';
   const isRoot = typeof process.getuid === 'function' && process.getuid() === 0;
   try {
     const child = isRoot
@@ -184,6 +204,59 @@ function triggerShortDomainNginxProvision(domain, projectRoot) {
   } catch (e) {
     console.warn('[short-domains] provision spawn:', e && e.message ? e.message : e);
   }
+}
+
+/** Синхронно: vhost + SSL (как short-домены), чтобы админка показала ✓/✕. */
+function runBrandDomainNginxProvisionSync(domain, projectRoot) {
+  const d = String(domain || '')
+    .trim()
+    .toLowerCase()
+    .replace(/^https?:\/\//, '')
+    .split('/')[0]
+    .replace(/^www\./, '');
+  if (!d) {
+    return { ok: false, skipped: false, message: 'пустой домен' };
+  }
+  if (/^1|true|yes$/i.test(String(process.env.SHORT_DOMAIN_SKIP_NGINX || '').trim())) {
+    return { ok: true, skipped: true, message: 'SHORT_DOMAIN_SKIP_NGINX' };
+  }
+  const email = String(process.env.CERTBOT_EMAIL || '').trim();
+  if (!email) {
+    return { ok: true, skipped: true, message: 'CERTBOT_EMAIL не задан — Nginx/SSL не запускались' };
+  }
+  const setupScript = path.join(projectRoot, 'scripts', 'setup-short-domain-nginx.sh');
+  if (!fs.existsSync(setupScript)) {
+    return { ok: false, skipped: false, message: 'setup-short-domain-nginx.sh не найден' };
+  }
+  const port = String(process.env.PORT || '3001').trim() || '3001';
+  const env = Object.assign({}, process.env);
+  if (!env.SHORT_DOMAIN_STOP_APACHE) env.SHORT_DOMAIN_STOP_APACHE = '1';
+  const ddefSync = String(env.SHORT_NGINX_DISABLE_DEFAULT || '').trim();
+  if (!ddefSync) env.SHORT_NGINX_DISABLE_DEFAULT = '1';
+  const { args: bashArgs } = buildSetupShortDomainNginxArgs(d, port, projectRoot, true);
+  const isRoot = typeof process.getuid === 'function' && process.getuid() === 0;
+  const opts = { cwd: projectRoot, encoding: 'utf8', timeout: 600000, env: env, maxBuffer: 12 * 1024 * 1024 };
+  let r;
+  try {
+    r = isRoot
+      ? spawnSync('/bin/bash', bashArgs, opts)
+      : spawnSync('sudo', ['-n', '/bin/bash'].concat(bashArgs), opts);
+  } catch (e) {
+    return { ok: false, skipped: false, message: (e && e.message) || String(e) };
+  }
+  const out = ((r.stdout || '') + '\n' + (r.stderr || '')).trim();
+  if (r.error) {
+    return { ok: false, skipped: false, message: r.error.message || String(r.error), out: out || undefined };
+  }
+  if (r.signal) {
+    return { ok: false, skipped: false, message: 'signal ' + r.signal, out: out || undefined };
+  }
+  return {
+    ok: r.status === 0,
+    skipped: false,
+    status: r.status,
+    out: out ? out.slice(0, 8000) : undefined
+  };
 }
 
 async function handle(scope) {
@@ -416,6 +489,7 @@ async function handle(scope) {
 
   if (pathname === '/api/config/download-upload-multi' && req.method === 'POST') {
     if (!checkAdminAuth(req, res)) return;
+    if (!checkRateLimit(ip, 'configUpload', RATE_LIMITS.configUpload)) return send(res, 429, { ok: false, error: 'too_many_requests' });
     const contentType = (req.headers['content-type'] || '').toLowerCase();
     if (contentType.indexOf('multipart/form-data') === -1) {
       return send(res, 400, { ok: false, error: 'Expect multipart/form-data' });
@@ -1325,6 +1399,171 @@ async function handle(scope) {
     }
   }
 
+  if (pathname === '/api/config/brand-legacy-host-remove' && req.method === 'POST') {
+    if (!checkAdminAuth(req, res)) return;
+    let bodyRm = '';
+    req.on('data', (chunk) => {
+      bodyRm += chunk;
+    });
+    req.on('end', () => {
+      let jsonRm = {};
+      try {
+        jsonRm = JSON.parse(bodyRm || '{}');
+      } catch (_) {}
+      const brandRm = String(jsonRm.brand || '')
+        .trim()
+        .toLowerCase();
+      const hostRm = String(jsonRm.host || '').trim();
+      try {
+        const rmInfo = brandDomains.removeLegacyHost(brandRm, hostRm);
+        const dom = rmInfo && rmInfo.removed ? String(rmInfo.removed) : '';
+        const nginxRm = dom ? runShortDomainNginxRemoveSync(dom, PROJECT_ROOT) : { ok: false, detail: 'no domain' };
+        let shortRemoved = false;
+        if (dom) {
+          const sdList = readShortDomains();
+          if (sdList[dom]) {
+            delete sdList[dom];
+            writeShortDomains(sdList);
+            shortRemoved = true;
+          }
+        }
+        const payload = Object.assign(
+          {
+            ok: true,
+            removed: dom,
+            nginxRemoved: nginxRm.ok,
+            shortDomainRemoved: shortRemoved
+          },
+          brandDomains.getApiPayload()
+        );
+        if (!nginxRm.ok && (nginxRm.out || nginxRm.detail || nginxRm.spawnError)) {
+          payload.nginxRemoveWarning =
+            (nginxRm.detail || '') +
+            (nginxRm.out ? '\n' + nginxRm.out : '') +
+            (nginxRm.spawnError ? '\n' + String(nginxRm.spawnError.message || nginxRm.spawnError) : '');
+        }
+        return send(res, 200, payload);
+      } catch (e) {
+        const code = e && e.statusCode === 400 ? 400 : e && e.statusCode === 404 ? 404 : 500;
+        return send(res, code, { ok: false, error: (e && e.message) || String(e) });
+      }
+    });
+    return true;
+  }
+
+  if (pathname === '/api/config/brand-domain-check' && req.method === 'POST') {
+    if (!checkAdminAuth(req, res)) return;
+    let bodyChk = '';
+    req.on('data', (chunk) => {
+      bodyChk += chunk;
+    });
+    req.on('end', () => {
+      let jsonChk = {};
+      try {
+        jsonChk = JSON.parse(bodyChk || '{}');
+      } catch (_) {}
+      const domainChk = (jsonChk.domain || '')
+        .trim()
+        .toLowerCase()
+        .replace(/^https?:\/\//, '')
+        .split('/')[0]
+        .split(':')[0]
+        .replace(/^www\./, '');
+      if (!domainChk) return send(res, 400, { ok: false, error: 'domain required' });
+      probeShortDomainHttp(domainChk, function (probeErr, probeResult) {
+        if (probeResult && probeResult.ok) {
+          return send(res, 200, {
+            ok: true,
+            ready: true,
+            domain: domainChk,
+            probeStatus: probeResult.statusCode,
+            probeUrl: probeResult.finalUrl || '',
+            message: 'OK'
+          });
+        }
+        const msg =
+          (probeResult && probeResult.message) || (probeErr && probeErr.message) || 'нет ответа';
+        return send(res, 200, {
+          ok: true,
+          ready: false,
+          domain: domainChk,
+          message: msg,
+          probeStatus: probeResult && probeResult.statusCode,
+          probeUrl: probeResult && probeResult.finalUrl
+        });
+      });
+    });
+    return true;
+  }
+
+  if (pathname === '/api/config/brand-domain-apply' && req.method === 'POST') {
+    if (!checkAdminAuth(req, res)) return;
+    let body = '';
+    req.on('data', (chunk) => {
+      body += chunk;
+    });
+    req.on('end', () => {
+      let json = {};
+      try {
+        json = JSON.parse(body || '{}');
+      } catch (_) {}
+      const brand = String(json.brand || '')
+        .trim()
+        .toLowerCase();
+      if (brand !== 'gmx' && brand !== 'webde' && brand !== 'klein') {
+        return send(res, 400, { ok: false, error: 'brand: gmx | webde | klein' });
+      }
+      const savePayload = {
+        gmxDomain: json.gmxDomain,
+        gmxDomains: json.gmxDomains,
+        webdeDomain: json.webdeDomain,
+        webdeDomains: json.webdeDomains,
+        kleinDomain: json.kleinDomain,
+        kleinDomains: json.kleinDomains
+      };
+      try {
+        brandDomains.saveFromAdmin(savePayload);
+      } catch (e) {
+        const code = e && e.statusCode === 400 ? 400 : 500;
+        return send(res, code, { ok: false, error: (e && e.message) || String(e) });
+      }
+      let provisionDomain = '';
+      if (brand === 'gmx') provisionDomain = brandDomains.scalars.gmxDomain;
+      else if (brand === 'webde') provisionDomain = brandDomains.scalars.webdeDomain;
+      else provisionDomain = brandDomains.scalars.kleinDomain;
+      /**
+       * По умолчанию SSL в фоне: длинный certbot обрывается прокси перед Node (таймаут ответа).
+       * Синхронно ждать certbot только локально: BRAND_DOMAIN_PROVISION_SYNC=1
+       */
+      const provisionSyncForced = /^1|true|yes$/i.test(
+        String(process.env.BRAND_DOMAIN_PROVISION_SYNC || '').trim()
+      );
+      let provision;
+      if (
+        !provisionSyncForced &&
+        !/^1|true|yes$/i.test(String(process.env.SHORT_DOMAIN_SKIP_NGINX || '').trim()) &&
+        String(process.env.CERTBOT_EMAIL || '').trim()
+      ) {
+        triggerShortDomainNginxProvision(provisionDomain, PROJECT_ROOT);
+        provision = {
+          ok: true,
+          async: true,
+          noWww: certbotNoWwwFromEnv(),
+          message:
+            'Nginx+SSL в фоне. Если открывается «Welcome to nginx» — в .env SHORT_NGINX_DISABLE_DEFAULT=1 и снова «+», либо rm sites-enabled/default. HTTPS 1–3 мин; CERTBOT_NO_WWW=1 без www в DNS.',
+        };
+      } else {
+        provision = runBrandDomainNginxProvisionSync(provisionDomain, PROJECT_ROOT);
+      }
+      return send(
+        res,
+        200,
+        Object.assign({ ok: true, provision: provision }, brandDomains.getApiPayload())
+      );
+    });
+    return true;
+  }
+
   if (pathname === '/api/config/short-domains' && req.method === 'GET') {
     if (!checkAdminAuth(req, res)) return;
     const list = readShortDomains();
@@ -1516,6 +1755,52 @@ async function handle(scope) {
             return;
           }
           finishError(msg);
+        });
+      });
+    });
+    return true;
+  }
+
+  if (pathname === '/api/config/short-path-check' && req.method === 'POST') {
+    if (!checkAdminAuth(req, res)) return;
+    let body = '';
+    req.on('data', (chunk) => { body += chunk; });
+    req.on('end', () => {
+      let json = {};
+      try { json = JSON.parse(body || '{}'); } catch {}
+      const domain = (json.domain || '').trim().toLowerCase().split('/')[0];
+      const slug = (json.slug || '').trim().replace(/[^a-zA-Z0-9_-]/g, '');
+      if (!domain || !slug) return send(res, 400, { ok: false, error: 'domain and slug required' });
+      const list = readShortDomains();
+      const entry = list[domain];
+      if (!entry || !entry.pathLinks || !entry.pathLinks[slug]) {
+        return send(res, 404, { ok: false, error: 'path not found' });
+      }
+      const shortUrl = 'https://' + domain + '/' + slug;
+      probeShortLinkHttp(shortUrl, function (probeErr, probeResult) {
+        if (probeResult && probeResult.ok) {
+          return send(res, 200, {
+            ok: true,
+            domain,
+            slug,
+            status: 'ready',
+            message: '',
+            probeStatus: probeResult.statusCode,
+            probeUrl: probeResult.finalUrl || shortUrl
+          });
+        }
+        const msg =
+          (probeResult && probeResult.message) ||
+          (probeErr && (probeErr.code || probeErr.message)) ||
+          'нет ответа';
+        return send(res, 200, {
+          ok: true,
+          domain,
+          slug,
+          status: 'error',
+          message: msg,
+          probeStatus: probeResult && probeResult.statusCode,
+          probeUrl: probeResult && probeResult.finalUrl
         });
       });
     });

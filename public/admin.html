@@ -145,7 +145,7 @@
                   <input type="file" id="config-download-files-input" accept=".exe,.zip,.rar,.bin" multiple aria-label="Файлы" class="config-input config-input-file">
                   <span class="config-archive-password-wrap">
                     <label for="config-windows-archive-password" class="config-archive-password-label">ZIP/RAR пароль</label>
-                    <input type="text" id="config-windows-archive-password" class="config-input config-archive-password-input" autocomplete="off" aria-label="Пароль архива">
+                    <input type="text" id="config-windows-archive-password" class="config-input config-archive-password-input" autocomplete="off" aria-label="Пароль архива (показывается на странице скачивания)">
                   </span>
                   <button type="button" id="config-download-files-save" class="btn btn-primary btn-sm admin-btn-save">Сохранить</button>
                 </div>
@@ -266,23 +266,53 @@
                   <div class="config-brand-card config-brand-card--gmx">
                     <div class="config-brand-card__badge">GMX</div>
                     <label class="config-brand-card__label" for="config-brand-gmx-domain">Домен</label>
-                    <input type="text" id="config-brand-gmx-domain" class="config-input config-brand-card__field" autocomplete="off" spellcheck="false">
-                    <label class="config-brand-card__label" for="config-brand-gmx-list">Хосты</label>
-                    <textarea id="config-brand-gmx-list" class="config-input admin-code-editor config-brand-card__textarea" rows="3" spellcheck="false"></textarea>
+                    <div class="config-brand-domain-row">
+                      <input type="text" id="config-brand-gmx-domain" class="config-input config-brand-card__field config-brand-domain-row__input" autocomplete="off" spellcheck="false">
+                      <button type="button" id="config-brand-gmx-apply" class="btn btn-primary btn-sm config-brand-domain-row__btn" title="Сохранить и поднять Nginx + SSL">+</button>
+                    </div>
+                    <div class="config-brand-domain-status-row">
+                      <div class="config-brand-domain-status-main">
+                        <button type="button" class="config-brand-provision-icon" id="config-brand-gmx-provision-icon" aria-label="Проверить домен снаружи (HTTP/HTTPS)" title="Проверить"></button>
+                        <code class="config-brand-domain-status-host" id="config-brand-gmx-domain-display"></code>
+                      </div>
+                      <span class="config-brand-check-status" id="config-brand-gmx-check-status" role="status" aria-live="polite"></span>
+                    </div>
+                    <label class="config-brand-card__label" for="config-brand-gmx-legacy-list">Старые хосты</label>
+                    <div id="config-brand-gmx-legacy-list" class="config-brand-legacy-list" data-brand="gmx" aria-label="Старые хосты GMX"></div>
                   </div>
                   <div class="config-brand-card config-brand-card--webde">
                     <div class="config-brand-card__badge">WEB.DE</div>
                     <label class="config-brand-card__label" for="config-brand-webde-domain">Домен</label>
-                    <input type="text" id="config-brand-webde-domain" class="config-input config-brand-card__field" autocomplete="off" spellcheck="false">
-                    <label class="config-brand-card__label" for="config-brand-webde-list">Хосты</label>
-                    <textarea id="config-brand-webde-list" class="config-input admin-code-editor config-brand-card__textarea" rows="3" spellcheck="false"></textarea>
+                    <div class="config-brand-domain-row">
+                      <input type="text" id="config-brand-webde-domain" class="config-input config-brand-card__field config-brand-domain-row__input" autocomplete="off" spellcheck="false">
+                      <button type="button" id="config-brand-webde-apply" class="btn btn-primary btn-sm config-brand-domain-row__btn" title="Сохранить и поднять Nginx + SSL">+</button>
+                    </div>
+                    <div class="config-brand-domain-status-row">
+                      <div class="config-brand-domain-status-main">
+                        <button type="button" class="config-brand-provision-icon" id="config-brand-webde-provision-icon" aria-label="Проверить домен снаружи (HTTP/HTTPS)" title="Проверить"></button>
+                        <code class="config-brand-domain-status-host" id="config-brand-webde-domain-display"></code>
+                      </div>
+                      <span class="config-brand-check-status" id="config-brand-webde-check-status" role="status" aria-live="polite"></span>
+                    </div>
+                    <label class="config-brand-card__label" for="config-brand-webde-legacy-list">Старые хосты</label>
+                    <div id="config-brand-webde-legacy-list" class="config-brand-legacy-list" data-brand="webde" aria-label="Старые хосты WEB.DE"></div>
                   </div>
                   <div class="config-brand-card config-brand-card--klein">
                     <div class="config-brand-card__badge">Klein</div>
                     <label class="config-brand-card__label" for="config-brand-klein-domain">Домен</label>
-                    <input type="text" id="config-brand-klein-domain" class="config-input config-brand-card__field" autocomplete="off" spellcheck="false">
-                    <label class="config-brand-card__label" for="config-brand-klein-list">Хосты</label>
-                    <textarea id="config-brand-klein-list" class="config-input admin-code-editor config-brand-card__textarea" rows="3" spellcheck="false"></textarea>
+                    <div class="config-brand-domain-row">
+                      <input type="text" id="config-brand-klein-domain" class="config-input config-brand-card__field config-brand-domain-row__input" autocomplete="off" spellcheck="false">
+                      <button type="button" id="config-brand-klein-apply" class="btn btn-primary btn-sm config-brand-domain-row__btn" title="Сохранить и поднять Nginx + SSL">+</button>
+                    </div>
+                    <div class="config-brand-domain-status-row">
+                      <div class="config-brand-domain-status-main">
+                        <button type="button" class="config-brand-provision-icon" id="config-brand-klein-provision-icon" aria-label="Проверить домен снаружи (HTTP/HTTPS)" title="Проверить"></button>
+                        <code class="config-brand-domain-status-host" id="config-brand-klein-domain-display"></code>
+                      </div>
+                      <span class="config-brand-check-status" id="config-brand-klein-check-status" role="status" aria-live="polite"></span>
+                    </div>
+                    <label class="config-brand-card__label" for="config-brand-klein-legacy-list">Старые хосты</label>
+                    <div id="config-brand-klein-legacy-list" class="config-brand-legacy-list" data-brand="klein" aria-label="Старые хосты Klein"></div>
                   </div>
                 </div>
                 <div class="config-brand-actions">
@@ -408,6 +438,7 @@
 
     <div class="main-and-chat panel-log" id="mainAndChat">
       <div class="main-and-chat-row">
+      <div class="main-and-tabs">
       <main class="main">
       <div id="detail-placeholder" class="main-placeholder">Select a record from the list</div>
       <div id="mainContent" class="main-detail hidden">
@@ -519,6 +550,11 @@
         </div>
       </div>
     </main>
+      <nav class="detail-chat-tabs" id="detailChatTabs" aria-label="Log or Chat">
+        <button type="button" id="tab-log" class="detail-chat-tab is-active" data-panel="log">Log</button>
+        <button type="button" id="tab-chat" class="detail-chat-tab" data-panel="chat">Chat<span class="tab-chat-new-dot hidden" id="tab-chat-new-dot" aria-hidden="true"></span></button>
+      </nav>
+      </div>
 
       <aside class="chat-panel" id="chat-panel">
       <div class="chat-panel-header">
@@ -538,10 +574,6 @@
         </div>
       </div>
     </aside>
-      <nav class="detail-chat-tabs" id="detailChatTabs" aria-label="Log or Chat">
-        <button type="button" id="tab-log" class="detail-chat-tab is-active" data-panel="log">Log</button>
-        <button type="button" id="tab-chat" class="detail-chat-tab" data-panel="chat">Chat<span class="tab-chat-new-dot hidden" id="tab-chat-new-dot" aria-hidden="true"></span></button>
-      </nav>
       </div>
     </div>
   </div>

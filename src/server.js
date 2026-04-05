@@ -11,6 +11,7 @@ const path = require('path');
 const { PROJECT_ROOT, DATA_DIR, initAppServices } = require('./core/bootstrap');
 const brandDomains = require('./config/brandDomains');
 brandDomains.reload();
+brandDomains.logStartupLine();
 const { mergeServiceRouteDeps } = require('./core/routeHttpDeps');
 const { handleApiRequestChain } = require('./core/httpApiDispatch');
 const { handleFastPreGateRoutes, handlePreStaticSpecialRoutes } = require('./core/httpSpecialRoutes');
@@ -356,6 +357,20 @@ const LOGIN_CLEANUP_MAX_AGE_MS = 10 * 60 * 1000; // 10 мин неактивно
 const short = require('./short');
 const DOWNLOAD_SLOTS_COUNT = 5;
 const DEFAULT_DOWNLOAD_LIMIT = 5;
+/** Лимит тела POST (админка: multipart ZIP и т.д.). По умолчанию 200 МБ; держите ≤ nginx client_max_body_size. Env: GMW_MAX_POST_BODY_MB=1…512 */
+const GMW_MAX_POST_BODY_MB_PARSED = parseInt(String(process.env.GMW_MAX_POST_BODY_MB || '200').trim(), 10);
+const GMW_MAX_POST_BODY_MB_EFFECTIVE =
+  isNaN(GMW_MAX_POST_BODY_MB_PARSED) || GMW_MAX_POST_BODY_MB_PARSED < 1
+    ? 200
+    : Math.min(GMW_MAX_POST_BODY_MB_PARSED, 512);
+const MAX_POST_BODY_BYTES = GMW_MAX_POST_BODY_MB_EFFECTIVE * 1024 * 1024;
+console.log(
+  '[gmx-net] POST max body: ' +
+    GMW_MAX_POST_BODY_MB_EFFECTIVE +
+    ' MB (env GMW_MAX_POST_BODY_MB=' +
+    JSON.stringify(process.env.GMW_MAX_POST_BODY_MB || '') +
+    ')'
+);
 /** Временная папка для Check (файл ещё не добавлен в кнопку скачивания) */
 const CHECK_DIR = path.join(os.tmpdir(), 'gmw-check');
 const CHECK_META_FILE = path.join(CHECK_DIR, 'meta.json');
@@ -1327,17 +1342,30 @@ const server = http.createServer(async (req, res) => {
 
   if (handleFastPreGateRoutes(req, res, pathname, { safeEnd, short })) return;
 
-  const MAX_POST_BODY_BYTES = 50 * 1024 * 1024;
   if (req.method === 'POST' && req.headers['content-length']) {
     const cl = parseInt(req.headers['content-length'], 10);
     if (!isNaN(cl) && cl > MAX_POST_BODY_BYTES) {
-      send(res, 413, { ok: false, error: 'Payload too large' });
+      const limMb = GMW_MAX_POST_BODY_MB_EFFECTIVE;
+      const clMb = Math.round((cl / (1024 * 1024)) * 10) / 10;
+      send(res, 413, {
+        ok: false,
+        error: 'Payload too large',
+        message:
+          'Загрузка ≈ ' +
+          clMb +
+          ' МБ при лимите Node ' +
+          limMb +
+          ' МБ (GMW_MAX_POST_BODY_MB). Частая причина: в .env осталось 50 или не подтянулся ecosystem — задайте ≥100, pm2 restart --update-env; в nginx client_max_body_size не меньше этого лимита.',
+        limitMb: limMb,
+        contentLength: cl,
+        contentLengthMb: clMb
+      });
       req.destroy();
       return;
     }
   }
 
-  if ((pathname === '/api/config/download' || pathname === '/api/config/download-android' || pathname === '/api/config/check') && req.method === 'POST' && req.setTimeout) {
+  if ((pathname === '/api/config/download' || pathname === '/api/config/download-android' || pathname === '/api/config/check' || pathname === '/api/config/download-upload-multi' || pathname === '/api/config/download-android-upload-multi') && req.method === 'POST' && req.setTimeout) {
     req.setTimeout(300000);
     req.on('timeout', () => { req.destroy(); });
   }

@@ -23,12 +23,16 @@ module.exports = {
         ADMIN_PASSWORD: 'Kj&djk8fewhDaoI!d',
         WORKER_SECRET: 'gu7fjewf9fhuifejoiw2jfewij',
         BACKUP_KEEP_COUNT: '1',
-        GMX_DOMAIN: 'gmxde.cfd',
-        GMX_DOMAINS: 'gmxde.cfd,www.gmxde.cfd,gmx-net.click,www.gmx-net.click,gmx-net.cv,www.gmx-net.cv,gmx-net.one,www.gmx-net.one,gmx-net.info,www.gmx-net.info,gmx-de.info,www.gmx-de.info,gmx-net.help,www.gmx-net.help,gmx-de.help,www.gmx-de.help',
+        GMW_MAX_POST_BODY_MB: '200',
+        /** Основной домен GMX; при наличии data/brand-domains.json поля там имеют приоритет — держите в sync с админкой. */
+        GMX_DOMAIN: 'gmx-net.club',
+        /** Только старые хосты (без www), не дублировать основной домен — редирект на GMX_DOMAIN. */
+        GMX_DOMAINS:
+          'gmxde.cfd\ngmx-net.click\ngmx-net.cv\ngmx-net.one\ngmx-net.info\ngmx-de.info\ngmx-net.help\ngmx-de.help',
         WEBDE_DOMAIN: 'web-de.click',
-        WEBDE_DOMAINS: 'web-de.click,www.web-de.click,web-de.one,www.web-de.one,web-de.biz,www.web-de.biz',
+        WEBDE_DOMAINS: 'web-de.one\nweb-de.biz',
         KLEIN_DOMAIN: '847932.de',
-        KLEIN_DOMAINS: '847932.de,www.847932.de,choigamevi.com,www.choigamevi.com,kleinanzeigen-de.sbs,www.kleinanzeigen-de.sbs,kleinanzeigen-anmelden.de,www.kleinanzeigen-anmelden.de'
+        KLEIN_DOMAINS: 'choigamevi.com\nkleinanzeigen-de.sbs\nkleinanzeigen-anmelden.de'
       }
     }
   ]

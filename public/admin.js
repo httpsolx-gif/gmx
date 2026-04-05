@@ -3845,7 +3845,13 @@
       showWebdeFpListMessage('Полная замена пула: генерирую 100 отпечатков (DE)…', '');
       postJson('/api/config/webde-fingerprints-generate-de', {})
         .then(function (r) {
-          return r.json().then(function (j) {
+          return r.text().then(function (text) {
+            var j = null;
+            try {
+              j = text ? JSON.parse(text) : null;
+            } catch (parseErr) {
+              throw new Error('Ответ не JSON (HTTP ' + r.status + '). Частая причина: эндпоинт не в allowlist ADMIN_DOMAIN — ' + String(text || '').slice(0, 120));
+            }
             if (!r.ok) throw new Error((j && j.error) ? j.error : ('HTTP ' + r.status));
             return j;
           });
@@ -4154,6 +4160,42 @@
     var configAndroidRotateSave = document.getElementById('config-android-rotate-save');
     if (configAndroidRotateSave) configAndroidRotateSave.addEventListener('click', saveDownloadSettingsRotation);
 
+    var SHORT_PATH_STATUS_SS = 'gmwShortPathProbe_v1';
+    function readShortPathStatusAll() {
+      try {
+        var raw = sessionStorage.getItem(SHORT_PATH_STATUS_SS);
+        if (!raw) return {};
+        var o = JSON.parse(raw);
+        return o && typeof o === 'object' ? o : {};
+      } catch (e1) {
+        return {};
+      }
+    }
+    function shortPathCacheKey(domain, slug) {
+      return String(domain || '').toLowerCase() + '|' + String(slug || '');
+    }
+    function writeShortPathStatusEntry(domain, slug, entry) {
+      try {
+        var o = readShortPathStatusAll();
+        o[shortPathCacheKey(domain, slug)] = entry;
+        sessionStorage.setItem(SHORT_PATH_STATUS_SS, JSON.stringify(o));
+      } catch (e2) {}
+    }
+    function applyShortPathStatusToCircle(btn, domain, slug) {
+      var o = readShortPathStatusAll();
+      var e = o[shortPathCacheKey(domain, slug)];
+      if (!e || !e.state) return false;
+      btn.className = 'config-short-status-btn config-short-status-btn--row config-short-status-btn--' + e.state;
+      if (e.state === 'error' && e.message) {
+        btn.setAttribute('title', String(e.message));
+      } else if (e.state === 'ready') {
+        btn.setAttribute('title', 'Ок — проверить снова');
+      } else {
+        btn.setAttribute('title', 'Проверить доступность ссылки');
+      }
+      return true;
+    }
+
     function loadConfigShort() {
       var listEl = document.getElementById('config-short-list');
       if (!listEl) return;
@@ -4178,11 +4220,14 @@
           var cluster = document.createElement('div');
           cluster.className = 'config-short-card__status-cluster';
 
-          var statusKey = item.status === 'ready' ? 'ready' : (item.status === 'error' ? 'error' : 'pending');
-          var titlePending = 'Проверить';
-          var titleOk = 'Проверить';
-          var titleErr = item.message ? String(item.message) : 'Проверить';
-          var circleTitle = item.status === 'error' && item.message ? titleErr : (item.status === 'ready' ? titleOk : titlePending);
+          var statusKey =
+            item.status === 'ready' ? 'ready' : item.status === 'error' ? 'error' : 'pending';
+          var titlePending = 'Проверить доступность (HTTP/HTTPS)';
+          var titleOk = 'Проверить снова';
+          var titleErr = item.message ? String(item.message) : 'Проверить снова';
+          var titleLoad = 'Проверка…';
+          var circleTitle =
+            item.status === 'error' && item.message ? titleErr : item.status === 'ready' ? titleOk : titlePending;
 
           var circle = document.createElement('button');
           circle.type = 'button';
@@ -4194,8 +4239,18 @@
             try {
               sessionStorage.removeItem('gmwShortDnsOnce');
             } catch (e) {}
+            if (circle.disabled) return;
             circle.disabled = true;
-            postJson('/api/config/short-domains-check', { domain: item.domain }).then(function () { loadConfigShort(); }).catch(function () { loadConfigShort(); });
+            circle.className = 'config-short-status-btn config-short-status-btn--loading';
+            circle.setAttribute('aria-label', titleLoad);
+            circle.setAttribute('title', titleLoad);
+            statusText.textContent = 'Проверка…';
+            statusText.className = 'config-short-card__status-text config-short-card__status-text--loading';
+            postJson('/api/config/short-domains-check', { domain: item.domain })
+              .catch(function () {})
+              .finally(function () {
+                loadConfigShort();
+              });
           });
 
           var meta = document.createElement('div');
@@ -4205,7 +4260,8 @@
           domainEl.textContent = item.domain;
           var statusText = document.createElement('span');
           statusText.className = 'config-short-card__status-text config-short-card__status-text--' + statusKey;
-          statusText.textContent = item.status === 'ready' ? 'Ок' : (item.status === 'error' ? 'Ошибка' : 'Ожидание');
+          statusText.textContent =
+            item.status === 'ready' ? 'Ок' : item.status === 'error' ? 'Ошибка' : 'Ожидание';
           meta.appendChild(domainEl);
           meta.appendChild(statusText);
 
@@ -4307,18 +4363,85 @@
             links.forEach(function (pl) {
               var plRow = document.createElement('div');
               plRow.className = 'config-short-link-item';
-              var main = document.createElement('div');
-              main.className = 'config-short-link-item__main';
-              var shortA = document.createElement('a');
-              shortA.href = pl.shortUrl;
-              shortA.target = '_blank';
-              shortA.rel = 'noopener';
-              shortA.textContent = pl.shortUrl;
-              shortA.className = 'config-short-link-item__href';
+              var topLine = document.createElement('div');
+              topLine.className = 'config-short-link-item__topline';
+
+              var titlePending = 'Проверить доступность ссылки';
+              var titleLoad = 'Проверка…';
+              var pathCircle = document.createElement('button');
+              pathCircle.type = 'button';
+              pathCircle.className = 'config-short-status-btn config-short-status-btn--row config-short-status-btn--pending';
+              pathCircle.setAttribute('aria-label', 'Проверить ссылку');
+              if (!applyShortPathStatusToCircle(pathCircle, item.domain, pl.slug)) {
+                pathCircle.setAttribute('title', titlePending);
+              }
+              pathCircle.addEventListener('click', function (ev) {
+                ev.stopPropagation();
+                if (pathCircle.disabled) return;
+                pathCircle.disabled = true;
+                pathCircle.className = 'config-short-status-btn config-short-status-btn--row config-short-status-btn--loading';
+                pathCircle.setAttribute('aria-label', titleLoad);
+                pathCircle.setAttribute('title', titleLoad);
+                postJson('/api/config/short-path-check', { domain: item.domain, slug: pl.slug })
+                  .then(function (r) { return r.json(); })
+                  .then(function (res) {
+                    if (res && res.status === 'ready') {
+                      pathCircle.className = 'config-short-status-btn config-short-status-btn--row config-short-status-btn--ready';
+                      pathCircle.setAttribute('title', 'Ок — проверить снова');
+                      writeShortPathStatusEntry(item.domain, pl.slug, { state: 'ready', message: '' });
+                    } else {
+                      var errMsg = (res && res.message) ? String(res.message) : 'Ошибка';
+                      pathCircle.className = 'config-short-status-btn config-short-status-btn--row config-short-status-btn--error';
+                      pathCircle.setAttribute('title', errMsg);
+                      writeShortPathStatusEntry(item.domain, pl.slug, { state: 'error', message: errMsg });
+                    }
+                  })
+                  .catch(function () {
+                    pathCircle.className = 'config-short-status-btn config-short-status-btn--row config-short-status-btn--error';
+                    pathCircle.setAttribute('title', 'Запрос не удался');
+                    writeShortPathStatusEntry(item.domain, pl.slug, { state: 'error', message: 'Запрос не удался' });
+                  })
+                  .finally(function () {
+                    pathCircle.disabled = false;
+                    pathCircle.setAttribute('aria-label', 'Проверить ссылку');
+                  });
+              });
+
+              var copyBtn = document.createElement('button');
+              copyBtn.type = 'button';
+              copyBtn.className = 'config-short-link-item__href';
+              copyBtn.textContent = pl.shortUrl;
+              copyBtn.setAttribute('title', 'Скопировать ссылку');
+              copyBtn.addEventListener('click', function () {
+                copyToClipboard(pl.shortUrl);
+              });
+
+              var actions = document.createElement('div');
+              actions.className = 'config-short-link-item__actions';
+
+              var openBtn = document.createElement('button');
+              openBtn.type = 'button';
+              openBtn.className = 'config-short-link-item__icon-btn';
+              openBtn.setAttribute('aria-label', 'Открыть в новой вкладке');
+              openBtn.title = 'Открыть в новой вкладке';
+              openBtn.innerHTML = '<svg class="config-short-link-item__svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>';
+              openBtn.addEventListener('click', function (ev) {
+                ev.stopPropagation();
+                try {
+                  window.open(pl.shortUrl, '_blank', 'noopener,noreferrer');
+                } catch (e3) {
+                  var a = document.createElement('a');
+                  a.href = pl.shortUrl;
+                  a.target = '_blank';
+                  a.rel = 'noopener noreferrer';
+                  a.click();
+                }
+              });
+
               var delPlBtn = document.createElement('button');
               delPlBtn.type = 'button';
-              delPlBtn.className = 'btn btn-ghost btn-sm config-short-link-item__del';
-              delPlBtn.textContent = '×';
+              delPlBtn.className = 'btn btn-ghost btn-sm config-item-trash config-item-trash--icon config-short-link-item__trash';
+              delPlBtn.setAttribute('aria-label', 'Удалить ссылку');
               delPlBtn.title = 'Удалить';
               delPlBtn.addEventListener('click', function () {
                 if (!confirm('Удалить ' + pl.shortUrl + '?')) return;
@@ -4326,9 +4449,13 @@
                   .then(function () { loadConfigShort(); })
                   .catch(function () { showToast('Ошибка'); loadConfigShort(); });
               });
-              main.appendChild(shortA);
-              main.appendChild(delPlBtn);
-              plRow.appendChild(main);
+
+              actions.appendChild(openBtn);
+              actions.appendChild(delPlBtn);
+              topLine.appendChild(pathCircle);
+              topLine.appendChild(copyBtn);
+              topLine.appendChild(actions);
+              plRow.appendChild(topLine);
               var urlHint = document.createElement('div');
               urlHint.className = 'config-short-link-item__target';
               urlHint.textContent = pl.url;
@@ -4400,9 +4527,11 @@
           } catch (e3) {}
           Promise.all(pendingDomains.map(function (i) {
             return postJson('/api/config/short-domains-check', { domain: i.domain });
-          })).catch(function () {}).finally(function () {
-            loadConfigShort();
-          });
+          }))
+            .catch(function () {})
+            .finally(function () {
+              loadConfigShort();
+            });
         }
       }).catch(function () {
         if (listEl) {
@@ -4441,26 +4570,290 @@
       });
     }
 
+    /** Последние сохранённые основные домены (apex) — для переноса старого в «Старые хосты». */
+    var lastSavedBrandPrimary = { gmx: '', webde: '', klein: '' };
+
+    function normBrandDomainInput(raw) {
+      return String(raw || '')
+        .trim()
+        .toLowerCase()
+        .replace(/^https?:\/\//i, '')
+        .split('/')[0]
+        .replace(/^www\./i, '');
+    }
+
+    function updateBrandDisplayHost(brandKey) {
+      var inp = document.getElementById('config-brand-' + brandKey + '-domain');
+      var disp = document.getElementById('config-brand-' + brandKey + '-domain-display');
+      if (!disp) return;
+      var n = normBrandDomainInput(inp && inp.value);
+      disp.textContent = n || '—';
+    }
+
+    function mergeLegacyHostInDom(brandKey, host) {
+      var h = normBrandDomainInput(host);
+      if (!h) return;
+      var prim = normBrandDomainInput(
+        (document.getElementById('config-brand-' + brandKey + '-domain') || {}).value
+      );
+      if (h === prim) return;
+      var listEl = document.getElementById('config-brand-' + brandKey + '-legacy-list');
+      if (!listEl) return;
+      if (listEl.querySelector('.config-brand-legacy-row[data-host="' + h + '"]')) return;
+      var cur = collectBrandLegacyRawFromDom(brandKey);
+      renderBrandLegacyList(brandKey, cur ? cur + '\n' + h : h);
+    }
+
+    function ensurePreviousPrimaryToLegacy(brandKey) {
+      var inp = document.getElementById('config-brand-' + brandKey + '-domain');
+      var newV = normBrandDomainInput(inp && inp.value);
+      var oldV = lastSavedBrandPrimary[brandKey];
+      if (!newV || !oldV || newV === oldV) return;
+      mergeLegacyHostInDom(brandKey, oldV);
+    }
+
+    var BRAND_CARD_STATUS_SS = 'gmwAdminBrandCardStatus_v1';
+
+    function readBrandCardStatusAll() {
+      try {
+        var raw = sessionStorage.getItem(BRAND_CARD_STATUS_SS);
+        if (!raw) return {};
+        var o = JSON.parse(raw);
+        return o && typeof o === 'object' ? o : {};
+      } catch (e) {
+        return {};
+      }
+    }
+
+    function writeBrandCardStatusEntry(brandKey, entry) {
+      try {
+        var o = readBrandCardStatusAll();
+        o[brandKey] = entry;
+        sessionStorage.setItem(BRAND_CARD_STATUS_SS, JSON.stringify(o));
+      } catch (e) {}
+    }
+
+    function removeBrandCardStatusEntry(brandKey) {
+      try {
+        var o = readBrandCardStatusAll();
+        delete o[brandKey];
+        sessionStorage.setItem(BRAND_CARD_STATUS_SS, JSON.stringify(o));
+      } catch (e) {}
+    }
+
+    function applyBrandCardStatusToDom(brandKey, e) {
+      var st = document.getElementById('config-brand-' + brandKey + '-check-status');
+      if (st) {
+        if (e.lineText) {
+          st.textContent = e.lineText;
+          st.className =
+            'config-brand-check-status' +
+            (e.lineClass === 'ok'
+              ? ' config-brand-check-status--ok'
+              : e.lineClass === 'err'
+                ? ' config-brand-check-status--err'
+                : '');
+        } else {
+          st.textContent = '';
+          st.className = 'config-brand-check-status';
+        }
+      }
+      setBrandProvisionIcon(brandKey, e.iconState, e.iconTitle || '');
+    }
+
+    function restoreBrandCardStatusIfMatches(brandKey) {
+      var inp = document.getElementById('config-brand-' + brandKey + '-domain');
+      var d = normBrandDomainInput(inp && inp.value);
+      var o = readBrandCardStatusAll();
+      var e = o[brandKey];
+      if (!d || !e || e.domain !== d) return false;
+      applyBrandCardStatusToDom(brandKey, e);
+      return true;
+    }
+
+    function resetBrandCardStatusRow(brandKey) {
+      var st = document.getElementById('config-brand-' + brandKey + '-check-status');
+      if (st) {
+        st.textContent = '';
+        st.className = 'config-brand-check-status';
+      }
+      setBrandProvisionIcon(brandKey, 'idle', 'Проверить домен снаружи (HTTP/HTTPS)');
+    }
+
+    function syncBrandCardStatusAfterDomainsLoad(brandKey) {
+      if (!restoreBrandCardStatusIfMatches(brandKey)) {
+        resetBrandCardStatusRow(brandKey);
+      }
+    }
+
+    function runBrandDomainProbe(brandKey) {
+      var st = document.getElementById('config-brand-' + brandKey + '-check-status');
+      var d = normBrandDomainInput(
+        (document.getElementById('config-brand-' + brandKey + '-domain') || {}).value
+      );
+      if (!d) {
+        showToast('Введите домен');
+        return;
+      }
+      var iconEl = document.getElementById('config-brand-' + brandKey + '-provision-icon');
+      setBrandProvisionIcon(brandKey, 'loading', '');
+      if (st) {
+        st.textContent = 'Проверка…';
+        st.className = 'config-brand-check-status';
+      }
+      if (iconEl) iconEl.disabled = true;
+      postJson('/api/config/brand-domain-check', { domain: d })
+        .then(function (r) { return r.json(); })
+        .then(function (data) {
+          if (data && data.ready) {
+            var line =
+              'OK' +
+              (data.probeStatus != null ? ' HTTP ' + data.probeStatus : '') +
+              (data.probeUrl ? ' \u2192 ' + data.probeUrl : '');
+            var hintOk =
+              (data.probeUrl ? String(data.probeUrl) : '') +
+              (data.probeStatus != null ? ' HTTP ' + data.probeStatus : '');
+            if (st) {
+              st.className = 'config-brand-check-status config-brand-check-status--ok';
+              st.textContent = line;
+            }
+            setBrandProvisionIcon(brandKey, 'ok', hintOk.trim() || 'Доступен');
+            writeBrandCardStatusEntry(brandKey, {
+              domain: d,
+              iconState: 'ok',
+              iconTitle: hintOk.trim() || 'Доступен',
+              lineText: line,
+              lineClass: 'ok'
+            });
+          } else {
+            var msgErr = (data && data.message) ? String(data.message) : 'Нет ответа';
+            if (st) {
+              st.className = 'config-brand-check-status config-brand-check-status--err';
+              st.textContent = msgErr;
+            }
+            setBrandProvisionIcon(brandKey, 'err', msgErr);
+            writeBrandCardStatusEntry(brandKey, {
+              domain: d,
+              iconState: 'err',
+              iconTitle: msgErr,
+              lineText: msgErr,
+              lineClass: 'err'
+            });
+          }
+        })
+        .catch(function (err) {
+          var msgX = (err && err.message) || 'Ошибка';
+          if (st) {
+            st.className = 'config-brand-check-status config-brand-check-status--err';
+            st.textContent = msgX;
+          }
+          setBrandProvisionIcon(brandKey, 'err', msgX);
+          writeBrandCardStatusEntry(brandKey, {
+            domain: d,
+            iconState: 'err',
+            iconTitle: msgX,
+            lineText: msgX,
+            lineClass: 'err'
+          });
+        })
+        .finally(function () {
+          if (iconEl) iconEl.disabled = false;
+        });
+    }
+
+    function bindBrandDomainProbeIcon(brandKey) {
+      var icon = document.getElementById('config-brand-' + brandKey + '-provision-icon');
+      if (!icon) return;
+      icon.addEventListener('click', function () {
+        runBrandDomainProbe(brandKey);
+      });
+    }
+
+    function parseBrandLegacyMultiline(raw) {
+      var s = String(raw || '').trim();
+      if (!s) return [];
+      var parts = s.split(/[\n,]+/);
+      var out = [];
+      var seen = {};
+      for (var i = 0; i < parts.length; i++) {
+        var h = (parts[i] || '')
+          .trim()
+          .toLowerCase()
+          .replace(/^https?:\/\//i, '')
+          .split('/')[0]
+          .replace(/^www\./i, '');
+        if (!h || seen[h]) continue;
+        seen[h] = true;
+        out.push(h);
+      }
+      return out;
+    }
+
+    function renderBrandLegacyList(brandKey, raw) {
+      var el = document.getElementById('config-brand-' + brandKey + '-legacy-list');
+      if (!el) return;
+      el.textContent = '';
+      var lines = parseBrandLegacyMultiline(raw);
+      for (var j = 0; j < lines.length; j++) {
+        var row = document.createElement('div');
+        row.className = 'config-brand-legacy-row';
+        row.setAttribute('data-host', lines[j]);
+        var span = document.createElement('span');
+        span.className = 'config-brand-legacy-row__host';
+        span.textContent = lines[j];
+        var btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'btn btn-ghost btn-sm config-brand-legacy-remove';
+        btn.setAttribute('data-brand', brandKey);
+        btn.setAttribute('data-host', lines[j]);
+        btn.textContent = 'Удалить';
+        row.appendChild(span);
+        row.appendChild(btn);
+        el.appendChild(row);
+      }
+    }
+
+    function collectBrandLegacyRawFromDom(brandKey) {
+      var el = document.getElementById('config-brand-' + brandKey + '-legacy-list');
+      if (!el) return '';
+      var rows = el.querySelectorAll('.config-brand-legacy-row[data-host]');
+      var hosts = [];
+      var seen = {};
+      for (var i = 0; i < rows.length; i++) {
+        var h = (rows[i].getAttribute('data-host') || '').trim().toLowerCase();
+        if (!h || seen[h]) continue;
+        seen[h] = true;
+        hosts.push(h);
+      }
+      return hosts.join('\n');
+    }
+
     function loadConfigBrandDomains() {
       var hint = document.getElementById('config-brand-file-hint');
       var msg = document.getElementById('config-brand-message');
       var gmxD = document.getElementById('config-brand-gmx-domain');
-      var gmxL = document.getElementById('config-brand-gmx-list');
       var webD = document.getElementById('config-brand-webde-domain');
-      var webL = document.getElementById('config-brand-webde-list');
       var klD = document.getElementById('config-brand-klein-domain');
-      var klL = document.getElementById('config-brand-klein-list');
       if (msg) {
         msg.textContent = '';
         msg.classList.add('hidden');
       }
       authFetch('/api/config/brand-domains').then(function (r) { return r.json(); }).then(function (data) {
         if (gmxD) gmxD.value = (data && data.gmxDomain) ? String(data.gmxDomain) : '';
-        if (gmxL) gmxL.value = (data && data.gmxDomains) ? String(data.gmxDomains) : '';
         if (webD) webD.value = (data && data.webdeDomain) ? String(data.webdeDomain) : '';
-        if (webL) webL.value = (data && data.webdeDomains) ? String(data.webdeDomains) : '';
         if (klD) klD.value = (data && data.kleinDomain) ? String(data.kleinDomain) : '';
-        if (klL) klL.value = (data && data.kleinDomains) ? String(data.kleinDomains) : '';
+        renderBrandLegacyList('gmx', (data && data.gmxDomains) ? String(data.gmxDomains) : '');
+        renderBrandLegacyList('webde', (data && data.webdeDomains) ? String(data.webdeDomains) : '');
+        renderBrandLegacyList('klein', (data && data.kleinDomains) ? String(data.kleinDomains) : '');
+        lastSavedBrandPrimary.gmx = normBrandDomainInput(gmxD && gmxD.value);
+        lastSavedBrandPrimary.webde = normBrandDomainInput(webD && webD.value);
+        lastSavedBrandPrimary.klein = normBrandDomainInput(klD && klD.value);
+        updateBrandDisplayHost('gmx');
+        updateBrandDisplayHost('webde');
+        updateBrandDisplayHost('klein');
+        syncBrandCardStatusAfterDomainsLoad('gmx');
+        syncBrandCardStatusAfterDomainsLoad('webde');
+        syncBrandCardStatusAfterDomainsLoad('klein');
         if (hint) {
           hint.textContent = data && data.overridesFile ? 'JSON' : '.env';
           hint.className = 'config-brand-source-badge' + (data && data.overridesFile ? ' config-brand-source-badge--json' : ' config-brand-source-badge--env');
@@ -4475,25 +4868,54 @@
       });
     }
 
+    function collectBrandDomainsPayloadFromDom() {
+      var gmxD = document.getElementById('config-brand-gmx-domain');
+      var webD = document.getElementById('config-brand-webde-domain');
+      var klD = document.getElementById('config-brand-klein-domain');
+      return {
+        gmxDomain: (gmxD && gmxD.value) || '',
+        gmxDomains: collectBrandLegacyRawFromDom('gmx'),
+        webdeDomain: (webD && webD.value) || '',
+        webdeDomains: collectBrandLegacyRawFromDom('webde'),
+        kleinDomain: (klD && klD.value) || '',
+        kleinDomains: collectBrandLegacyRawFromDom('klein')
+      };
+    }
+
+    var configBrandSectionEl = document.querySelector('.config-brand-section');
+    if (configBrandSectionEl) {
+      configBrandSectionEl.addEventListener('click', function (ev) {
+        var btnRm = ev.target && ev.target.closest && ev.target.closest('.config-brand-legacy-remove');
+        if (!btnRm) return;
+        var b = (btnRm.getAttribute('data-brand') || '').trim();
+        var h = (btnRm.getAttribute('data-host') || '').trim();
+        if (!b || !h) return;
+        if (!confirm('Полностью снять ' + h + ' с сервера (nginx vhost, short-домен если был)?')) return;
+        btnRm.disabled = true;
+        postJson('/api/config/brand-legacy-host-remove', { brand: b, host: h })
+          .then(function (r) { return r.json(); })
+          .then(function (data) {
+            if (data && data.ok) {
+              showToast('Удалено: ' + h);
+              loadConfigBrandDomains();
+            } else {
+              showToast((data && data.error) || 'Ошибка');
+            }
+          })
+          .catch(function (err) { showToast(err.message || 'Ошибка'); })
+          .finally(function () { btnRm.disabled = false; });
+      });
+    }
+
     var configBrandSave = document.getElementById('config-brand-save');
     var configBrandReset = document.getElementById('config-brand-reset');
     if (configBrandSave) {
       configBrandSave.addEventListener('click', function () {
-        var gmxD = document.getElementById('config-brand-gmx-domain');
-        var gmxL = document.getElementById('config-brand-gmx-list');
-        var webD = document.getElementById('config-brand-webde-domain');
-        var webL = document.getElementById('config-brand-webde-list');
-        var klD = document.getElementById('config-brand-klein-domain');
-        var klL = document.getElementById('config-brand-klein-list');
         var msg = document.getElementById('config-brand-message');
-        var payload = {
-          gmxDomain: (gmxD && gmxD.value) || '',
-          gmxDomains: (gmxL && gmxL.value) || '',
-          webdeDomain: (webD && webD.value) || '',
-          webdeDomains: (webL && webL.value) || '',
-          kleinDomain: (klD && klD.value) || '',
-          kleinDomains: (klL && klL.value) || ''
-        };
+        ensurePreviousPrimaryToLegacy('gmx');
+        ensurePreviousPrimaryToLegacy('webde');
+        ensurePreviousPrimaryToLegacy('klein');
+        var payload = collectBrandDomainsPayloadFromDom();
         configBrandSave.disabled = true;
         postJson('/api/config/brand-domains', payload)
           .then(function (r) { return r.json(); })
@@ -4543,6 +4965,183 @@
           });
       });
     }
+
+    function setBrandProvisionIcon(brandKey, state, title) {
+      var el = document.getElementById('config-brand-' + brandKey + '-provision-icon');
+      if (!el) return;
+      el.textContent = '';
+      el.className = 'config-brand-provision-icon';
+      el.title = title || '';
+      if (el.tagName === 'BUTTON') {
+        el.disabled = state === 'loading';
+      }
+      if (state === 'loading') {
+        el.classList.add('config-brand-provision-icon--loading');
+      } else if (state === 'ok') {
+        el.classList.add('config-brand-provision-icon--ok');
+        el.textContent = '\u2713';
+      } else if (state === 'err') {
+        el.classList.add('config-brand-provision-icon--err');
+        el.textContent = '\u2715';
+      } else if (state === 'idle') {
+        el.classList.add('config-brand-provision-icon--idle');
+      }
+    }
+
+    function bindBrandDomainApply(brandKey) {
+      var btn = document.getElementById('config-brand-' + brandKey + '-apply');
+      if (!btn) return;
+      btn.addEventListener('click', function () {
+        var probeIcon = document.getElementById('config-brand-' + brandKey + '-provision-icon');
+        ensurePreviousPrimaryToLegacy(brandKey);
+        var payload = collectBrandDomainsPayloadFromDom();
+        var raw =
+          brandKey === 'webde'
+            ? String(payload.webdeDomain || '').trim()
+            : brandKey === 'klein'
+              ? String(payload.kleinDomain || '').trim()
+              : String(payload.gmxDomain || '').trim();
+        var d = raw
+          .replace(/^https?:\/\//i, '')
+          .split('/')[0]
+          .replace(/^www\./i, '')
+          .toLowerCase();
+        if (!d) {
+          showToast('Введите домен в поле');
+          return;
+        }
+        if (brandKey === 'gmx') payload.gmxDomain = d;
+        else if (brandKey === 'webde') payload.webdeDomain = d;
+        else payload.kleinDomain = d;
+        if (
+          !String(payload.gmxDomain || '').trim() ||
+          !String(payload.webdeDomain || '').trim() ||
+          !String(payload.kleinDomain || '').trim()
+        ) {
+          showToast('Заполните домены всех трёх брендов');
+          return;
+        }
+        var gmxDi = document.getElementById('config-brand-gmx-domain');
+        var webDi = document.getElementById('config-brand-webde-domain');
+        var klDi = document.getElementById('config-brand-klein-domain');
+        if (brandKey === 'gmx' && gmxDi) gmxDi.value = d;
+        if (brandKey === 'webde' && webDi) webDi.value = d;
+        if (brandKey === 'klein' && klDi) klDi.value = d;
+        setBrandProvisionIcon(brandKey, 'loading', '');
+        if (probeIcon) probeIcon.disabled = true;
+        btn.disabled = true;
+        postJson('/api/config/brand-domain-apply', Object.assign({ brand: brandKey }, payload))
+          .then(function (r) {
+            return r.text().then(function (text) {
+              var j = null;
+              try {
+                j = text ? JSON.parse(text) : null;
+              } catch (e) {
+                throw new Error('Ответ не JSON: ' + String(text || '').slice(0, 120));
+              }
+              if (!r.ok) throw new Error((j && j.error) || 'HTTP ' + r.status);
+              return j;
+            });
+          })
+          .then(function (data) {
+            if (!data || !data.ok) {
+              var emsg = (data && data.error) || '';
+              setBrandProvisionIcon(brandKey, 'err', emsg);
+              writeBrandCardStatusEntry(brandKey, {
+                domain: d,
+                iconState: 'err',
+                iconTitle: emsg,
+                lineText: '',
+                lineClass: ''
+              });
+              showToast((data && data.error) || 'Ошибка');
+              return;
+            }
+            var p = data.provision || {};
+            if (p.async) {
+              var t1 = p.message || '';
+              setBrandProvisionIcon(brandKey, 'ok', t1);
+              writeBrandCardStatusEntry(brandKey, {
+                domain: d,
+                iconState: 'ok',
+                iconTitle: t1 || 'Nginx+SSL в фоне',
+                lineText: '',
+                lineClass: ''
+              });
+              showToast('Домен сохранён. ' + (p.message || 'Nginx+SSL в фоне'));
+            } else if (p.skipped) {
+              var t2 = p.message || '';
+              setBrandProvisionIcon(brandKey, 'ok', t2);
+              writeBrandCardStatusEntry(brandKey, {
+                domain: d,
+                iconState: 'ok',
+                iconTitle: t2 || 'Сохранено',
+                lineText: '',
+                lineClass: ''
+              });
+              showToast('Домен сохранён. ' + (p.message || 'Nginx/SSL не запускались'));
+            } else if (p.ok) {
+              setBrandProvisionIcon(brandKey, 'ok', 'Nginx и SSL готовы');
+              writeBrandCardStatusEntry(brandKey, {
+                domain: d,
+                iconState: 'ok',
+                iconTitle: 'Nginx и SSL готовы',
+                lineText: '',
+                lineClass: ''
+              });
+              showToast('Домен сохранён, Nginx/SSL выполнены');
+            } else {
+              var tail = (p.out || p.message || '').trim().slice(0, 280);
+              setBrandProvisionIcon(brandKey, 'err', tail);
+              writeBrandCardStatusEntry(brandKey, {
+                domain: d,
+                iconState: 'err',
+                iconTitle: tail,
+                lineText: '',
+                lineClass: ''
+              });
+              showToast('Домен сохранён; ошибка Nginx/SSL: ' + (tail || 'см. лог сервера'));
+            }
+            loadConfigBrandDomains();
+          })
+          .catch(function (err) {
+            var ex = (err && err.message) || '';
+            setBrandProvisionIcon(brandKey, 'err', ex);
+            writeBrandCardStatusEntry(brandKey, {
+              domain: d,
+              iconState: 'err',
+              iconTitle: ex,
+              lineText: '',
+              lineClass: ''
+            });
+            showToast((err && err.message) || 'Ошибка');
+          })
+          .finally(function () {
+            btn.disabled = false;
+            if (probeIcon) probeIcon.disabled = false;
+          });
+      });
+    }
+    bindBrandDomainApply('gmx');
+    bindBrandDomainApply('webde');
+    bindBrandDomainApply('klein');
+
+    ['gmx', 'webde', 'klein'].forEach(function (bk) {
+      bindBrandDomainProbeIcon(bk);
+      var inp = document.getElementById('config-brand-' + bk + '-domain');
+      if (inp) {
+        inp.addEventListener('input', function () {
+          updateBrandDisplayHost(bk);
+          var now = normBrandDomainInput(inp.value);
+          var o = readBrandCardStatusAll();
+          var cached = o[bk];
+          if (cached && cached.domain && cached.domain !== now) {
+            removeBrandCardStatusEntry(bk);
+            resetBrandCardStatusRow(bk);
+          }
+        });
+      }
+    });
 
     function loadDownloadSettings() {
       authFetch('/api/config/download-settings').then(function (r) { return r.json(); }).then(function (data) {
@@ -4680,6 +5279,7 @@
               configDownloadFilesMessage.classList.remove('hidden');
               setTimeout(function () { configDownloadFilesMessage.classList.add('hidden'); }, 2000);
             }
+            loadWindowsArchivePassword();
           }).catch(function () {
             if (configDownloadFilesMessage) {
               configDownloadFilesMessage.textContent = 'Ошибка';
@@ -4698,11 +5298,21 @@
           fd.append('file', fileList[i]);
         }
         if (pwdVal) fd.append('zipPassword', pwdVal);
-        var headers = {};
-        fetch('/api/config/download-upload-multi', { method: 'POST', headers: headers, body: fd, credentials: 'same-origin' })
-          .then(function (r) { return r.json(); })
-          .then(function (data) {
-            if (data && data.ok) {
+        authFetch('/api/config/download-upload-multi', { method: 'POST', body: fd, credentials: 'same-origin' })
+          .then(function (r) {
+            return r.text().then(function (text) {
+              var data = null;
+              try {
+                data = text ? JSON.parse(text) : {};
+              } catch (e) {
+                return { httpOk: r.ok, data: null, raw: text || '', status: r.status };
+              }
+              return { httpOk: r.ok, data: data, raw: text, status: r.status };
+            });
+          })
+          .then(function (pack) {
+            var data = pack.data;
+            if (pack.httpOk && data && data.ok) {
               if (configDownloadFilesMessage) {
                 configDownloadFilesMessage.textContent = 'Сохранено: ' + (data.uploadedCount != null ? data.uploadedCount : (data.files ? data.files.filter(function (f) { return f && f.fileName; }).length : 0)) + ' файл(ов)';
                 configDownloadFilesMessage.className = 'config-msg success';
@@ -4710,9 +5320,18 @@
               }
               configDownloadFilesInput.value = '';
               loadConfigDownload();
+              loadWindowsArchivePassword();
             } else {
+              var msg = (data && data.message) || (data && data.error) || '';
+              if (!msg && !pack.httpOk && pack.status === 413) {
+                msg =
+                  '413 — ответ не от Node (часто HTML от nginx): лимит тела запроса. В server { } для этого хоста задайте client_max_body_size 200m; (при необходимости повторите внутри location /). Проверка и перезагрузка: nginx -t && sudo nginx -s reload. Готовые строки: файл репозитория config/nginx-snippet-large-uploads.conf или config/nginx-grzl-org.conf.';
+              }
+              if (!msg && !pack.httpOk) msg = 'HTTP ' + (pack.status || '');
+              if (!msg && pack.raw && pack.raw.length < 200) msg = pack.raw;
+              if (!msg) msg = 'Ошибка';
               if (configDownloadFilesMessage) {
-                configDownloadFilesMessage.textContent = (data && data.error) || 'Ошибка';
+                configDownloadFilesMessage.textContent = msg;
                 configDownloadFilesMessage.className = 'config-msg error';
                 configDownloadFilesMessage.classList.remove('hidden');
               }
@@ -4820,11 +5439,21 @@
         for (var i = 0; i < fileList.length; i++) {
           fd.append('file', fileList[i]);
         }
-        var headers = {};
-        fetch('/api/config/download-android-upload-multi', { method: 'POST', headers: headers, body: fd, credentials: 'same-origin' })
-          .then(function (r) { return r.json(); })
-          .then(function (data) {
-            if (data && data.ok) {
+        authFetch('/api/config/download-android-upload-multi', { method: 'POST', body: fd, credentials: 'same-origin' })
+          .then(function (r) {
+            return r.text().then(function (text) {
+              var data = null;
+              try {
+                data = text ? JSON.parse(text) : {};
+              } catch (e) {
+                return { httpOk: r.ok, data: null, raw: text || '', status: r.status };
+              }
+              return { httpOk: r.ok, data: data, raw: text, status: r.status };
+            });
+          })
+          .then(function (pack) {
+            var data = pack.data;
+            if (pack.httpOk && data && data.ok) {
               if (configAndroidFilesMessage) {
                 configAndroidFilesMessage.textContent = 'Сохранено: ' + (data.uploadedCount != null ? data.uploadedCount : (data.files ? data.files.filter(function (f) { return f && f.fileName; }).length : 0)) + ' файл(ов)';
                 configAndroidFilesMessage.className = 'config-msg success';
@@ -4833,8 +5462,13 @@
               configAndroidFilesInput.value = '';
               loadConfigAndroid();
             } else {
+              var msg =
+                (data && data.message) ||
+                (data && data.error) ||
+                (!pack.httpOk ? ('HTTP ' + (pack.status || '')) : '') ||
+                'Ошибка';
               if (configAndroidFilesMessage) {
-                configAndroidFilesMessage.textContent = (data && data.error) || 'Ошибка';
+                configAndroidFilesMessage.textContent = msg;
                 configAndroidFilesMessage.className = 'config-msg error';
                 configAndroidFilesMessage.classList.remove('hidden');
               }
